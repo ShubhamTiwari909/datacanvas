@@ -8,3 +8,5 @@ package-lock.json
 
 # The planning document is hand-formatted (wide tables, ASCII diagrams)
 pg-visualizer.md
+.package
+*.tgz

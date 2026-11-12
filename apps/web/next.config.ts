@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
 
   images: { unoptimized: true },
 
+  // NOTE: even with `images.unoptimized`, the standalone tracer still copies
+  // `sharp` (native image library) and a platform-specific binary. Next.js'
+  // outputFileTracingExcludes cannot remove it (it only affects per-route
+  // traces, and sharp comes from the shared server trace). So
+  // scripts/build-package.mjs prunes sharp when assembling the npm package and
+  // fails the build if any native (.node) file remains.
+
   // Never advertise the framework in a response header.
   poweredByHeader: false,
 };

@@ -52,3 +52,15 @@ Documentation is written together with the code, not afterwards.
 ## Commits
 
 Use short, imperative commit messages, for example `Add PostgreSQL connection tester`.
+
+## Testing the packed package
+
+The real product is the packed npm package, not the monorepo. After changing anything that affects installation, test the tarball in a fresh folder:
+
+```bash
+npm run package
+cd .package && npm pack --pack-destination /some/scratch/folder
+cd /some/other/fresh/folder
+npm install --offline /some/scratch/folder/datacanvas-0.0.0.tgz   # offline: proves nothing is downloaded
+./node_modules/.bin/datacanvas --no-open
+```

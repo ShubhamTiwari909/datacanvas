@@ -21,16 +21,21 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run format:check && npm run lint && npm run typecheck"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "test": "tsc -b && vitest run",
+    "test:watch": "vitest",
+    "package": "npm run build && node scripts/build-package.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.6",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.2"
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
   }
 }

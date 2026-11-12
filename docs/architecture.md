@@ -87,3 +87,68 @@ Rule of thumb: keep `"use client"` on the smallest, leaf-most component that nee
 ### Build order
 
 `apps/web` imports `@datacanvas/shared-types`, which resolves to that package's compiled `dist/`. So the root `dev` and `build` scripts run `tsc -b` first to build the packages, then start Next.js.
+
+## Phase 2: route handlers, the CLI launcher and the packaged app
+
+### The first API: `GET /api/health`
+
+```text
+BackendStatus (client component)
+      |  useBackendStatus() -> fetch("/api/health")
+      v
+Next.js server (same process, same port)
+      |  app/api/health/route.ts: GET()
+      v
+Response.json({ status: "ok", application: "datacanvas" })
+      |
+      v
+Hook checks the body at runtime, sets state "connected", UI re-renders
+```
+
+- A **route handler** is a `route.ts` file that exports a function named after an HTTP method. Next.js calls it with the request and expects a `Response`.
+- Every handler declares `runtime = "nodejs"` (not Edge) and `dynamic = "force-dynamic"` (never cached or prerendered).
+- `app/api/[...path]/route.ts` catches unknown `/api/*` URLs and returns the standard JSON error, so clients never receive an HTML 404 from an API URL. More specific routes (like `/api/health`) always win over the catch-all.
+- Every error uses one shape, `{ "error": { "code", "message" } }`, built by `lib/server/api-response.ts` (type in `@datacanvas/shared-types`).
+- The UI treats the server as unreachable on a network error, a 3 second timeout, a non-2xx status or an unexpected body, and offers a Retry button.
+
+### The CLI launcher (`packages/cli`)
+
+| File            | Responsibility                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`      | Parse flags (`--port`, `--no-open`, `--version`, `--help`), check the Node version, orchestrate startup and shutdown   |
+| `port.ts`       | Test a port on 127.0.0.1; try 4747, then the next free ports, then ask the OS                                          |
+| `web-server.ts` | Spawn the bundled `server.js` with `HOSTNAME=127.0.0.1`, poll `/api/health`, stop it (SIGTERM, then SIGKILL after 5 s) |
+| `browser.ts`    | Open the default browser with the OS launcher (`open`, `xdg-open`, `cmd /c start`)                                     |
+| `version.ts`    | Version injected by esbuild at bundle time                                                                             |
+
+Startup order: Node check, parse arguments, locate `server.js`, choose port, spawn server, wait for health, print URL, open browser. An explicit `--port` that is busy is an error; the default port quietly falls back to the next free one.
+
+### How the npm package is assembled (`scripts/build-package.mjs`)
+
+`npm run package` runs the normal build, then assembles `.package/`:
+
+```text
+.package/
+├── bin/datacanvas.mjs     CLI (esbuild bundle; shared-types is inlined)
+├── web/apps/web/          Next.js standalone server.js, .next/server and .next/static
+├── node_modules/          server runtime deps (next, react, react-dom, ...), lifted to the root
+├── package.json           generated
+└── README.md
+```
+
+Problems found and solved while building this (each has a comment in the script):
+
+1. **`sharp` is shipped even with unoptimised images.** The standalone tracer copies the native image library and a macOS-only binary. The script prunes `sharp`, `@img`, `@emnapi` and `detect-libc`, then fails if any `.node` file remains.
+2. **`npm pack` drops nested `node_modules`.** The runtime dependencies are therefore moved to the package root and declared in both `dependencies` and `bundleDependencies`. Node still finds them because module resolution walks up from `web/apps/web/server.js`.
+3. **The CLI imports a workspace package** (`@datacanvas/shared-types`) that does not exist on npm. esbuild bundles it into the single CLI file.
+
+Result: a ~3.4 MB tarball, no native code, no install scripts. Installing it offline works, which proves nothing is downloaded.
+
+### Verifying the packed package (manual spike)
+
+```text
+npm run package
+cd .package && npm pack --pack-destination <scratch folder>
+cd <fresh empty folder> && npm install --offline <path to .tgz>
+./node_modules/.bin/datacanvas --no-open
+```

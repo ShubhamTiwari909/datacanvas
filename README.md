@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 1, UI shell only).** There is nothing to run for end users yet; the app shows a welcome screen and cannot connect to a database.
+> **Status: early development (Phase 2).** The app starts and shows a welcome screen with a live backend status, but it cannot connect to a database yet. It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 
@@ -26,6 +26,8 @@ Requirements: Node.js 20.9 or newer and npm 10 or newer.
 npm install        # installs every workspace and links them together
 npm run dev        # builds the packages, then starts the web app at http://127.0.0.1:4747
 npm run build      # compiles the packages, then makes the production Next.js build
+npm run test       # unit tests (Vitest)
+npm run package    # assembles the publishable npm package in .package/
 npm run check      # format check + lint + typecheck
 ```
 
@@ -38,7 +40,8 @@ apps/
   web/             Next.js app: UI now, /api route handlers from Phase 2
 packages/
   shared-types/    Constants and (from Phase 3) Zod schemas shared across workspaces
-  cli/             The `datacanvas` command (placeholder until Phases 2 and 11)
+  cli/             The `datacanvas` command: starts the bundled server and opens the browser
+scripts/           Build scripts (assembles the npm package)
 docs/              Architecture notes and decision records
 pg-visualizer.md   The phase-by-phase development plan
 ```

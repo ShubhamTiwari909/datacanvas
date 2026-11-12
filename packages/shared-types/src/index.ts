@@ -20,3 +20,28 @@ export const APP_NAME = "datacanvas";
  * runs. The CLI falls back to another free port only when this one is taken.
  */
 export const DEFAULT_PORT = 4747;
+
+/**
+ * Body returned by `GET /api/health`.
+ *
+ * Plain TypeScript types are enough for now. In Phase 3 the API contracts become
+ * Zod schemas (types are then inferred from them), because a TypeScript type
+ * cannot check data that arrives over HTTP at runtime.
+ */
+export interface HealthResponse {
+  status: "ok";
+  application: typeof APP_NAME;
+}
+
+/**
+ * The single error shape used by every API route, so the UI can handle
+ * failures in one place. `code` is stable and machine-readable (for example
+ * "not_found"); `message` is a safe, human-readable sentence. Never put
+ * secrets, SQL or raw driver errors in it.
+ */
+export interface ApiErrorResponse {
+  error: {
+    code: string;
+    message: string;
+  };
+}

@@ -34,3 +34,7 @@ next-env.d.ts
 
 # Auto-generated and rewritten by `next dev`; not maintained by us
 apps/web/AGENTS.md
+
+# Assembled npm package and packed tarballs
+.package/
+*.tgz

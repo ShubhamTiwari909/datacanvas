@@ -17,6 +17,20 @@ export const API_ERROR_CODES = [
   "validation_error",
   "unsupported_media_type",
   "payload_too_large",
+  // Database problems (mirror DatabaseErrorCode in @datacanvas/database-core;
+  // a type test keeps the two lists in sync). "not_found" above also covers a
+  // missing schema or table.
+  "authentication_failed",
+  "unreachable",
+  "ssl_error",
+  "timeout",
+  "permission_denied",
+  "database_not_found",
+  "not_connected",
+  "unexpected",
+  // Connection registry problems.
+  "connection_not_found",
+  "connection_limit_reached",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

@@ -32,6 +32,26 @@ export type PostgresSslMode = z.infer<typeof sslModeSchema>;
 
 export const DEFAULT_POSTGRES_PORT = 5432;
 
+/** Host names that always mean "this very machine". */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+/**
+ * The SSL mode used when the user did not choose one.
+ *
+ *   - Connections to THIS machine ("localhost", 127.0.0.1, ::1) default to
+ *     "disable": the traffic never leaves the computer, so encryption protects
+ *     nothing, and a typical local development database has no TLS. Without
+ *     this, pasting a local connection string would fail on the first try.
+ *   - Every other host defaults to "verify-full": encrypted AND the server's
+ *     identity is verified. We deliberately do not use libpq's "prefer", which
+ *     silently falls back to an unencrypted connection.
+ *
+ * An explicit choice always wins over this default.
+ */
+export function defaultSslMode(host: string): PostgresSslMode {
+  return LOOPBACK_HOSTS.has(host.toLowerCase()) ? "disable" : "verify-full";
+}
+
 const nameSchema = z.string().trim().min(1, "Give the connection a name.").max(100);
 const hostSchema = z
   .string()
@@ -116,9 +136,8 @@ export function parsePostgresConnectionString(raw: string): ParseResult<ParsedCo
   }
   if (username === "") return failure("The connection string has no user name.");
 
-  // No sslmode given: use the safe default rather than libpq's "prefer",
-  // which silently falls back to an unencrypted connection.
-  let sslMode: PostgresSslMode = "verify-full";
+  // No sslmode given: use the host-aware default (see `defaultSslMode`).
+  let sslMode: PostgresSslMode = defaultSslMode(host);
   const requested = url.searchParams.get("sslmode");
   if (requested !== null) {
     if (requested === "disable" || requested === "require") sslMode = requested;
@@ -162,7 +181,8 @@ export const postgresFieldsInputSchema = z.strictObject({
   database: databaseSchema,
   username: usernameSchema,
   password: passwordSchema.default(""),
-  sslMode: sslModeSchema.default("verify-full"),
+  // Optional: when omitted the host decides (see `defaultSslMode`).
+  sslMode: sslModeSchema.optional(),
 });
 
 /** Mode "string": a pasted connection URL. The string is parsed during validation. */
@@ -185,7 +205,7 @@ export const postgresConnectionInputSchema = z.discriminatedUnion("mode", [
   postgresStringInputSchema,
 ]);
 
-/** Validated input, with defaults applied (port, password, sslMode). */
+/** Validated input, with defaults applied (port, password). `sslMode` is resolved later. */
 export type PostgresConnectionInput = z.infer<typeof postgresConnectionInputSchema>;
 
 // ---------------------------------------------------------------------------
@@ -212,8 +232,8 @@ export function resolvePostgresConnection(
   input: PostgresConnectionInput,
 ): ResolvedPostgresConnection {
   if (input.mode === "fields") {
-    const { mode: _mode, ...connection } = input;
-    return connection;
+    const { mode: _mode, sslMode, ...rest } = input;
+    return { ...rest, sslMode: sslMode ?? defaultSslMode(input.host) };
   }
   const parsed = parsePostgresConnectionString(input.connectionString);
   if (!parsed.ok) {
@@ -243,10 +263,3 @@ export function summarizePostgresConnection(
   const { password, ...rest } = connection;
   return { ...rest, hasPassword: password !== "" };
 }
-
-/** Response of `POST /api/connections/validate`. */
-export const validateConnectionResponseSchema = z.object({
-  connection: postgresConnectionSummarySchema,
-});
-
-export type ValidateConnectionResponse = z.infer<typeof validateConnectionResponseSchema>;

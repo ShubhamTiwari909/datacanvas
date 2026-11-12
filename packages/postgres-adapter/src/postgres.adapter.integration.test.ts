@@ -14,37 +14,27 @@
  * server whose data you care about: the account must be allowed to create
  * databases and roles.
  */
-import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describeAdapterContract } from "@datacanvas/database-core/contract";
-import {
-  parsePostgresConnectionString,
-  type ResolvedPostgresConnection,
-} from "@datacanvas/shared-types";
+import type { ResolvedPostgresConnection } from "@datacanvas/shared-types";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withReadOnlyTransaction } from "./connection/read-only.js";
 import { PostgresAdapter } from "./postgres.adapter.js";
+import {
+  createTestDatabase,
+  quoteIdent,
+  testDatabaseUrl,
+  type TestDatabase,
+} from "./testing/index.js";
 
-const adminUrl = process.env.DATACANVAS_TEST_PG_URL;
-const fixtureSql = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../examples/ecommerce.sql"),
-  "utf8",
-);
-
-/** Quote an identifier for use in the (non-parameterisable) CREATE/DROP statements below. */
-const ident = (name: string): string => `"${name.replace(/"/g, '""')}"`;
-
-describe.skipIf(!adminUrl)("PostgresAdapter against a real PostgreSQL", () => {
-  const suffix = randomBytes(4).toString("hex");
-  const dbName = `dc_test_${suffix}`;
-  const roleName = `dc_noconnect_${suffix}`;
-  const rolePassword = "role-pw";
-
-  let admin: pg.Client;
+describe.skipIf(!testDatabaseUrl())("PostgresAdapter against a real PostgreSQL", () => {
+  let db: TestDatabase;
   let base: ResolvedPostgresConnection; // admin credentials, pointing at the test database
+  let admin: pg.Client;
+  let dbName: string;
+  let suffix: string;
+  let roleName: string;
+  const rolePassword = "role-pw";
   const open: PostgresAdapter[] = [];
 
   /** A connection to the test database, optionally overriding some fields. */
@@ -64,52 +54,19 @@ describe.skipIf(!adminUrl)("PostgresAdapter against a real PostgreSQL", () => {
   };
 
   beforeAll(async () => {
-    const parsed = parsePostgresConnectionString(adminUrl as string);
-    if (!parsed.ok) throw new Error(`DATACANVAS_TEST_PG_URL is not valid: ${parsed.message}`);
-    const { host, port, username, password, sslMode, database } = parsed.value;
-    base = { name: "test", host, port, username, password, sslMode, database: dbName };
-
-    admin = new pg.Client({
-      host,
-      port,
-      user: username,
-      password,
-      database,
-      ssl: sslMode === "disable" ? false : { rejectUnauthorized: sslMode === "verify-full" },
-    });
-    await admin.connect();
-    await admin.query(`CREATE DATABASE ${ident(dbName)}`);
+    db = await createTestDatabase();
+    ({ connection: base, admin, dbName, suffix } = db);
+    roleName = `dc_noconnect_${suffix}`;
     // A role that may log in but may NOT connect to the test database.
-    await admin.query(`CREATE ROLE ${ident(roleName)} LOGIN PASSWORD '${rolePassword}'`);
-    await admin.query(`REVOKE CONNECT ON DATABASE ${ident(dbName)} FROM PUBLIC`);
-
-    // Load the sample database, add a few rows so row estimates are non-trivial, then ANALYZE.
-    const setup = new pg.Client({
-      host,
-      port,
-      user: username,
-      password,
-      database: dbName,
-      ssl: false,
-    });
-    await setup.connect();
-    try {
-      await setup.query(fixtureSql);
-      await setup.query(`
-        INSERT INTO users (email) VALUES ('a@x.test'), ('b@x.test'), ('c@x.test');
-        ANALYZE users;
-      `);
-    } finally {
-      await setup.end();
-    }
+    await admin.query(`CREATE ROLE ${quoteIdent(roleName)} LOGIN PASSWORD '${rolePassword}'`);
+    await admin.query(`REVOKE CONNECT ON DATABASE ${quoteIdent(dbName)} FROM PUBLIC`);
   });
 
   afterAll(async () => {
     await Promise.all(open.map((a) => a.disconnect()));
-    if (admin) {
-      await admin.query(`DROP DATABASE IF EXISTS ${ident(dbName)} WITH (FORCE)`);
-      await admin.query(`DROP ROLE IF EXISTS ${ident(roleName)}`);
-      await admin.end();
+    if (db) {
+      await admin.query(`DROP ROLE IF EXISTS ${quoteIdent(roleName)}`).catch(() => {});
+      await db.dispose();
     }
   });
 

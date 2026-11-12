@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 5).** The app starts, shows a live backend status, and can validate a pasted PostgreSQL connection string, but it cannot connect to a database yet. It is not published to npm yet.
+> **Status: early development (Phase 6).** You can connect to a PostgreSQL database and browse its schemas, tables, columns, constraints, indexes and relationships. There is no canvas yet and it is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 

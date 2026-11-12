@@ -8,5 +8,7 @@
     // not by plain ES2022. Take care not to use other browser-only APIs here.
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Only the type-drift test imports database-core (types only).
+  "references": [{ "path": "../database-core" }]
 }

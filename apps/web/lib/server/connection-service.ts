@@ -1,0 +1,114 @@
+/**
+ * Application logic for connections and for exploring them.
+ *
+ * Route handlers stay thin (validate input, call one of these methods, return
+ * JSON); everything that decides WHAT happens lives here. The service gets its
+ * collaborators through the constructor ("dependency injection"), so tests
+ * can give it mock adapters instead of a real database.
+ *
+ * This file knows nothing about PostgreSQL or HTTP: it speaks only the
+ * `DatabaseAdapter` interface and plain data.
+ */
+import type {
+  AdapterRegistry,
+  ColumnInfo,
+  ConstraintInfo,
+  IndexInfo,
+  RelationshipInfo,
+  SchemaInfo,
+  TableInfo,
+} from "@datacanvas/database-core";
+import {
+  resolvePostgresConnection,
+  summarizePostgresConnection,
+  type ConnectionSummary,
+  type PostgresConnectionInput,
+  type ResolvedPostgresConnection,
+} from "@datacanvas/shared-types";
+import type { ConnectionRegistry } from "./connection-registry";
+
+/** Connection details each provider needs. Only PostgreSQL for now. */
+export type ProviderConfigs = { postgresql: ResolvedPostgresConnection };
+
+export interface ConnectionServiceDependencies {
+  adapters: AdapterRegistry<ProviderConfigs>;
+  connections: ConnectionRegistry;
+}
+
+export interface TableDetails {
+  columns: ColumnInfo[];
+  constraints: ConstraintInfo[];
+  indexes: IndexInfo[];
+}
+
+export class ConnectionService {
+  private readonly adapters: AdapterRegistry<ProviderConfigs>;
+  private readonly connections: ConnectionRegistry;
+
+  constructor(dependencies: ConnectionServiceDependencies) {
+    this.adapters = dependencies.adapters;
+    this.connections = dependencies.connections;
+  }
+
+  /**
+   * Check that the details work, without remembering anything. Throws a
+   * `DatabaseError` describing what is wrong if they do not.
+   */
+  async testConnection(input: PostgresConnectionInput): Promise<void> {
+    const adapter = this.adapters.create("postgresql", resolvePostgresConnection(input));
+    await adapter.testConnection();
+  }
+
+  /**
+   * Connect for real and remember the connection. If connecting fails, or the
+   * registry is full, nothing is stored (and nothing stays open).
+   */
+  async createConnection(input: PostgresConnectionInput): Promise<ConnectionSummary> {
+    const resolved = resolvePostgresConnection(input);
+    const adapter = this.adapters.create("postgresql", resolved);
+    await adapter.connect(); // throws DatabaseError on failure: nothing registered yet
+    try {
+      // The summary has no password; the password stays inside `adapter`.
+      return this.connections.add(
+        { ...summarizePostgresConnection(resolved), provider: "postgresql" },
+        adapter,
+      );
+    } catch (error) {
+      await adapter.disconnect(); // e.g. the registry is full: do not leave a connection open
+      throw error;
+    }
+  }
+
+  listConnections(): ConnectionSummary[] {
+    return this.connections.list();
+  }
+
+  /** Disconnect and forget a connection (and its credentials). */
+  deleteConnection(id: string): Promise<void> {
+    return this.connections.remove(id);
+  }
+
+  getSchemas(id: string): Promise<SchemaInfo[]> {
+    return this.connections.use(id, (adapter) => adapter.getSchemas());
+  }
+
+  getTables(id: string, schema: string): Promise<TableInfo[]> {
+    return this.connections.use(id, (adapter) => adapter.getTables(schema));
+  }
+
+  /** Columns, constraints and indexes of one table, fetched together. */
+  getTableDetails(id: string, schema: string, table: string): Promise<TableDetails> {
+    return this.connections.use(id, async (adapter) => {
+      const [columns, constraints, indexes] = await Promise.all([
+        adapter.getColumns(schema, table),
+        adapter.getConstraints(schema, table),
+        adapter.getIndexes(schema, table),
+      ]);
+      return { columns, constraints, indexes };
+    });
+  }
+
+  getRelationships(id: string): Promise<RelationshipInfo[]> {
+    return this.connections.use(id, (adapter) => adapter.getRelationships());
+  }
+}

@@ -1,11 +1,11 @@
-/** Home route ("/"): the app shell around the welcome screen. */
+/** Home route ("/"): the app shell around the workspace. */
 import { AppShell } from "@/components/layout/app-shell";
-import { WelcomePanel } from "@/features/connections/welcome-panel";
+import { Workspace } from "@/features/explorer/workspace";
 
 export default function HomePage() {
   return (
     <AppShell>
-      <WelcomePanel />
+      <Workspace />
     </AppShell>
   );
 }

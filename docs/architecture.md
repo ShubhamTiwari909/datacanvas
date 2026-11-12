@@ -358,3 +358,99 @@ Cardinality is computed in TypeScript (`deriveCardinality`, unit tested): a fore
 | PostgreSQL integration tests                                     | yes (`DATACANVAS_TEST_PG_URL`) | real catalogs, partitions, expression/GIN/INCLUDE indexes, composite FKs, read-only enforcement, timeouts, connection hygiene, real error codes (wrong password, missing database, no TLS, no CONNECT privilege, closed port) |
 
 Integration tests create a uniquely named database and role on a disposable server, load `examples/ecommerce.sql`, and drop both afterwards. They are skipped when the environment variable is absent, so `npm test` works anywhere.
+
+## Phase 6: the first complete explorer
+
+A user can connect to PostgreSQL and browse schemas, tables, columns, constraints, indexes and relationships without writing SQL.
+
+### The whole path of "Connect"
+
+```text
+ConnectionForm (browser)
+  1. validate with the shared Zod schema            -> field errors shown instantly
+  2. createConnection(input)  ->  features/connections/api.ts
+  3. apiRequest("POST /api/connections")            -> lib/api-client.ts (never throws)
+        |
+        v   HTTP, JSON body (contains the password, over loopback only)
+app/api/connections/route.ts   POST
+  4. parseJsonBody(request, postgresConnectionInputSchema)   -> 415 / 413 / 400 or typed data
+  5. getServerContext().connections.createConnection(data)
+        |
+        v
+ConnectionService.createConnection (lib/server/connection-service.ts)
+  6. resolvePostgresConnection(data)               -> one normalised shape, SSL mode decided
+  7. adapters.create("postgresql", resolved)       -> AdapterRegistry -> createPostgresAdapter
+  8. adapter.connect()                             -> pool + SELECT 1 in a READ ONLY transaction
+        |  failure: DatabaseError(code)            -> nothing stored
+        v
+ConnectionRegistry.add(summary, adapter)           -> opaque id; password stays INSIDE the adapter
+        |
+        v   response: 201 { connection: { id, name, host, ..., hasPassword } }   (no password)
+store.addConnection(summary) -> sidebar and workspace re-render
+```
+
+Every failure on the way (any step 4 to 8) is converted by `handleRoute` into `{ error: { code, message } }` with a suitable HTTP status; the form shows the message.
+
+### Server side (`apps/web/lib/server`)
+
+| File                                  | Responsibility                                                                                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `context.ts`                          | Composition root. Builds the adapter registry, connection registry and service once, stored on `globalThis` so hot reload does not orphan open connections.                                    |
+| `connection-registry.ts`              | In-memory map: opaque id to `{ summary, adapter }`. The ONLY place credentials live, in memory only. Limit of 10 connections. Idle sweeper.                                                    |
+| `connection-service.ts`               | Application logic: test, create, list, delete, and the read operations. Knows only the `DatabaseAdapter` interface. Receives its collaborators through the constructor (dependency injection). |
+| `error-response.ts`                   | `handleRoute` and `toErrorResponse`: any thrown value becomes the standard error response; logs only names and codes.                                                                          |
+| `route-support.ts`                    | `jsonResponse` (no-store), `parseQuery` (Zod for query strings), the `RouteParams` type.                                                                                                       |
+| `parse-request.ts`, `api-response.ts` | From Phase 3.                                                                                                                                                                                  |
+
+Route handlers are about 15 lines each: validate, call a service method, return JSON.
+
+### API
+
+| Method and path                                  | Purpose                         | Success                             |
+| ------------------------------------------------ | ------------------------------- | ----------------------------------- |
+| `GET /api/connections`                           | list connections                | 200 `{ connections }`               |
+| `POST /api/connections`                          | connect and remember            | 201 `{ connection }`                |
+| `POST /api/connections/test`                     | check details, remember nothing | 200 `{ ok: true }`                  |
+| `DELETE /api/connections/:id`                    | disconnect, forget credentials  | 200 `{ ok: true }`                  |
+| `GET /api/connections/:id/schemas`               | schemas                         | `{ schemas }`                       |
+| `GET /api/connections/:id/tables?schema=`        | tables, views, matviews         | `{ tables }`                        |
+| `GET /api/connections/:id/tables/:table?schema=` | columns, constraints, indexes   | `{ columns, constraints, indexes }` |
+| `GET /api/connections/:id/relationships`         | all foreign keys                | `{ relationships }`                 |
+
+Failures use `{ error: { code, message, issues? } }`:
+
+| Status    | Codes                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------- |
+| 400       | `validation_error`, `invalid_json`, `authentication_failed`, `database_not_found`, `ssl_error`, `permission_denied` |
+| 404       | `connection_not_found`, `not_found` (missing schema or table)                                                       |
+| 409       | `connection_limit_reached`, `not_connected`                                                                         |
+| 413 / 415 | `payload_too_large` / `unsupported_media_type`                                                                      |
+| 502 / 504 | `unreachable` / `timeout`                                                                                           |
+| 500       | `unexpected`                                                                                                        |
+
+### Secrecy rules and how they are enforced
+
+- The browser only ever receives `ConnectionSummary` (no password, `hasPassword: true/false`). A schema without a password field strips even an accidentally included one.
+- The route tests send a distinctive password through every endpoint, including failing ones, and assert it appears in **no** response.
+- Error logs contain only error names and codes, never messages (a test checks this).
+- The browser keeps passwords only in form state until submit; nothing is stored in the store, `localStorage` or the URL.
+
+### Idle handling
+
+After 30 minutes without use, the idle sweeper (every 60 s) closes a connection's database sessions but keeps its registry entry, so the next request reconnects transparently. A request in progress is never interrupted (`inFlight` counter). `DELETE` is the only way credentials are discarded (besides stopping DataCanvas).
+
+### Client side
+
+| File                        | Responsibility                                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `lib/api-client.ts`         | `apiRequest(path, schema, options)`: never throws; returns verified data or `{ code, message, issues }`.          |
+| `lib/use-async-data.ts`     | `useAsyncData(load, key)`: loading / error / success state, reload, and ignores stale responses.                  |
+| `stores/workspace-store.ts` | Zustand: connection summaries, selected connection and table, dialog state. The server stays the source of truth. |
+| `features/connections/*`    | API functions, the form (string or fields tab, Test and Connect), the dialog, the sidebar list.                   |
+| `features/explorer/*`       | Schema tree (lazy table loading), table details panel, workspace switcher.                                        |
+
+Refreshing the page keeps the connections: the browser asks `GET /api/connections` on load, and the server still holds them.
+
+### Packaging fix found during this phase
+
+Turbopack refers to `pg` by a hashed alias (`pg-587764f78a6c7a9c`) provided as a symlink in `.next/node_modules`. `npm pack` drops symlinks, so the packed app could not load `pg`. `scripts/build-package.mjs` now replaces each such symlink with a real shim package that re-exports the real one.

@@ -12,3 +12,5 @@ export * from "./constants.js";
 export * from "./health.js";
 export * from "./api-error.js";
 export * from "./postgres-connection.js";
+export * from "./metadata.js";
+export * from "./connections.js";

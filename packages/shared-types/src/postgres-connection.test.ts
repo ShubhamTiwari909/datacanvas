@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultSslMode,
   parsePostgresConnectionString,
   postgresConnectionInputSchema,
   resolvePostgresConnection,
@@ -46,6 +47,18 @@ describe("parsePostgresConnectionString", () => {
   it("defaults to verify-full when sslmode is absent (never silently unencrypted)", () => {
     const result = parsePostgresConnectionString("postgresql://u:p@h/db");
     expect(result.ok && result.value.sslMode).toBe("verify-full");
+  });
+
+  it("defaults to disable for connections to this machine, since nothing crosses a network", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]", "LOCALHOST"]) {
+      const result = parsePostgresConnectionString(`postgresql://u:p@${host}/db`);
+      expect(result.ok && result.value.sslMode, host).toBe("disable");
+    }
+  });
+
+  it("lets an explicit sslmode win over the loopback default", () => {
+    const result = parsePostgresConnectionString("postgresql://u:p@localhost/db?sslmode=require");
+    expect(result.ok && result.value.sslMode).toBe("require");
   });
 
   it("maps sslmode values and treats verify-ca as verify-full", () => {
@@ -104,12 +117,9 @@ describe("postgresConnectionInputSchema", () => {
       database: "app",
       username: "me",
     });
-    expect(result).toMatchObject({
-      name: "Local",
-      port: 5432,
-      password: "",
-      sslMode: "verify-full",
-    });
+    expect(result).toMatchObject({ name: "Local", port: 5432, password: "" });
+    // The SSL mode is not decided by the schema: the host decides when resolving.
+    expect(result).not.toHaveProperty("sslMode");
   });
 
   it("rejects an out-of-range port, an empty host and unknown keys", () => {
@@ -158,7 +168,31 @@ describe("postgresConnectionInputSchema", () => {
   });
 });
 
+describe("defaultSslMode", () => {
+  it("disables TLS only for this machine", () => {
+    expect(defaultSslMode("localhost")).toBe("disable");
+    expect(defaultSslMode("127.0.0.1")).toBe("disable");
+    expect(defaultSslMode("::1")).toBe("disable");
+    expect(defaultSslMode("db.example.com")).toBe("verify-full");
+    expect(defaultSslMode("10.0.0.5")).toBe("verify-full");
+    expect(defaultSslMode("localhost.example.com")).toBe("verify-full");
+  });
+});
+
 describe("resolve and summarize", () => {
+  it("resolves a missing sslMode from the host, and an explicit one wins", () => {
+    const base = { mode: "fields", name: "x", database: "d", username: "u" } as const;
+    const resolve = (host: string, sslMode?: "disable" | "require" | "verify-full") =>
+      resolvePostgresConnection(
+        postgresConnectionInputSchema.parse({ ...base, host, ...(sslMode ? { sslMode } : {}) }),
+      ).sslMode;
+
+    expect(resolve("localhost")).toBe("disable");
+    expect(resolve("db.example.com")).toBe("verify-full");
+    expect(resolve("db.example.com", "require")).toBe("require");
+    expect(resolve("localhost", "verify-full")).toBe("verify-full");
+  });
+
   it("gives the same normalised shape for both modes", () => {
     const fromString = resolvePostgresConnection(
       postgresConnectionInputSchema.parse({

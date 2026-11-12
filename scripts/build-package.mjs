@@ -16,12 +16,29 @@
  * package. Node still finds them, because module resolution walks up from
  * web/apps/web/server.js through web/node_modules to <package>/node_modules.
  *
+ * Turbopack externals: Next.js' Turbopack bundler refers to some server-side
+ * packages (such as `pg`) by a HASHED alias like "pg-587764f78a6c7a9c", and
+ * provides the alias as a SYMLINK in `.next/node_modules`. `npm pack` never
+ * includes symlinks, and `fs.cp` would turn them into absolute paths into this
+ * repository. So we replace each symlink with a tiny real package that just
+ * re-exports the actual one (see `createExternalAliasShims`).
+ *
  * Guard rails (the build fails if they are violated):
  *   - no native add-ons (*.node files) may be shipped;
  *   - bundled packages must not define install/postinstall scripts.
  */
 import { build } from "esbuild";
-import { chmod, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -77,6 +94,58 @@ async function listPackages(nodeModules) {
   return names.sort();
 }
 
+/** "/x/node_modules/@scope/pkg" -> "@scope/pkg". */
+function packageNameFromPath(realPath) {
+  const marker = `${path.sep}node_modules${path.sep}`;
+  const index = realPath.lastIndexOf(marker);
+  if (index === -1) throw new Error(`Not inside a node_modules folder: ${realPath}`);
+  return realPath
+    .slice(index + marker.length)
+    .split(path.sep)
+    .join("/");
+}
+
+/**
+ * Replace Turbopack's hashed-alias symlinks with real shim packages inside
+ * `nodeModulesOut`. Each shim is a package named like the alias whose only job
+ * is `module.exports = require("<real package>")`.
+ */
+async function createExternalAliasShims(aliasDir, nodeModulesOut) {
+  if (!(await exists(aliasDir))) return [];
+  const created = [];
+  const aliases = [];
+  for (const entry of await readdir(aliasDir, { withFileTypes: true })) {
+    if (entry.name.startsWith("@")) {
+      for (const child of await readdir(path.join(aliasDir, entry.name)))
+        aliases.push(`${entry.name}/${child}`);
+    } else {
+      aliases.push(entry.name);
+    }
+  }
+  for (const alias of aliases) {
+    const target = await realpath(path.join(aliasDir, alias)); // follow the symlink in the ORIGINAL output
+    const realName = packageNameFromPath(target);
+    if (!(await exists(path.join(nodeModulesOut, realName, "package.json")))) {
+      throw new Error(
+        `The external "${alias}" points at "${realName}", which is not in the package (was it pruned?).`,
+      );
+    }
+    const { version } = JSON.parse(await readFile(path.join(target, "package.json"), "utf8"));
+    const shimDir = path.join(nodeModulesOut, alias);
+    await mkdir(shimDir, { recursive: true });
+    await writeFile(
+      path.join(shimDir, "package.json"),
+      `${JSON.stringify({ name: alias, version, main: "index.js" }, null, 2)}\n`,
+    );
+    await writeFile(
+      path.join(shimDir, "index.js"),
+      `module.exports = require(${JSON.stringify(realName)});\n`,
+    );
+    created.push(`${alias} -> ${realName}`);
+  }
+  return created;
+}
+
 async function main() {
   if (!(await exists(path.join(standaloneDir, "apps/web/server.js")))) {
     fail(
@@ -102,6 +171,13 @@ async function main() {
   await cp(path.join(standaloneDir, "node_modules"), nodeModulesOut, { recursive: true });
   for (const name of PRUNE)
     await rm(path.join(nodeModulesOut, name), { recursive: true, force: true });
+
+  // 2b. Turbopack's hashed aliases (symlinks) become real shim packages.
+  const shims = await createExternalAliasShims(
+    path.join(standaloneDir, "apps/web/.next/node_modules"),
+    nodeModulesOut,
+  );
+  await rm(path.join(webAppDir, ".next/node_modules"), { recursive: true, force: true }); // the copied symlinks are useless
 
   // 3. Guard rails.
   const nativeFiles = [];
@@ -166,6 +242,7 @@ async function main() {
   console.log(`  version:          ${packageJson.version}`);
   console.log(`  bundled packages: ${bundled.length}`);
   console.log("  native add-ons:   none");
+  for (const shim of shims) console.log(`  external alias:   ${shim}`);
 }
 
 main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

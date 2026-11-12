@@ -238,3 +238,60 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - `testConnection()` uses its own single `pg.Client`, never the pool, so testing cannot change whether the adapter is connected; it only calls `end()` on a client that actually connected (ending a failed one can hang).
 - Concurrent `connect()` calls share one attempt, so no duplicate pools are created.
 - `ssl` is always set explicitly (see architecture notes).
+
+## 38. Local databases default to no TLS (revises decision 18)
+
+**Decision:** when no SSL mode is given, connections to `localhost`, `127.0.0.1` and `::1` use `disable`; every other host still defaults to `verify-full`. An explicit choice always wins. In the form the SSL field is "Automatic" by default and says which mode that means.
+
+**Why:** pasting a local connection string was the most common first action, and it failed with a TLS error because a typical development database has no TLS. Traffic to this machine never crosses a network, so encryption protects nothing there. Remote hosts keep the strict default. To support this the `fields` schema's `sslMode` became optional and is resolved from the host in `resolvePostgresConnection`.
+
+## 39. Connections live in an in-memory registry; credentials never touch disk
+
+**Decision:** the server keeps `id -> { summary, adapter }` in memory. The adapter holds the password privately. Nothing is written to disk, and everything is gone when DataCanvas stops. `DELETE /api/connections/:id` discards one immediately. Saved connection profiles (without passwords) arrive in Phase 8.
+
+**Why:** the safest place for a secret is nowhere persistent. The cost is re-entering the password after a restart.
+
+**Details:** ids are 128 random bits (`randomBytes(16)`, base64url); at most 10 connections (bounds pools and memory); idle connections close their database sessions after 30 minutes but keep credentials and reconnect on the next request.
+
+## 40. Services take their dependencies through the constructor
+
+**Decision:** `ConnectionService({ adapters, connections })`; route handlers fetch the shared instance from `getServerContext()`, which tests replace with `setServerContextForTests`.
+
+**Why:** the same service runs against mock adapters in unit tests and the real adapter in production, with no module mocking. The context lives on `globalThis` because Next.js dev reloads modules and would otherwise drop every open connection (a consequence: changing server code in dev needs a restart to take effect in already-built services).
+
+## 41. HTTP status mapping for database failures
+
+**Decision:** wrong credentials, database name, TLS setting or privileges are 400 (the request was fine, the details are wrong); unreachable server is 502 and timeout is 504 (we are a gateway to it); missing schema or table is 404; everything unexpected is 500 with a generic message.
+
+**Why:** gives clients a meaningful class of failure without exposing details. We avoid 401 and 403, which would be confused with DataCanvas' own authentication from Phase 10.
+
+## 42. One endpoint for table details; the validate-only endpoint is removed
+
+**Decision:** `GET /api/connections/:id/tables/:table` returns columns, constraints and indexes together, instead of separate `/columns`, `/constraints`, `/indexes`. `POST /api/connections/validate` (Phase 3) is gone because `/test` and `POST /api/connections` validate with the same schema and do more.
+
+**Why:** one click would otherwise cost three requests, and dead endpoints are maintenance. Opening a table still issues three parallel requests (details, table list for the header, relationships); Phase 7 will cache these.
+
+## 43. Metadata schemas are checked against the domain types at compile time
+
+**Decision:** `shared-types/src/metadata.ts` defines Zod schemas for the models; `metadata.test.ts` contains type-level assertions that each schema infers exactly the corresponding `database-core` interface, and that every database error code is a valid API error code. Real mock-adapter output is also parsed with the schemas.
+
+**Why:** answers the open question from decision 23 without duplicating the models: if either side changes alone, `tsc` fails.
+
+## 44. Zustand for shared UI state; the server remains the source of truth
+
+**Decision:** `useWorkspaceStore` holds connection summaries, the selected connection and table, and dialog state. Server data that is purely derived (schemas, tables, details) is loaded with `useAsyncData`, not kept in the store.
+
+**Why:** the sidebar, main panel and dialog all need the same selection, which would otherwise mean prop drilling. Keeping fetched data out of the store avoids a second copy that can go stale.
+
+## 45. Packaging replaces Turbopack's alias symlinks with shim packages
+
+**Decision:** `build-package.mjs` turns `.next/node_modules/pg-<hash>` (a symlink) into a real package `node_modules/pg-<hash>` containing `module.exports = require("pg")`.
+
+**Why:** `npm pack` omits symlinks, so the packed app failed with `ERR_MODULE_NOT_FOUND` for `pg-<hash>`. The failure only appeared when running the packed tarball, which is why packaging is verified that way after every phase that adds server code.
+
+## 46. Known limits left for later phases
+
+- **Graceful shutdown:** on SIGTERM the server process exits and the operating system closes the sockets; connections are not explicitly closed first. Phase 11 handles shutdown properly.
+- **Small screens:** the sidebar is hidden below the `md` breakpoint, so on a phone there is no way to pick a table. The canvas in Phase 7 is desktop-oriented anyway.
+- **Large schemas:** the tree is not virtualised; thousands of tables in one schema will be slow to render.
+- **No request authentication yet:** any local process or web page that can reach 127.0.0.1 can call the API. Phase 10 adds Host/Origin checks and a session token.

@@ -1,0 +1,6 @@
+{
+  // Solution-style root config: it compiles nothing itself. `tsc -b` follows
+  // these references and builds each package in dependency order.
+  "files": [],
+  "references": [{ "path": "packages/shared-types" }, { "path": "packages/cli" }]
+}

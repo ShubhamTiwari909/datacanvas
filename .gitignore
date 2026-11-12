@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment files (DataCanvas needs none, but never commit them if created)
+.env
+.env.*
+
+# Test / tooling output
+coverage/
+playwright-report/
+test-results/
+
+# Local DataCanvas data folder if created inside the repo during development
+.datacanvas/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

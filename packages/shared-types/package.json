@@ -1,0 +1,18 @@
+{
+  "name": "@datacanvas/shared-types",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Constants, types and (from Phase 3) Zod schemas shared by the UI, route handlers and CLI.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

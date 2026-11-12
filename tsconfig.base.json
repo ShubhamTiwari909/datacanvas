@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // --- Language / output ---
+    "target": "ES2022",
+    "lib": ["ES2022"],
+
+    // --- Module system ---
+    // NodeNext mirrors how Node.js itself resolves ES modules, so what compiles
+    // here is what runs. Relative imports must therefore include the ".js"
+    // extension (TypeScript maps it back to the ".ts" source).
+    // NOTE: apps/web (Next.js, added in Phase 1) overrides these two options
+    // to "ESNext" / "Bundler" because Next.js uses its own bundler.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // --- Strictness (we want the compiler to catch mistakes early) ---
+    "strict": true,
+    "noUncheckedIndexedAccess": true, // array[i] and record[key] may be undefined
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // --- Interop / safety ---
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true, // forces `import type` for type-only imports
+    "skipLibCheck": true,
+
+    // --- Build output ---
+    // composite + declaration let packages reference each other with
+    // `tsc -b` (project references): each package emits .d.ts files and an
+    // incremental build info file that dependents consume.
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

@@ -1,0 +1,53 @@
+# Contributing to DataCanvas
+
+## Setup
+
+```bash
+npm install
+npm run check
+```
+
+Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; they will use `npx datacanvas`.
+
+## Scripts (run from the repo root)
+
+| Script                 | What it does                                         |
+| ---------------------- | ---------------------------------------------------- |
+| `npm run build`        | Compile every package in dependency order (`tsc -b`) |
+| `npm run typecheck`    | Same project-reference build, used as the type check |
+| `npm run lint`         | ESLint across the repo                               |
+| `npm run format`       | Prettier: rewrite files                              |
+| `npm run format:check` | Prettier: fail if any file is not formatted          |
+| `npm run check`        | format check, lint and typecheck together            |
+| `npm run clean`        | Remove build output of the TypeScript projects       |
+
+Run `npm run check` before every commit.
+
+## Project rules
+
+1. **Install simplicity is a requirement.** No native modules, no `postinstall` scripts, and no new setup steps for end users.
+2. **Keep route handlers thin.** They validate input (Zod), call a service, and return JSON. Database logic lives in framework-free packages.
+3. **Never add an endpoint that runs arbitrary SQL.**
+4. **No `any`.** Untrusted input is validated at runtime, not asserted.
+5. **Every dependency needs a documented purpose.** Record non-obvious choices in [docs/decisions.md](docs/decisions.md).
+6. **Never log or return credentials or connection strings.**
+
+## Code documentation conventions
+
+Documentation is written together with the code, not afterwards.
+
+- **File header:** every non-trivial file starts with a short comment describing what it is responsible for and where it fits.
+- **Comment the why, not the what.** Complex logic (catalog SQL, cardinality detection, `globalThis` singletons, atomic file writes, origin and host checks, graph and layout code, migrations, shutdown handling) must explain why it is written that way.
+- **TSDoc on exported APIs** in packages: purpose, parameters, return value, thrown errors, and any security or performance note.
+- **No noise comments.** Prefer clear names first.
+- **Keep docs in sync.** When behaviour changes, update the comment, the relevant page in `docs/`, and the README in the same change.
+
+## TypeScript notes
+
+- Packages are ES modules compiled with `module: NodeNext`, so relative imports need a `.js` extension (for example `import { x } from "./x.js"`).
+- Use `import type` for type-only imports (enforced by ESLint and `verbatimModuleSyntax`).
+- Packages reference each other through TypeScript project references; add a `references` entry when one package depends on another.
+
+## Commits
+
+Use short, imperative commit messages, for example `Add PostgreSQL connection tester`.

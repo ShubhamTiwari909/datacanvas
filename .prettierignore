@@ -1,0 +1,10 @@
+node_modules
+dist
+.next
+out
+coverage
+package-lock.json
+*.tsbuildinfo
+
+# The planning document is hand-formatted (wide tables, ASCII diagrams)
+pg-visualizer.md

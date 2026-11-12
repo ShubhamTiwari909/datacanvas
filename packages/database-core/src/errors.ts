@@ -35,7 +35,7 @@ export const DEFAULT_ERROR_MESSAGES: Record<DatabaseErrorCode, string> = {
   unreachable:
     "Could not reach the database server. Check the host, port and that the server accepts connections from this machine.",
   ssl_error:
-    'A secure (TLS) connection could not be established. If this is a local database without TLS, set the SSL mode to "disable".',
+    'A secure (TLS) connection could not be established, or the server does not accept this SSL setting. Use SSL mode "disable" for a local database without TLS, or "verify-full" (with a certificate the server can prove) for a remote one.',
   timeout: "The database did not respond in time.",
   permission_denied: "The database user does not have permission to read this information.",
   database_not_found: "The database does not exist, or this user is not allowed to access it.",

@@ -185,3 +185,56 @@ Short records of choices that are not obvious from the code. Newest at the botto
 **Decision:** `tests/architecture.test.ts` fails if `database-core` gains a dependency or imports anything but relative modules.
 
 **Why:** "no provider-specific dependency leaks into database-core" is a completion criterion; a test keeps it true after we stop watching.
+
+## 30. Each operation runs in a READ ONLY transaction
+
+**Decision:** every adapter call wraps its queries in `BEGIN READ ONLY`, with the statement timeout set through `set_config(..., true)` (transaction-local).
+
+**Why:** the database server then refuses any write, even if our code had a bug. The alternative (startup parameters such as `options=-c default_transaction_read_only=on`) is rejected by connection poolers like PgBouncer, which many real databases sit behind; a per-transaction setting works everywhere and cannot leak onto a reused pooled connection.
+
+## 31. Read `pg_catalog`, not `information_schema`
+
+**Decision:** metadata queries use PostgreSQL's own catalogs.
+
+**Why:** `information_schema` hides objects the current user has no privileges on, omits PostgreSQL-specific things (materialized views, partition details, index access methods, expression indexes) and is slower. The cost is that the SQL is PostgreSQL-specific, and some columns depend on the server version.
+
+**Supported versions:** the queries use `indnkeyatts` and `conparentid` (PostgreSQL 11+). Tested on PostgreSQL 17. Treat 12 or newer as supported (11 is end of life).
+
+## 32. What the explorer shows and hides
+
+**Decision:** system schemas (`pg_*`, `information_schema`) are hidden; individual partitions are hidden while the partitioned parent is shown; foreign tables are not listed yet; only primary key, unique, foreign key and check constraints are reported.
+
+**Why:** a table split into 100 partitions would otherwise bury the one logical table. Foreign tables and exclusion constraints can be added when there is a need.
+
+## 33. Cardinality is derived in TypeScript from unique indexes
+
+**Decision:** `deriveCardinality` takes the foreign key columns and the table's unique keys. Partial, expression and invalid indexes are ignored.
+
+**Why:** pure logic is easy to unit test, and a partial unique index (unique only `WHERE status = 'open'`) must not turn many-to-one into one-to-one.
+
+## 34. Error mapping order: SQLSTATE, then Node codes, then message patterns
+
+**Decision:** `mapPgError` checks exact SQLSTATE codes first, then Node/TLS codes, and only then regular expressions on the message. Unknown errors become `unexpected`.
+
+**Why:** codes are precise and stable; messages vary by version and locale. The message fallback exists because the driver throws plain `Error`s for some failures (connection timeout, TLS not supported). A failure to match is safe, because it only loses detail; it never leaks.
+
+**Changed:** the `ssl_error` message in `database-core` now covers both "server has no TLS" and "server requires a different SSL setting", because a `pg_hba.conf` rejection can mean either.
+
+## 35. Integration tests use a disposable server and a per-run database
+
+**Decision:** tests read `DATACANVAS_TEST_PG_URL`, create `dc_test_<random>` plus a role in that server, run, and drop them. Without the variable they are skipped. `examples/docker-compose.yml` provides a server on loopback port 54329.
+
+**Why:** isolation (nothing pre-existing is touched), no setup for people who only run unit tests, and a non-default port so the test server cannot be mistaken for a developer's own PostgreSQL. The account must be able to create databases and roles, so never point the variable at a server that holds real data.
+
+## 36. One contract suite for every adapter
+
+**Decision:** `@datacanvas/database-core/contract` exports `describeAdapterContract`, run by both the mock and the PostgreSQL adapter. It is a separate entry point because it imports `vitest`.
+
+**Why:** the mock is only trustworthy while it behaves like the real thing. The same assertions on both make drift fail a test. The suite checks the shared shop schema; a real database may contain extra objects.
+
+## 37. Defensive details in the connection code
+
+- `pool.on("error", noop)`: an idle connection dropped by the server is reported as an `error` event; without a listener Node would crash the whole process. The next query surfaces the real failure.
+- `testConnection()` uses its own single `pg.Client`, never the pool, so testing cannot change whether the adapter is connected; it only calls `end()` on a client that actually connected (ending a failed one can hang).
+- Concurrent `connect()` calls share one attempt, so no duplicate pools are created.
+- `ssl` is always set explicitly (see architecture notes).

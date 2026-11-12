@@ -1,0 +1,27 @@
+{
+  "name": "@datacanvas/postgres-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PostgreSQL implementation of the DatabaseAdapter interface: connection handling and catalog introspection.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@datacanvas/database-core": "*",
+    "@datacanvas/shared-types": "*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

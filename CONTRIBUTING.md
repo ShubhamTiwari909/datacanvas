@@ -64,3 +64,16 @@ cd /some/other/fresh/folder
 npm install --offline /some/scratch/folder/datacanvas-0.0.0.tgz   # offline: proves nothing is downloaded
 ./node_modules/.bin/datacanvas --no-open
 ```
+
+## Integration tests (PostgreSQL)
+
+`npm test` runs without a database: the PostgreSQL integration tests are skipped. To run them, start a disposable PostgreSQL and point `DATACANVAS_TEST_PG_URL` at its `postgres` database:
+
+```bash
+docker compose -f examples/docker-compose.yml up -d
+export DATACANVAS_TEST_PG_URL="postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable"
+npm test
+docker compose -f examples/docker-compose.yml down -v
+```
+
+Each run creates its own uniquely named database and role, loads `examples/ecommerce.sql`, and removes both afterwards. **Never point the variable at a server that holds data you care about.** It works with any PostgreSQL 12 or newer reachable over TCP (for example one started with `initdb` and `pg_ctl` on a spare port), as long as the account may create databases and roles and the server uses password authentication.

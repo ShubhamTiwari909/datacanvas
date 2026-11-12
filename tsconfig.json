@@ -5,6 +5,7 @@
   "references": [
     { "path": "packages/shared-types" },
     { "path": "packages/database-core" },
+    { "path": "packages/postgres-adapter" },
     { "path": "packages/cli" }
   ]
 }

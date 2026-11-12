@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 4).** The app starts, shows a live backend status, and can validate a pasted PostgreSQL connection string, but it cannot connect to a database yet. It is not published to npm yet.
+> **Status: early development (Phase 5).** The app starts, shows a live backend status, and can validate a pasted PostgreSQL connection string, but it cannot connect to a database yet. It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 
@@ -41,9 +41,11 @@ apps/
 packages/
   shared-types/    Constants and Zod schemas (API contracts) shared across workspaces
   database-core/   Database-agnostic models, adapter interface, errors, registry, mock adapter
+  postgres-adapter/ PostgreSQL implementation: connection handling and catalog introspection
   cli/             The `datacanvas` command: starts the bundled server and opens the browser
 scripts/           Build scripts (assembles the npm package)
 tests/             Cross-package tests (architecture rules)
+examples/          Sample database (SQL) and a disposable PostgreSQL for tests
 docs/              Architecture notes and decision records
 pg-visualizer.md   The phase-by-phase development plan
 ```

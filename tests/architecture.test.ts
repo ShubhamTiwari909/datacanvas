@@ -3,7 +3,8 @@
  *
  * Rule: `database-core` must stay independent. It may not depend on any
  * package, and its source may not import a database driver, Next.js or React.
- * Only relative imports are allowed (plus `vitest` in test files).
+ * Only relative imports are allowed (plus `vitest` in test files and in
+ * `testing/contract.ts`, the shared contract test suite).
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -38,12 +39,13 @@ describe("database-core stays independent", () => {
     }
   });
 
-  it("imports only relative modules (and vitest inside test files)", () => {
+  it("imports only relative modules (and vitest inside test code)", () => {
     const files = sourceFiles(path.join(coreDir, "src"));
     expect(files.length).toBeGreaterThan(5);
 
     for (const file of files) {
-      const isTest = file.endsWith(".test.ts");
+      // `vitest` is allowed only in code that exists to run tests.
+      const isTest = file.endsWith(".test.ts") || file.endsWith("testing/contract.ts");
       for (const specifier of importSpecifiers(readFileSync(file, "utf8"))) {
         const allowed = specifier.startsWith(".") || (isTest && specifier === "vitest");
         expect(allowed, `${path.relative(root, file)} imports "${specifier}"`).toBe(true);

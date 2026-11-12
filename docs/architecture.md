@@ -290,3 +290,71 @@ The registry is generic over a "config map", so each provider keeps its own prec
 
 - `MockDatabaseAdapter` implements the interface in memory. It can simulate failures (`failConnectWith`) and returns copies, so callers cannot corrupt its data. Its methods are `async` so errors are rejected promises, like a real adapter.
 - `tests/architecture.test.ts` turns the independence rule into a test: `database-core` must declare no dependencies and may import only relative modules (plus `vitest` in test files). Adding `import "pg"` there makes the test fail.
+
+## Phase 5: the PostgreSQL adapter (`packages/postgres-adapter`)
+
+```text
+packages/postgres-adapter/src/
+├── connection/
+│   ├── config.ts        DataCanvas connection details -> `pg` pool settings (SSL, timeouts, pool size)
+│   ├── errors.ts        mapPgError(): anything `pg`/Node throws -> safe DatabaseError
+│   └── read-only.ts     withReadOnlyTransaction(): every query runs in BEGIN READ ONLY + timeout
+├── introspection/       one file per kind of metadata; each is a fixed, commented SQL query
+│   ├── system-schemas.ts, schemas.ts, tables.ts, existence.ts
+│   ├── columns.ts, constraints.ts, indexes.ts, relationships.ts
+├── postgres.adapter.ts  PostgresAdapter implements DatabaseAdapter
+└── index.ts
+```
+
+### How one method call travels
+
+```text
+adapter.getColumns("public", "orders")
+  -> read(): is there a pool?                      no -> DatabaseError not_connected
+  -> pool.connect()  ->  BEGIN READ ONLY  ->  set_config('statement_timeout', ..., local)
+  -> assertRelationExists()                        no -> DatabaseError not_found
+  -> COLUMNS_SQL with $1 = "public", $2 = "orders" (bound parameters, never string-built)
+  -> map rows to ColumnInfo[]  ->  COMMIT  ->  release the connection to the pool
+  -> any error on the way: ROLLBACK, then mapPgError() -> DatabaseError
+```
+
+### Where the metadata comes from
+
+PostgreSQL describes itself in tables called **system catalogs** (schema `pg_catalog`). DataCanvas reads them directly.
+
+| Catalog              | One row per                                             | Used for                                            |
+| -------------------- | ------------------------------------------------------- | --------------------------------------------------- |
+| `pg_namespace`       | schema                                                  | schema list, hiding `pg_*` and `information_schema` |
+| `pg_class`           | table, view, index, sequence... (`relkind` tells which) | table list and kind                                 |
+| `pg_attribute`       | column                                                  | columns, types (`format_type`), nullability         |
+| `pg_attrdef`         | column default                                          | default expressions (`pg_get_expr`)                 |
+| `pg_description`     | comment                                                 | table and column comments                           |
+| `pg_constraint`      | constraint                                              | primary key, unique, foreign key, check             |
+| `pg_index` + `pg_am` | index                                                   | indexes, key columns, uniqueness, access method     |
+
+Columns are referenced by NUMBER (`conkey`, `indkey` hold `attnum` values), so queries join `pg_attribute` to turn numbers into names. `unnest(...) WITH ORDINALITY` keeps the original column order.
+
+### Relationships
+
+Only **declared foreign keys** (`pg_constraint` rows with `contype = 'f'`): referencing table and columns (`conrelid`/`conkey`), referenced table and columns (`confrelid`/`confkey`), `ON DELETE`/`ON UPDATE` actions (`confdeltype`/`confupdtype`). Names are never used to guess relationships.
+
+Cardinality is computed in TypeScript (`deriveCardinality`, unit tested): a foreign key is **one-to-one** when some unique key of the source table consists only of columns that belong to the foreign key. Partial, expression and invalid unique indexes do not count, because they do not guarantee uniqueness of the whole column set.
+
+### Safety properties
+
+- Every query is a fixed string with bound parameters; identifiers and values from callers are never concatenated into SQL.
+- Every operation runs in `BEGIN READ ONLY`, so the server itself rejects writes. A test proves an `INSERT` is refused.
+- Every statement has a timeout (default 15 s); connecting has one (default 10 s); the pool holds at most 3 connections; idle connections are closed after 30 s.
+- Only catalog metadata is read, never rows. Row counts come from the planner's statistics.
+- TLS settings are always passed explicitly, so a `PGSSLMODE` environment variable cannot weaken them. `verify-full` verifies certificate and host name.
+- Raw driver errors never leave the package: `mapPgError` maps them to codes with fixed messages and keeps the original only as `cause`.
+
+### Testing strategy
+
+| Layer                                                            | Needs a database               | What it proves                                                                                                                                                                                                                |
+| ---------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit tests (`errors`, `config`, `relationships`, `tables`)       | no                             | error mapping table, SSL mapping, cardinality rules, row-estimate rules                                                                                                                                                       |
+| Shared **contract suite** (`@datacanvas/database-core/contract`) | mock: no, PostgreSQL: yes      | the mock and the real adapter behave identically                                                                                                                                                                              |
+| PostgreSQL integration tests                                     | yes (`DATACANVAS_TEST_PG_URL`) | real catalogs, partitions, expression/GIN/INCLUDE indexes, composite FKs, read-only enforcement, timeouts, connection hygiene, real error codes (wrong password, missing database, no TLS, no CONNECT privilege, closed port) |
+
+Integration tests create a uniquely named database and role on a disposable server, load `examples/ecommerce.sql`, and drop both afterwards. They are skipped when the environment variable is absent, so `npm test` works anywhere.

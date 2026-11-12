@@ -1,0 +1,20 @@
+# A disposable PostgreSQL for DataCanvas development and integration tests.
+#
+#   docker compose -f examples/docker-compose.yml up -d
+#   export DATACANVAS_TEST_PG_URL="postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable"
+#   npm test
+#
+# The tests create a uniquely named database inside this server, load
+# examples/ecommerce.sql into it, and drop it again, so nothing else is touched.
+# Stop and discard everything with:  docker compose -f examples/docker-compose.yml down -v
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: testpass
+    ports:
+      # Bound to loopback only, and on a non-default port so it can never be
+      # confused with (or collide with) a PostgreSQL you already run.
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data # in-memory: fast, and nothing persists

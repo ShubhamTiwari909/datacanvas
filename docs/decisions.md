@@ -141,3 +141,47 @@ Short records of choices that are not obvious from the code. Newest at the botto
 **Decision:** its tsconfig includes `lib: ["ES2022", "DOM"]`.
 
 **Why:** `URL` exists at runtime in both Node and browsers but is typed only by the DOM lib. The package must therefore avoid other browser-only APIs; this is noted in its tsconfig.
+
+## 23. Metadata models are plain TypeScript types in `database-core`
+
+**Decision:** `SchemaInfo`, `TableInfo`, `ColumnInfo` and the rest are interfaces, not Zod schemas, and `database-core` has zero dependencies.
+
+**Why:** they describe the domain, and Phase 5 will still adjust them once real catalog queries exist. Plain types are cheap to change and keep the package dependency-free.
+
+**Open question for Phase 6:** the browser will receive these over HTTP and should verify them with Zod, like every other API response. The plan is to define the response schemas in `shared-types` and type-check them against these interfaces (so the two cannot drift), rather than duplicating the models.
+
+## 24. Fine-grained adapter methods, no bulk fetch yet
+
+**Decision:** the interface has one method per kind of detail (`getColumns`, `getConstraints`, `getIndexes`) plus one database-wide `getRelationships()`.
+
+**Why:** simple to implement and test. The trade-off is that drawing a canvas of N tables takes about 3N calls. We will measure in Phase 7 and add a bulk method (for example "details for these tables") only if it is actually slow. Relationships are already one call because the canvas always needs every edge.
+
+## 25. `connect()` and `testConnection()` have separate, precise meanings
+
+**Decision:** `connect()` opens and verifies a connection and is idempotent. `testConnection()` verifies without keeping anything open and works whether or not `connect()` was called.
+
+**Why:** the UI has two distinct buttons (Test, Connect). A self-contained `testConnection()` means the Test flow never leaves a stray connection behind.
+
+## 26. `not_found` and `not_connected` are errors, not empty results
+
+**Decision:** asking for a schema or table that does not exist throws `not_found`; calling a data method on a closed adapter throws `not_connected`.
+
+**Why:** an empty list is ambiguous (a table with no columns versus a table that does not exist), and a clear error gives the UI something specific to say. The real adapter will check existence with a cheap catalog query.
+
+## 27. Registry generic over a config map, backed by a `Map`
+
+**Decision:** `AdapterRegistry<TConfigs extends object>` is typed by a map of provider name to its connection-details type; storage is a `Map`.
+
+**Why:** keeps each provider's config type precise without `database-core` importing any provider or its types. `Map` avoids inherited-property surprises for names like `constructor`. `object` (not `Record<string, unknown>`) so interfaces work as config maps.
+
+## 28. Mock adapter ships as a separate entry point
+
+**Decision:** `@datacanvas/database-core/testing` exports the mock adapter and sample data; the main entry point does not.
+
+**Why:** production code cannot import it by accident, and the intent is visible at every import site. A shared contract test suite (run against both mock and real adapters) is deliberately postponed until Phase 5 gives us a second implementation.
+
+## 29. Architecture rules are tests
+
+**Decision:** `tests/architecture.test.ts` fails if `database-core` gains a dependency or imports anything but relative modules.
+
+**Why:** "no provider-specific dependency leaks into database-core" is a completion criterion; a test keeps it true after we stop watching.

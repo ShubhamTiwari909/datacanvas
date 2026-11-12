@@ -1,0 +1,23 @@
+{
+  "name": "@datacanvas/database-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Database-agnostic interfaces, metadata models, error types and provider registry. No driver and no framework dependencies.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

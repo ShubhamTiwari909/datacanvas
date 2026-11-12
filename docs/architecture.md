@@ -219,3 +219,74 @@ if (!parsed.ok) return parsed.response;   // complete error response, nothing el
 - `features/connections/api.ts` is the only place that calls the API. It returns results instead of throwing, and verifies every response with the shared schemas.
 - `connection-string-form.tsx` validates with the shared schema first, then asks the server. The connection-string input is masked (it usually holds a password) with a show/hide toggle.
 - The backend-status hook now uses `healthResponseSchema` instead of a hand-written check.
+
+## Phase 4: the database core (`packages/database-core`)
+
+No real database is involved yet. This phase defines the vocabulary and the contract that every database provider must follow, and proves the contract can be implemented without any driver.
+
+```text
+packages/database-core/src/
+├── models.ts            metadata types: SchemaInfo, TableInfo, ColumnInfo, ConstraintInfo,
+│                        IndexInfo, RelationshipInfo, ...
+├── errors.ts            DatabaseError, error codes, safe messages, describeDatabaseError()
+├── adapter.ts           the DatabaseAdapter interface
+├── registry.ts          AdapterRegistry: provider name -> adapter factory
+├── index.ts             public entry point
+└── testing/             separate entry point: @datacanvas/database-core/testing
+    ├── ecommerce-fixture.ts   sample shop database (users, orders, products, order_items)
+    ├── mock-adapter.ts        in-memory DatabaseAdapter
+    └── index.ts
+```
+
+### Why this layer exists
+
+```text
+route handler / service  ──►  DatabaseAdapter (interface)  ◄──  MockDatabaseAdapter   (tests, UI demos)
+                                       ▲                    ◄──  PostgresAdapter       (Phase 5, uses `pg`)
+                                       │                    ◄──  (a future MySQL adapter)
+                                database-core: no drivers, no Next.js, no dependencies
+```
+
+Higher layers depend on an **abstraction** (the interface), not on a concrete driver. That is dependency inversion. Swapping or adding a database means writing one new adapter and registering it; nothing above changes.
+
+### The adapter contract
+
+| Method                                                    | Purpose                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `connect()`                                               | Open and verify the connection. Idempotent.                                                 |
+| `testConnection()`                                        | Verify the details work and keep nothing open. For the "Test connection" button.            |
+| `getSchemas()`                                            | User-visible schemas.                                                                       |
+| `getTables(schema)`                                       | Tables, views and materialized views in a schema.                                           |
+| `getColumns / getConstraints / getIndexes(schema, table)` | Detail of one table.                                                                        |
+| `getRelationships()`                                      | Every confirmed foreign key in the database (one call, because the canvas needs all edges). |
+| `disconnect()`                                            | Release everything. Safe to repeat.                                                         |
+
+Rules every implementation follows:
+
+- It throws only `DatabaseError`; raw driver errors are translated by the adapter.
+- Structure only; there is **no method that runs SQL or returns rows**.
+- Unknown schema or table: `not_found`. Data call before `connect()` or after `disconnect()`: `not_connected`.
+- Results are plain, JSON-safe data. "No value" is `null`, never `undefined`.
+
+### Errors
+
+`DatabaseError` carries a stable `code` (`authentication_failed`, `unreachable`, `ssl_error`, `timeout`, `permission_denied`, `database_not_found`, `not_found`, `not_connected`, `unexpected`) and a **safe, fixed message per code**. The original driver error is kept in `cause` for server-side debugging only and is not serialised (`toJSON` returns just `code` and `message`). `describeDatabaseError(anything)` is what route handlers use in `catch`: any non-`DatabaseError` collapses to `unexpected`, so driver details cannot leak.
+
+### Relationships
+
+`RelationshipInfo` represents a **confirmed foreign key** only. Cardinality is seen from the source table: `many-to-one` (normal FK) or `one-to-one` (the FK columns are also unique). Many-to-many appears as two links through a junction table. Inferred or user-drawn links belong to the workspace layer (Phases 7 and 8), never to adapter output.
+
+### Registry
+
+```text
+const registry = new AdapterRegistry<{ postgresql: ResolvedPostgresConnection }>();
+registry.register("postgresql", (config) => new PostgresAdapter(config));   // Phase 5/6
+const adapter = registry.create("postgresql", details);                     // config type is checked
+```
+
+The registry is generic over a "config map", so each provider keeps its own precise connection-detail type while this package knows nothing about any provider. `create` builds an adapter without connecting.
+
+### Testing support and architecture rules
+
+- `MockDatabaseAdapter` implements the interface in memory. It can simulate failures (`failConnectWith`) and returns copies, so callers cannot corrupt its data. Its methods are `async` so errors are rejected promises, like a real adapter.
+- `tests/architecture.test.ts` turns the independence rule into a test: `database-core` must declare no dependencies and may import only relative modules (plus `vitest` in test files). Adding `import "pg"` there makes the test fail.

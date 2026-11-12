@@ -1,0 +1,88 @@
+/**
+ * The contract every database provider implements.
+ *
+ * The rest of DataCanvas (route handlers, services, UI) talks ONLY to this
+ * interface and never to a driver. That is what lets us:
+ *   - test everything with an in-memory mock (see `testing/`),
+ *   - keep SQL and driver details inside one package per provider,
+ *   - add another database later without touching the web app.
+ *
+ * Every method that fails throws a `DatabaseError` (see errors.ts), never a
+ * raw driver error.
+ *
+ * One adapter instance is bound to ONE database (the connection details are
+ * given to the adapter's constructor, not to its methods).
+ *
+ * All methods are READ-ONLY and return STRUCTURE only. There is deliberately
+ * no method that runs arbitrary SQL or returns table rows.
+ */
+import type {
+  ColumnInfo,
+  ConstraintInfo,
+  IndexInfo,
+  RelationshipInfo,
+  SchemaInfo,
+  TableInfo,
+} from "./models.js";
+
+export interface DatabaseAdapter {
+  /**
+   * Open the connection (or connection pool) and verify it works.
+   * Calling it again while connected does nothing.
+   *
+   * @throws DatabaseError `unreachable`, `authentication_failed`, `ssl_error`,
+   *   `timeout`, `database_not_found`, ...
+   */
+  connect(): Promise<void>;
+
+  /**
+   * Check that the connection details work, WITHOUT keeping anything open.
+   * Used by the "Test connection" button. It works whether or not `connect()`
+   * was called, and does not change the adapter's connected state.
+   *
+   * @throws DatabaseError, same codes as `connect()`.
+   */
+  testConnection(): Promise<void>;
+
+  /** All user-visible schemas (system schemas such as pg_catalog are excluded). */
+  getSchemas(): Promise<SchemaInfo[]>;
+
+  /**
+   * Tables, views and materialized views in a schema, sorted by name.
+   * @throws DatabaseError `not_found` if the schema does not exist.
+   */
+  getTables(schema: string): Promise<TableInfo[]>;
+
+  /**
+   * Columns of a table or view, in definition order.
+   * @throws DatabaseError `not_found` if the table does not exist.
+   */
+  getColumns(schema: string, table: string): Promise<ColumnInfo[]>;
+
+  /**
+   * Constraints of a table (primary key, foreign keys, unique, check).
+   * Views have none, so the result is empty for them.
+   * @throws DatabaseError `not_found` if the table does not exist.
+   */
+  getConstraints(schema: string, table: string): Promise<ConstraintInfo[]>;
+
+  /**
+   * Indexes of a table or materialized view.
+   * @throws DatabaseError `not_found` if the table does not exist.
+   */
+  getIndexes(schema: string, table: string): Promise<IndexInfo[]>;
+
+  /**
+   * Every confirmed foreign-key relationship in the database, across schemas.
+   * One call for the whole database, because drawing the canvas needs all
+   * the edges at once.
+   */
+  getRelationships(): Promise<RelationshipInfo[]>;
+
+  /**
+   * Close everything and release resources. Safe to call more than once, and
+   * safe to call when never connected. After it, data methods throw
+   * `not_connected` until `connect()` is called again.
+   */
+  disconnect(): Promise<void>;
+}

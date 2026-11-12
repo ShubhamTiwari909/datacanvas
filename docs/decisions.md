@@ -46,10 +46,28 @@ Short records of choices that are not obvious from the code. Newest at the botto
 
 ## 7. Minimum Node version
 
-**Decision:** `engines.node` is `>=20.9.0` for now.
+**Decision:** `engines.node` is `>=20.9.0`.
 
-**Why:** a conservative floor. To be re-confirmed in Phase 1 against the minimum required by the Next.js version we install.
+**Why:** confirmed in Phase 1: Next.js 16.4.6 declares `engines.node >=20.9.0`, so that is our floor.
 
 ## 8. Package name
 
 **Status:** `datacanvas` returned 404 on the npm registry on 2026-11-12, so it appears to be available. Re-check right before the first publish, since a name can be taken at any time.
+
+## 9. ESLint 9 (not 10)
+
+**Decision:** ESLint is pinned to the 9.x line.
+
+**Why:** `eslint-config-next` pulls in `eslint-plugin-react` and friends, whose declared peer range stops at ESLint 9. Using ESLint 10 produced peer-dependency conflicts. It also cleared the dev-only `minimatch` audit finding that came with ESLint 10's dependency tree. Revisit when the Next.js ESLint plugins support ESLint 10.
+
+## 10. System font stack instead of a web font
+
+**Decision:** the UI uses the operating system's default font (`ui-sans-serif, system-ui, ...`) instead of `next/font/google`.
+
+**Why:** a Google font is downloaded at build time, so offline builds would fail and contributors would need internet access just to build. System fonts need no download and keep the app fully offline. The shadcn CLI generated the Geist font setup; we replaced it.
+
+## 11. shadcn/ui with Radix primitives
+
+**Decision:** shadcn/ui (`radix` base, `neutral` colors) generated into `apps/web/components/ui`.
+
+**Why:** components are copied into the repo (we own and can edit them) rather than imported from a runtime UI library, so there is no extra runtime dependency beyond Radix, `lucide-react` and a few small helpers: `cn` (class-name merging, published by the shadcn maintainer), `class-variance-authority`, `tw-animate-css`, and the `shadcn` package itself, which supplies a CSS file imported by `globals.css`. `npm audit` flags a prototype-pollution advisory in `deepmerge` inside the `shadcn` package; it is used for CSS/CLI tooling, not at request time. Revisit when shadcn publishes a fixed release.

@@ -1,0 +1,34 @@
+{
+  // Extends the shared base but overrides what Next.js needs differently.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Next.js bundles the code itself, so it uses bundler-style resolution
+    // (no ".js" extensions in relative imports) instead of Node's NodeNext.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+
+    // Next.js emits the build output, not tsc. The project-reference options
+    // from the base config only make sense for the plain library packages.
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "incremental": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

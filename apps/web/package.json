@@ -1,0 +1,29 @@
+{
+  "name": "@datacanvas/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DataCanvas web app: Next.js UI and (from Phase 2) the /api route handlers.",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 4747",
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.5"
+  },
+  "dependencies": {
+    "@datacanvas/shared-types": "*",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.5.2",
+    "lucide-react": "^1.72.0",
+    "next": "^16.4.6",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "shadcn": "^4.23.0",
+    "tw-animate-css": "^1.4.0"
+  }
+}

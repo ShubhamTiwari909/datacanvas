@@ -12,8 +12,10 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b",
+    "dev": "tsc -b && npm run dev -w apps/web",
+    "build": "tsc -b && npm run build -w apps/web",
+    "build:packages": "tsc -b",
+    "typecheck": "tsc -b && npm run typecheck -w apps/web",
     "clean": "tsc -b --clean",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -22,9 +24,10 @@
     "check": "npm run format:check && npm run lint && npm run typecheck"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.5",
     "@types/node": "^26.6.6",
-    "eslint": "^10.14.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.6",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",

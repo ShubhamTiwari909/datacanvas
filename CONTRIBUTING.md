@@ -11,15 +11,16 @@ Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; the
 
 ## Scripts (run from the repo root)
 
-| Script                 | What it does                                         |
-| ---------------------- | ---------------------------------------------------- |
-| `npm run build`        | Compile every package in dependency order (`tsc -b`) |
-| `npm run typecheck`    | Same project-reference build, used as the type check |
-| `npm run lint`         | ESLint across the repo                               |
-| `npm run format`       | Prettier: rewrite files                              |
-| `npm run format:check` | Prettier: fail if any file is not formatted          |
-| `npm run check`        | format check, lint and typecheck together            |
-| `npm run clean`        | Remove build output of the TypeScript projects       |
+| Script                 | What it does                                                        |
+| ---------------------- | ------------------------------------------------------------------- |
+| `npm run dev`          | Build the packages, then start the web app on 127.0.0.1:4747        |
+| `npm run build`        | Build the packages, then the production Next.js app                 |
+| `npm run typecheck`    | Type-check the packages (`tsc -b`) and the web app (`tsc --noEmit`) |
+| `npm run lint`         | ESLint across the repo                                              |
+| `npm run format`       | Prettier: rewrite files                                             |
+| `npm run format:check` | Prettier: fail if any file is not formatted                         |
+| `npm run check`        | format check, lint and typecheck together                           |
+| `npm run clean`        | Remove build output of the TypeScript projects                      |
 
 Run `npm run check` before every commit.
 

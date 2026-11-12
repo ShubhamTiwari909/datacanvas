@@ -36,8 +36,12 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "error",
       // Pairs with `verbatimModuleSyntax` in tsconfig.base.json.
       "@typescript-eslint/consistent-type-imports": "error",
-      // Allow intentionally-unused names when prefixed with an underscore.
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // Allow intentionally-unused names when prefixed with an underscore, and
+      // the `const { password, ...rest } = obj` idiom used to omit a property.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", ignoreRestSiblings: true },
+      ],
     },
   },
   {

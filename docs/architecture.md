@@ -152,3 +152,70 @@ cd .package && npm pack --pack-destination <scratch folder>
 cd <fresh empty folder> && npm install --offline <path to .tgz>
 ./node_modules/.bin/datacanvas --no-open
 ```
+
+## Phase 3: shared contracts and request validation
+
+### Why runtime validation exists
+
+TypeScript types are erased when the code is compiled. A JSON body arriving over HTTP is just text that happens to parse; nothing guarantees its shape. A **Zod schema** is ordinary runtime code that checks a value and, as a bonus, produces the matching TypeScript type (`z.infer`), so the validator and the type cannot drift apart. The browser validates for fast feedback; the **server must validate again**, because anyone can call the API without our UI.
+
+### `@datacanvas/shared-types`
+
+```text
+packages/shared-types/src/
+├── constants.ts            APP_NAME, DEFAULT_PORT (no Zod: the CLI imports only this)
+├── health.ts               healthResponseSchema
+├── api-error.ts            error codes, validationIssueSchema, apiErrorResponseSchema
+├── postgres-connection.ts  connection input schemas, connection-string parser, summary
+└── index.ts                re-exports everything
+```
+
+`"sideEffects": false` lets esbuild drop modules the CLI does not use, so the CLI bundle stays about 7 KB instead of embedding Zod.
+
+### The PostgreSQL connection contract
+
+```text
+browser sends                     server works with                server may reveal
+─────────────────────────         ─────────────────────────        ─────────────────────────
+{mode:"string", name,             ResolvedPostgresConnection       PostgresConnectionSummary
+ connectionString}      ──┐       {name, host, port, database,      {name, host, port, database,
+{mode:"fields", name,     ├─►      username, password, sslMode}      username, sslMode,
+ host, port, ...}       ──┘       (HAS THE PASSWORD)                  hasPassword}  (NO password)
+      postgresConnectionInputSchema     resolvePostgresConnection()      summarizePostgresConnection()
+```
+
+- Two entry modes share field rules. `z.discriminatedUnion("mode", ...)` picks the schema from the `mode` field.
+- `z.strictObject` rejects unknown keys (no accidental mass-assignment).
+- Types are **not coerced**: a port sent as the string `"5432"` is rejected. The UI converts before sending.
+- Defaults: port 5432, empty password, `sslMode` "verify-full" (encrypted, certificate and host verified).
+- `parsePostgresConnectionString` uses the standard `URL` class, decodes percent-encoding, strips IPv6 brackets, understands only `sslmode`, and ignores other query parameters.
+- **No error message ever contains the input**, because messages go to the browser and possibly to logs. Tests assert this.
+
+### Server side: `lib/server/parse-request.ts`
+
+`parseJsonBody(request, schema)` runs checks in a fixed order and returns either `{ ok: true, data }` or `{ ok: false, response }`:
+
+| Check                                                                                | Failure                                                   |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| `Content-Type: application/json`                                                     | 415 `unsupported_media_type`                              |
+| Body at most 64 KB (streamed, so a missing or false Content-Length cannot bypass it) | 413 `payload_too_large`                                   |
+| Valid JSON                                                                           | 400 `invalid_json`                                        |
+| Matches the schema                                                                   | 400 `validation_error` with `issues: [{ path, message }]` |
+
+Route handlers use it like this:
+
+```text
+const parsed = await parseJsonBody(request, schema);
+if (!parsed.ok) return parsed.response;   // complete error response, nothing else to do
+// parsed.data is typed AND verified
+```
+
+### The first validated endpoint
+
+`POST /api/connections/validate` checks connection details and returns a password-free summary. It does **not** connect to anything (Phase 6 adds that).
+
+### Browser side
+
+- `features/connections/api.ts` is the only place that calls the API. It returns results instead of throwing, and verifies every response with the shared schemas.
+- `connection-string-form.tsx` validates with the shared schema first, then asks the server. The connection-string input is masked (it usually holds a password) with a show/hide toggle.
+- The backend-status hook now uses `healthResponseSchema` instead of a hand-written check.

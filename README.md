@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 2).** The app starts and shows a welcome screen with a live backend status, but it cannot connect to a database yet. It is not published to npm yet.
+> **Status: early development (Phase 3).** The app starts, shows a live backend status, and can validate a pasted PostgreSQL connection string, but it cannot connect to a database yet. It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 
@@ -39,7 +39,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and [docs/architecture.md
 apps/
   web/             Next.js app: UI now, /api route handlers from Phase 2
 packages/
-  shared-types/    Constants and (from Phase 3) Zod schemas shared across workspaces
+  shared-types/    Constants and Zod schemas (API contracts) shared across workspaces
   cli/             The `datacanvas` command: starts the bundled server and opens the browser
 scripts/           Build scripts (assembles the npm package)
 docs/              Architecture notes and decision records

@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    // This package runs in Node AND in browsers. `URL` (used to parse
+    // connection strings) exists in both but is only typed by the DOM lib,
+    // not by plain ES2022. Take care not to use other browser-only APIs here.
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src"]
 }

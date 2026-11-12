@@ -1,0 +1,44 @@
+/**
+ * The single error shape used by every API route, so the UI can handle
+ * failures in one place:
+ *
+ *   { "error": { "code": "validation_error", "message": "...", "issues": [...] } }
+ *
+ * `code` is stable and machine-readable; `message` is a safe, human-readable
+ * sentence. SECURITY: neither may ever contain secrets, SQL, connection
+ * strings or raw driver errors; the browser (and logs) will see them.
+ */
+import { z } from "zod";
+
+/** Codes the server currently produces. Add new ones here so clients can switch on them. */
+export const API_ERROR_CODES = [
+  "not_found",
+  "invalid_json",
+  "validation_error",
+  "unsupported_media_type",
+  "payload_too_large",
+] as const;
+
+export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
+
+/** One problem found while validating a request, pointing at the field that caused it. */
+export const validationIssueSchema = z.object({
+  /** Dotted path to the offending field, e.g. "connectionString". Empty for the whole body. */
+  path: z.string(),
+  message: z.string(),
+});
+
+export type ValidationIssue = z.infer<typeof validationIssueSchema>;
+
+export const apiErrorResponseSchema = z.object({
+  error: z.object({
+    // Deliberately `string`, not the enum: an older UI must still be able to
+    // read an error code that a newer server invents.
+    code: z.string(),
+    message: z.string(),
+    /** Present for `validation_error`: one entry per invalid field. */
+    issues: z.array(validationIssueSchema).optional(),
+  }),
+});
+
+export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;

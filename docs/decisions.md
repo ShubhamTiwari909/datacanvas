@@ -103,3 +103,41 @@ Short records of choices that are not obvious from the code. Newest at the botto
 **Decision:** with no `--port`, the CLI uses 4747 or the next free port; with `--port N` it fails if N is busy.
 
 **Why:** a user who names a port wants exactly that one; silently using another would be surprising. The default is a convenience, so falling back is friendlier than failing.
+
+## 17. Zod schemas are the API contract
+
+**Decision:** request and response shapes are Zod schemas in `@datacanvas/shared-types`; TypeScript types are inferred from them (`z.infer`). Plain interfaces from Phase 2 were replaced.
+
+**Why:** one definition gives runtime validation and the compile-time type, and both the browser and the server use it, so they cannot disagree.
+
+**Trade-off:** Zod ships to the browser (the form validates there too). Accepted for a local app; `sideEffects: false` keeps the CLI from bundling it.
+
+## 18. Default TLS mode is "verify-full"
+
+**Decision:** when no SSL mode is given (field form default, or no `sslmode` in a pasted string), DataCanvas assumes `verify-full`. Only `disable`, `require` and `verify-full` exist; `verify-ca` is treated as `verify-full`; `allow` and `prefer` are rejected with a message.
+
+**Why:** libpq's default `prefer` silently falls back to an unencrypted connection, which is the wrong default for a tool that handles credentials. The cost is that a local database without TLS needs `?sslmode=disable` (or the "disable" option), so the UI should explain this when a connection fails (Phase 6).
+
+## 19. Strict, non-coercing request validation
+
+**Decision:** objects use `z.strictObject` (unknown keys are errors) and numbers are not coerced from strings.
+
+**Why:** the API is internal, so strictness costs nothing and catches client bugs early. Quietly accepting extra or mis-typed fields is how unexpected data reaches the database layer.
+
+## 20. Request hardening in the parsing helper
+
+**Decision:** `parseJsonBody` requires `Content-Type: application/json`, caps the body at 64 KB by streaming, and returns only generic validation messages.
+
+**Why:** the content-type rule blocks plain cross-site HTML form posts (a first, partial CSRF defence; Phase 10 adds Origin and token checks). Streaming the limit handles clients that omit or fake Content-Length. Generic messages avoid echoing secrets.
+
+## 21. A validate-only endpoint exists before Phase 6
+
+**Decision:** `POST /api/connections/validate` parses and normalises connection details without connecting.
+
+**Why:** it lets Phase 3 demonstrate server-side validation end to end (and lets the UI show what was understood) without database code. Phase 6 may keep or replace it.
+
+## 22. `shared-types` uses the DOM `lib` for the `URL` type
+
+**Decision:** its tsconfig includes `lib: ["ES2022", "DOM"]`.
+
+**Why:** `URL` exists at runtime in both Node and browsers but is typed only by the DOM lib. The package must therefore avoid other browser-only APIs; this is noted in its tsconfig.

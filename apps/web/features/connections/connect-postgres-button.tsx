@@ -2,8 +2,8 @@
  * "Connect PostgreSQL" call-to-action.
  *
  * This is a Client Component because it owns interactive state (is the dialog
- * open?). In Phase 1 the dialog is a placeholder; Phase 6 replaces its body
- * with the real connection form (paste a connection string, or fill fields).
+ * open?). The dialog holds the connection-string form; Phase 6 extends it
+ * with Test Connection, the fields-based form and saving.
  */
 "use client";
 
@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConnectionStringForm } from "./connection-string-form";
 
 export function ConnectPostgresButton() {
   // State: changing it re-renders this component and shows/hides the dialog.
@@ -31,11 +32,11 @@ export function ConnectPostgresButton() {
           <DialogHeader>
             <DialogTitle>Connect PostgreSQL</DialogTitle>
             <DialogDescription>
-              The connection form is coming in a later phase. You will be able to paste a connection
-              string or fill in host, port, database and credentials. Credentials stay on your
-              machine.
+              Paste a connection string. Credentials stay on your machine. For now DataCanvas only
+              checks the format; it does not connect yet.
             </DialogDescription>
           </DialogHeader>
+          <ConnectionStringForm />
         </DialogContent>
       </Dialog>
     </>

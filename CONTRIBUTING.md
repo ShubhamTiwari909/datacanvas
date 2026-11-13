@@ -77,3 +77,13 @@ docker compose -f examples/docker-compose.yml down -v
 ```
 
 Each run creates its own uniquely named database and role, loads `examples/ecommerce.sql`, and removes both afterwards. **Never point the variable at a server that holds data you care about.** It works with any PostgreSQL 12 or newer reachable over TCP (for example one started with `initdb` and `pg_ctl` on a spare port), as long as the account may create databases and roles and the server uses password authentication.
+
+## Where DataCanvas stores data
+
+Saved connections (never passwords) and workspaces live in `~/.datacanvas/` (`connections.json` and `workspaces/<id>.json`). Set `DATACANVAS_HOME` to use another folder, for example while testing by hand so your real data is not touched:
+
+```bash
+DATACANVAS_HOME=/tmp/dc-test npm run dev
+```
+
+Tests always use temporary folders, never the real one.

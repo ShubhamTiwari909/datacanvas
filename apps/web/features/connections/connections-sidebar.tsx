@@ -4,8 +4,18 @@
  */
 "use client";
 
-import { Plus, Unplug } from "lucide-react";
+import { Plug, Plus, Trash2, Unplug } from "lucide-react";
+import { useState } from "react";
+import type { ConnectionProfile } from "@datacanvas/shared-types";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SchemaTree } from "@/features/explorer/schema-tree";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -17,6 +27,13 @@ export function ConnectionsSidebar() {
   const selectConnection = useWorkspaceStore((s) => s.selectConnection);
   const removeConnection = useWorkspaceStore((s) => s.removeConnection);
   const openDialog = useWorkspaceStore((s) => s.openConnectDialog);
+  const profiles = useWorkspaceStore((s) => s.profiles);
+  const removeProfile = useWorkspaceStore((s) => s.removeProfile);
+  const [forgetTarget, setForgetTarget] = useState<ConnectionProfile | null>(null);
+
+  // Saved connections that are not currently open: these are offered for reconnecting.
+  const openProfileIds = new Set(connections.map((c) => c.profileId));
+  const saved = profiles.filter((p) => !openProfileIds.has(p.id));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -24,7 +41,12 @@ export function ConnectionsSidebar() {
         <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Connections
         </h2>
-        <Button variant="ghost" size="icon-xs" onClick={openDialog} aria-label="Add a connection">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => openDialog()}
+          aria-label="Add a connection"
+        >
           <Plus aria-hidden="true" />
         </Button>
       </div>
@@ -71,6 +93,70 @@ export function ConnectionsSidebar() {
           })}
         </ul>
       )}
+
+      {saved.length > 0 ? (
+        <div className="flex flex-col gap-1 border-t pt-3">
+          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Saved connections
+          </h2>
+          <ul className="flex flex-col gap-1">
+            {saved.map((profile) => (
+              <li key={profile.id} className="flex items-center gap-1">
+                <div className="flex min-w-0 flex-1 flex-col px-2 py-1">
+                  <span className="truncate text-sm font-medium">{profile.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {profile.database} @ {profile.host}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => openDialog(profile)}
+                  aria-label={`Connect ${profile.name} (asks for the password)`}
+                  title="Connect (asks for the password)"
+                >
+                  <Plug aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setForgetTarget(profile)}
+                  aria-label={`Forget ${profile.name}`}
+                  title="Forget this saved connection and its layouts"
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <Dialog open={forgetTarget !== null} onOpenChange={(open) => !open && setForgetTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Forget “{forgetTarget?.name}”?</DialogTitle>
+            <DialogDescription>
+              This removes the saved connection details AND the layouts saved for it. Your database
+              is not touched.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setForgetTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (forgetTarget) void removeProfile(forgetTarget.id);
+                setForgetTarget(null);
+              }}
+            >
+              Forget
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {selectedId ? (
         <div className="min-h-0 flex-1 overflow-y-auto border-t pt-3">

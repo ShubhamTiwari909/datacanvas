@@ -31,6 +31,12 @@ export const API_ERROR_CODES = [
   // Connection registry problems.
   "connection_not_found",
   "connection_limit_reached",
+  // Saved connections and workspaces.
+  "profile_not_found",
+  "workspace_not_found",
+  "workspace_limit_reached",
+  "invalid_workspace_file",
+  "storage_error",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

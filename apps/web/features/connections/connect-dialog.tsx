@@ -18,18 +18,23 @@ export function ConnectDialog() {
   const open = useWorkspaceStore((s) => s.connectDialogOpen);
   const close = useWorkspaceStore((s) => s.closeConnectDialog);
   const addConnection = useWorkspaceStore((s) => s.addConnection);
+  const prefill = useWorkspaceStore((s) => s.connectPrefill);
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : close())}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Connect PostgreSQL</DialogTitle>
+          <DialogTitle>{prefill ? `Reconnect ${prefill.name}` : "Connect PostgreSQL"}</DialogTitle>
           <DialogDescription>
             Paste a connection string or fill in the details, then connect to explore the database.
           </DialogDescription>
         </DialogHeader>
         {/* Remounted on each open (the Dialog unmounts its content when closed), so it starts empty. */}
-        <ConnectionForm onConnected={addConnection} />
+        <ConnectionForm
+          key={prefill?.id ?? "new"}
+          onConnected={addConnection}
+          initial={prefill ?? undefined}
+        />
       </DialogContent>
     </Dialog>
   );

@@ -26,6 +26,8 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import { useEffect, useRef, useState } from "react";
+import { ensureWorkspaceLoaded } from "@/features/workspaces/workspace-actions";
+import { WorkspaceBar } from "@/features/workspaces/workspace-bar";
 import { useCanvasStore, type TableFlowNode } from "@/stores/canvas-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { CanvasConnectionProvider } from "./canvas-context";
@@ -41,16 +43,36 @@ const NO_NODES: TableFlowNode[] = [];
 function CanvasInner({ connectionId }: { connectionId: string }) {
   const nodes = useCanvasStore((s) => s.canvases[connectionId]?.nodes) ?? NO_NODES;
   const layoutVersion = useCanvasStore((s) => s.canvases[connectionId]?.layoutVersion ?? 0);
+  const restoreVersion = useCanvasStore((s) => s.canvases[connectionId]?.restoreVersion ?? 0);
+  // Read once, at mount: lets a remounted canvas (after visiting "Table details") reopen where it was.
+  const [initialViewport] = useState(
+    () => useCanvasStore.getState().canvases[connectionId]?.viewport ?? undefined,
+  );
   const focusRequest = useCanvasStore((s) => s.focusRequest);
   const busy = useCanvasStore((s) => s.busy);
   const edges = useCanvasEdges(connectionId);
 
   const [gridVisible, setGridVisible] = useState(true);
 
-  const { fitView } = useReactFlow<TableFlowNode>();
+  const { fitView, setViewport } = useReactFlow<TableFlowNode>();
   // True once every node has been drawn and measured. Fitting the view before that would use wrong sizes.
   const nodesInitialized = useNodesInitialized();
-  const fittedVersion = useRef(0);
+  // Start from the current versions: on a REMOUNT nothing should be refitted or re-applied.
+  const fittedVersion = useRef(layoutVersion);
+  const restoredVersion = useRef(restoreVersion);
+
+  // When a connection's canvas is first shown, open its saved layout (if it has one).
+  useEffect(() => {
+    void ensureWorkspaceLoaded(connectionId);
+  }, [connectionId]);
+
+  // A saved layout was applied: put the pan and zoom back exactly as saved (no animation).
+  useEffect(() => {
+    if (restoredVersion.current === restoreVersion) return;
+    restoredVersion.current = restoreVersion;
+    const viewport = useCanvasStore.getState().canvases[connectionId]?.viewport;
+    if (viewport) void setViewport(viewport, { duration: 0 });
+  }, [restoreVersion, connectionId, setViewport]);
 
   // Fit everything on screen when the whole layout changed (first tables added, or "reset layout").
   useEffect(() => {
@@ -71,50 +93,58 @@ function CanvasInner({ connectionId }: { connectionId: string }) {
   }, [focusRequest, nodesInitialized, nodes, connectionId, fitView]);
 
   return (
-    <div className="h-full w-full" data-testid="canvas">
-      <ReactFlow<TableFlowNode>
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={(changes) => useCanvasStore.getState().applyChanges(connectionId, changes)}
-        onNodeDoubleClick={(_event, node) => {
-          const workspace = useWorkspaceStore.getState();
-          workspace.selectTable({ schema: node.data.schema, name: node.data.name });
-          workspace.setView("details");
-        }}
-        minZoom={0.05}
-        maxZoom={2}
-        // Tables are never connected by dragging: relationships come from the database.
-        nodesConnectable={false}
-        deleteKeyCode={["Backspace", "Delete"]}
-        // With hundreds of tables, only draw what is on screen.
-        onlyRenderVisibleElements
-        colorMode="light"
-        aria-label="Database canvas"
-      >
-        {gridVisible ? <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} /> : null}
-        <MiniMap pannable zoomable ariaLabel="Overview of all tables" />
-        <Controls showInteractive={false} />
-        <Panel position="top-left">
-          <CanvasToolbar
-            connectionId={connectionId}
-            gridVisible={gridVisible}
-            onToggleGrid={() => setGridVisible((v) => !v)}
-          />
-        </Panel>
-        {nodes.length === 0 && !busy ? (
-          // Centered over the canvas and click-through, so it never covers the toolbar or blocks panning.
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="rounded-lg border bg-background/90 p-6 text-center shadow-sm backdrop-blur">
-              <h2 className="text-lg font-semibold">The canvas is empty</h2>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Click a table in the sidebar to add it, or use the grid button next to a schema to
-                add all of its tables.
-              </p>
+    <div className="flex h-full w-full flex-col" data-testid="canvas">
+      <WorkspaceBar connectionId={connectionId} />
+      <div className="min-h-0 flex-1">
+        <ReactFlow<TableFlowNode>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={(changes) => useCanvasStore.getState().applyChanges(connectionId, changes)}
+          onNodeDoubleClick={(_event, node) => {
+            const workspace = useWorkspaceStore.getState();
+            workspace.selectTable({ schema: node.data.schema, name: node.data.name });
+            workspace.setView("details");
+          }}
+          defaultViewport={initialViewport}
+          // Remember where the user has panned and zoomed to (saved with the workspace).
+          onMoveEnd={(_event, viewport) =>
+            useCanvasStore.getState().setViewport(connectionId, viewport)
+          }
+          minZoom={0.05}
+          maxZoom={2}
+          // Tables are never connected by dragging: relationships come from the database.
+          nodesConnectable={false}
+          deleteKeyCode={["Backspace", "Delete"]}
+          // With hundreds of tables, only draw what is on screen.
+          onlyRenderVisibleElements
+          colorMode="light"
+          aria-label="Database canvas"
+        >
+          {gridVisible ? <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} /> : null}
+          <MiniMap pannable zoomable ariaLabel="Overview of all tables" />
+          <Controls showInteractive={false} />
+          <Panel position="top-left">
+            <CanvasToolbar
+              connectionId={connectionId}
+              gridVisible={gridVisible}
+              onToggleGrid={() => setGridVisible((v) => !v)}
+            />
+          </Panel>
+          {nodes.length === 0 && !busy ? (
+            // Centered over the canvas and click-through, so it never covers the toolbar or blocks panning.
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="rounded-lg border bg-background/90 p-6 text-center shadow-sm backdrop-blur">
+                <h2 className="text-lg font-semibold">The canvas is empty</h2>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                  Click a table in the sidebar to add it, or use the grid button next to a schema to
+                  add all of its tables.
+                </p>
+              </div>
             </div>
-          </div>
-        ) : null}
-      </ReactFlow>
+          ) : null}
+        </ReactFlow>
+      </div>
     </div>
   );
 }

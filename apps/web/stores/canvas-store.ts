@@ -23,6 +23,7 @@ import {
   type Rect,
 } from "@datacanvas/canvas-engine";
 import type { TableRef } from "@datacanvas/database-core";
+import type { SavedViewport } from "@datacanvas/shared-types";
 import { applyNodeChanges, type Node, type NodeChange } from "@xyflow/react";
 import { create } from "zustand";
 
@@ -33,6 +34,12 @@ export interface TableNodeData extends Record<string, unknown> {
   expanded: boolean;
   /** Only used to ESTIMATE the node's height for layout before it has been drawn. */
   columnCount: number;
+  /**
+   * True for a table that a SAVED layout mentions but that no longer exists in
+   * the database. It is kept (and saved again) so nothing is lost, but drawn as
+   * a warning card. Never saved itself: it is worked out again on every restore.
+   */
+  missing: boolean;
 }
 
 export type TableFlowNode = Node<TableNodeData, "table">;
@@ -41,6 +48,20 @@ interface CanvasState {
   nodes: TableFlowNode[];
   /** Bumped when the whole layout changes, so the view knows to fit everything on screen. */
   layoutVersion: number;
+  /** The pan and zoom last reported by the canvas (saved with the workspace), or null before any. */
+  viewport: SavedViewport | null;
+  /** Bumped when a saved layout is applied, so the view applies `viewport` instead of fitting. */
+  restoreVersion: number;
+}
+
+/** One table of a saved layout, ready to be put on the canvas. */
+export interface RestoredNode {
+  ref: TableRef;
+  x: number;
+  y: number;
+  expanded: boolean;
+  columnCount: number;
+  missing: boolean;
 }
 
 /** A table to add, with the number of columns it has (for layout estimates). */
@@ -64,13 +85,18 @@ interface CanvasStore {
   selectOnly: (connectionId: string, nodeId: string) => void;
   removeSelected: (connectionId: string) => void;
   resetLayout: (connectionId: string) => void;
+  setViewport: (connectionId: string, viewport: SavedViewport) => void;
+  /** Replace the whole canvas with a saved layout. */
+  restore: (connectionId: string, nodes: RestoredNode[], viewport: SavedViewport | null) => void;
+  /** Remove every table from the canvas. */
+  clearCanvas: (connectionId: string) => void;
   requestFocus: (connectionId: string, nodeId: string) => void;
   clearFocus: () => void;
   setStatus: (status: { busy: boolean; error: string | null }) => void;
   dropConnection: (connectionId: string) => void;
 }
 
-const EMPTY: CanvasState = { nodes: [], layoutVersion: 0 };
+const EMPTY: CanvasState = { nodes: [], layoutVersion: 0, viewport: null, restoreVersion: 0 };
 
 /** Size of a node on screen: the measured size once drawn, otherwise our estimate. */
 function rectOf(node: TableFlowNode): Rect {
@@ -134,9 +160,11 @@ export const useCanvasStore = create<CanvasStore>((set) => {
             name: t.ref.name,
             expanded: false,
             columnCount: t.columnCount,
+            missing: false,
           },
         }));
         return {
+          ...canvas,
           nodes: [...canvas.nodes, ...added],
           // The first batch on an empty canvas should fill the screen.
           layoutVersion:
@@ -196,10 +224,40 @@ export const useCanvasStore = create<CanvasStore>((set) => {
           })),
         );
         return {
+          ...canvas,
           nodes: canvas.nodes.map((n) => ({ ...n, position: layout.get(n.id) ?? n.position })),
           layoutVersion: canvas.layoutVersion + 1,
         };
       });
+    },
+
+    setViewport(connectionId, viewport) {
+      update(connectionId, (canvas) => ({ ...canvas, viewport }));
+    },
+
+    restore(connectionId, nodes, viewport) {
+      update(connectionId, (canvas) => ({
+        nodes: nodes.map((n) => ({
+          id: nodeIdFor(n.ref),
+          type: "table" as const,
+          position: { x: n.x, y: n.y },
+          data: {
+            schema: n.ref.schema,
+            name: n.ref.name,
+            expanded: n.expanded,
+            columnCount: n.columnCount,
+            missing: n.missing,
+          },
+        })),
+        viewport,
+        // A saved viewport is applied as it is; without one, fit everything on screen.
+        restoreVersion: viewport ? canvas.restoreVersion + 1 : canvas.restoreVersion,
+        layoutVersion: viewport ? canvas.layoutVersion : canvas.layoutVersion + 1,
+      }));
+    },
+
+    clearCanvas(connectionId) {
+      update(connectionId, (canvas) => ({ ...canvas, nodes: [], viewport: null }));
     },
 
     requestFocus(connectionId, nodeId) {

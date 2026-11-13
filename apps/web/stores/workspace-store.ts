@@ -9,11 +9,17 @@
  * The SERVER is the source of truth for connections (credentials live there);
  * this store only mirrors the password-free summaries.
  */
-import type { ConnectionSummary } from "@datacanvas/shared-types";
+import type { ConnectionProfile, ConnectionSummary } from "@datacanvas/shared-types";
 import { create } from "zustand";
-import { deleteConnection, listConnections } from "@/features/connections/api";
+import {
+  deleteConnection,
+  deleteProfile,
+  listConnections,
+  listProfiles,
+} from "@/features/connections/api";
 import { useCanvasStore } from "./canvas-store";
 import { useMetadataStore } from "./metadata-store";
+import { usePersistenceStore } from "./persistence-store";
 
 /** What the main area shows for the selected connection. */
 export type WorkspaceView = "canvas" | "details";
@@ -25,6 +31,8 @@ export interface SelectedTable {
 
 interface WorkspaceState {
   connections: ConnectionSummary[];
+  /** Saved connections (no passwords). Those without a live connection are offered for reconnecting. */
+  profiles: ConnectionProfile[];
   /** Loading state of the initial connection list. */
   status: "loading" | "ready" | "error";
   loadError: string | null;
@@ -35,6 +43,8 @@ interface WorkspaceState {
   selectedTable: SelectedTable | null;
   view: WorkspaceView;
   connectDialogOpen: boolean;
+  /** When set, the dialog reconnects this saved connection (only the password is asked). */
+  connectPrefill: ConnectionProfile | null;
 
   loadConnections: () => Promise<void>;
   addConnection: (connection: ConnectionSummary) => void;
@@ -42,12 +52,16 @@ interface WorkspaceState {
   selectConnection: (id: string) => void;
   selectTable: (table: SelectedTable | null) => void;
   setView: (view: WorkspaceView) => void;
-  openConnectDialog: () => void;
+  openConnectDialog: (prefill?: ConnectionProfile) => void;
+  updateConnection: (connection: ConnectionSummary) => void;
+  refreshProfiles: () => Promise<void>;
+  removeProfile: (id: string) => Promise<void>;
   closeConnectDialog: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   connections: [],
+  profiles: [],
   status: "loading",
   loadError: null,
   actionError: null,
@@ -55,10 +69,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   selectedTable: null,
   view: "canvas",
   connectDialogOpen: false,
+  connectPrefill: null,
 
   async loadConnections() {
     set({ status: "loading", loadError: null });
-    const result = await listConnections();
+    // Live connections (kept in server memory) and saved ones (kept on disk) are separate lists.
+    const [result, profiles] = await Promise.all([listConnections(), listProfiles()]);
     if (!result.ok) {
       set({ status: "error", loadError: result.error.message });
       return;
@@ -68,6 +84,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const stillExists = result.data.some((c) => c.id === selected);
     set({
       status: "ready",
+      // If the saved list could not be read, show none rather than blocking the app.
+      profiles: profiles.ok ? profiles.data : [],
       connections: result.data,
       selectedConnectionId: stillExists ? selected : (result.data[0]?.id ?? null),
       selectedTable: stillExists ? get().selectedTable : null,
@@ -80,6 +98,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       selectedConnectionId: connection.id,
       selectedTable: null,
       connectDialogOpen: false,
+      connectPrefill: null,
       actionError: null,
     }));
   },
@@ -94,6 +113,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Forget everything derived from this connection: its canvas and cached structure.
     useCanvasStore.getState().dropConnection(id);
     useMetadataStore.getState().forgetConnection(id);
+    usePersistenceStore.getState().forgetConnection(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;
@@ -121,11 +141,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ view });
   },
 
-  openConnectDialog() {
-    set({ connectDialogOpen: true });
+  openConnectDialog(prefill) {
+    set({ connectDialogOpen: true, connectPrefill: prefill ?? null });
+  },
+
+  updateConnection(connection) {
+    set((state) => ({
+      connections: state.connections.map((c) => (c.id === connection.id ? connection : c)),
+    }));
+  },
+
+  async refreshProfiles() {
+    const result = await listProfiles();
+    if (result.ok) set({ profiles: result.data });
+  },
+
+  async removeProfile(id) {
+    const result = await deleteProfile(id);
+    if (!result.ok && result.error.code !== "profile_not_found") {
+      set({ actionError: result.error.message });
+      return;
+    }
+    set((state) => ({
+      profiles: state.profiles.filter((p) => p.id !== id),
+      actionError: null,
+      // The server unlinked any live connection opened from it; mirror that here.
+      connections: state.connections.map((c) =>
+        c.profileId === id ? { ...c, profileId: null } : c,
+      ),
+    }));
   },
 
   closeConnectDialog() {
-    set({ connectDialogOpen: false });
+    set({ connectDialogOpen: false, connectPrefill: null });
   },
 }));

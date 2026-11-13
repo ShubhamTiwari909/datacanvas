@@ -105,6 +105,7 @@ describe("connectionSummarySchema", () => {
     username: "alice",
     sslMode: "disable",
     hasPassword: true,
+    profileId: null,
   };
 
   it("accepts a summary and has no place for a password", () => {

@@ -346,3 +346,72 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - **Edges are plain curves** that can pass behind other tables; better routing and layouts come in Phase 9.
 - **Accessibility:** buttons and inputs are labelled, but dragging and edge navigation are mouse-oriented.
 - **Measured performance** (packed app, 120 tables and 136 foreign keys, all visible): adding the whole schema took well under 2 s including the request; a zoom sweep averaged 18.6 ms per frame (p95 43 ms, worst 79 ms) in the in-app browser. Real hardware and larger schemas were not measured.
+
+## 55. Data lives in `~/.datacanvas`, as owner-only JSON files
+
+**Decision:** `connections.json` plus `workspaces/<id>.json`, in the user's home folder (override with `DATACANVAS_HOME`). Folders are created mode 0700 and files 0600 (no effect on Windows).
+
+**Why:** works regardless of port or browser, is human-readable, and a person can back it up or delete it. Table names can be sensitive, so owner-only permissions are the sensible default. Tests and manual runs use temporary folders; a test suite run leaves the real folder untouched (verified).
+
+## 56. Atomic writes through a temporary file and rename
+
+**Decision:** all writes go to a temporary file in the same folder, are flushed, and are then renamed over the target. Read-modify-write sequences on one file are serialised by an in-process mutex.
+
+**Why:** a crash, full disk or power loss must never leave a half-written file. **Limits:** the folder itself is not fsynced (a power cut right after a save could still lose that one rename), and the mutex only protects against other requests in the same process, which is all that runs (DataCanvas is one local server).
+
+## 57. Two versioned file formats with a migration chain
+
+**Decision:** every file has `format` and `schemaVersion`; upgrades run as `migrations[n]` (n to n+1) before validation; newer versions are refused. Unknown keys inside the current version are stripped, not rejected.
+
+**Why:** old files keep opening after upgrades, and the rest of the code sees one layout. Refusing newer files means an older release cannot read a file, drop the fields it does not know, and save it back, silently destroying data. **Trade-off:** stripping unknown keys inside one version means they would be lost if an older patch release re-saved the file; because layout changes bump the version, that should not occur in practice.
+
+## 58. A workspace stores layout only
+
+**Decision:** tables, positions, expanded flags and viewport; never credentials, column metadata or selection.
+
+**Why:** metadata in a saved file goes stale and doubles the file; credentials must never be on disk; selection is moment-to-moment. A table name plus position is enough to rebuild the canvas from the live database.
+
+## 59. Connection profiles are opt-out, never contain a password
+
+**Decision:** a "Save this connection for next time" checkbox (checked by default) stores host, port, database, user and SSL mode. Reconnecting asks only for the password. The same database is saved once (matching provider, host, port, database and user). Forgetting a profile deletes its workspaces and unlinks any live connection opened from it.
+
+**Why:** local-only, non-secret data, and it is what makes "reopen and find my layout" possible. Defaulting to saved is a privacy trade-off: a user who prefers nothing on disk unticks it, and the host, database and user name are the only things written.
+
+## 60. Layouts are tied to saved connections
+
+**Decision:** autosave only runs for a connection linked to a profile. Others show "This layout is not saved" with a "Save connection" button, which also saves the layout already on screen.
+
+**Why:** a file needs something stable to be found by after a restart; a live connection id changes on every run.
+
+## 61. Autosave design
+
+**Decision:** 800 ms debounce after the last change; skip when the saved document would be identical (signature comparison, positions rounded to 0.1, zoom to 0.001); one save in flight per connection with a follow-up if needed; flush before switching, creating or exporting.
+
+**Why:** dragging fires many events a second, and selection or measurement changes must not touch the disk. **Limit:** after a failed save (for example a full disk) the status shows the error and the next change tries again; there is no background retry loop.
+
+## 62. Stale tables are flagged, not dropped
+
+**Decision:** restoring lists each referenced schema once; tables that no longer exist stay on the canvas as "no longer exists" cards and are saved again with the layout.
+
+**Why:** a temporary difference (pointing the layout at a staging database, a table being renamed) must not destroy the user's arrangement. One listing per schema is far cheaper than one request per table.
+
+## 63. Import never overwrites; export is a plain GET
+
+**Decision:** an import is upgraded, validated, and saved as a NEW workspace attached to the chosen saved connection. An export drops the machine-specific `profileId`, keeps a display-only hint (connection name and database), and uses a header-safe file name (printable ASCII only, no quotes).
+
+**Why:** importing an untrusted file must not be able to replace existing work or inject headers. **Note:** the export is a GET that returns table names; until Phase 10 adds request authentication it is protected only by the loopback binding.
+
+## 64. Corrupt or foreign files
+
+**Decision:** damaged workspace files are skipped (and left in place); a damaged `connections.json` is moved aside as `connections.damaged-<time>.json` and a fresh one is started; a file from a newer release is refused and left untouched.
+
+**Why:** a corrupt file must neither block the feature forever nor be silently deleted.
+
+## 65. Known limits of Phase 8
+
+- Two DataCanvas processes sharing one data folder are not coordinated.
+- A deleted workspace cannot be undone.
+- Several workspaces may share a name.
+- The browser decides where an exported file is saved.
+- There is no setting for a custom data folder in the UI (use `DATACANVAS_HOME`).
+- Reconnecting a saved connection after a restart always needs the password.

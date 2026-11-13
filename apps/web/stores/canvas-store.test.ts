@@ -29,11 +29,12 @@ describe("addTables", () => {
     expect(nodes()[0]).toMatchObject({
       id: id("users"),
       type: "table",
-      data: { schema: "public", name: "users", expanded: false, columnCount: 7 },
+      data: { schema: "public", name: "users", expanded: false, columnCount: 7, missing: false },
     });
     expect(Object.keys(nodes()[0]?.data ?? {}).sort()).toEqual([
       "columnCount",
       "expanded",
+      "missing",
       "name",
       "schema",
     ]);

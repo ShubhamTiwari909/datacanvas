@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { CanvasView } from "@/features/canvas/canvas-view";
 import { ConnectDialog } from "@/features/connections/connect-dialog";
 import { WelcomePanel } from "@/features/connections/welcome-panel";
+import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
 
@@ -60,6 +61,9 @@ export function Workspace() {
   const table = useWorkspaceStore((s) => s.selectedTable);
   const view = useWorkspaceStore((s) => s.view);
   const loadConnections = useWorkspaceStore((s) => s.loadConnections);
+
+  // Keep the saved layout up to date while the user works (stops when the page closes).
+  useEffect(() => autosaver.start(), []);
 
   // Ask the server which connections exist (they survive a page reload).
   useEffect(() => {

@@ -27,7 +27,7 @@ function failure(code: string, message: string, issues: ValidationIssue[] = []):
 export async function apiRequest<S extends z.ZodType>(
   path: string,
   schema: S,
-  options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {},
+  options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {},
 ): Promise<ApiResult<z.output<S>>> {
   let response: Response;
   try {

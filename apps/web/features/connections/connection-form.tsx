@@ -17,6 +17,7 @@ import { useState, type FormEvent } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 import {
   defaultSslMode,
+  type ConnectionProfile,
   postgresConnectionInputSchema,
   type ConnectionSummary,
   type PostgresSslMode,
@@ -118,18 +119,26 @@ function SecretField({
 
 export function ConnectionForm({
   onConnected,
+  initial,
 }: {
   onConnected: (connection: ConnectionSummary) => void;
+  /**
+   * A SAVED connection being reconnected. Its saved details fill the form, so
+   * only the password (which is never saved) has to be typed.
+   */
+  initial?: ConnectionProfile;
 }) {
-  const [mode, setMode] = useState<Mode>("string");
-  const [name, setName] = useState("");
+  const [mode, setMode] = useState<Mode>(initial ? "fields" : "string");
+  const [name, setName] = useState(initial?.name ?? "");
   const [connectionString, setConnectionString] = useState("");
-  const [host, setHost] = useState("localhost");
-  const [port, setPort] = useState("5432");
-  const [database, setDatabase] = useState("");
-  const [username, setUsername] = useState("");
+  const [host, setHost] = useState(initial?.host ?? "localhost");
+  const [port, setPort] = useState(String(initial?.port ?? 5432));
+  const [database, setDatabase] = useState(initial?.database ?? "");
+  const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
-  const [ssl, setSsl] = useState<SslChoice>("auto");
+  const [ssl, setSsl] = useState<SslChoice>(initial?.sslMode ?? "auto");
+  // Offered for NEW connections: keep host, database and user (never the password) for next time.
+  const [remember, setRemember] = useState(true);
 
   const [busy, setBusy] = useState<Action | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -137,8 +146,12 @@ export function ConnectionForm({
   const [success, setSuccess] = useState<string | null>(null);
 
   /** The request body for the current mode, or field errors if the port is not a number. */
-  function buildInput(): { input: unknown } | { errors: FieldErrors } {
-    if (mode === "string") return { input: { mode: "string", name, connectionString } };
+  function buildInput(action: Action): { input: unknown } | { errors: FieldErrors } {
+    // What to do with the connection once it works. A reconnected profile is linked; a new one is saved if asked.
+    const persistence =
+      action === "connect" ? (initial ? { profileId: initial.id } : { remember }) : {};
+    if (mode === "string")
+      return { input: { mode: "string", name, connectionString, ...persistence } };
     if (port.trim() !== "" && !/^\d+$/.test(port.trim())) {
       return { errors: { port: "Port must be a whole number." } };
     }
@@ -152,6 +165,7 @@ export function ConnectionForm({
         username,
         password,
         ...(ssl !== "auto" ? { sslMode: ssl } : {}),
+        ...persistence,
       },
     };
   }
@@ -160,7 +174,7 @@ export function ConnectionForm({
     setFormError(null);
     setSuccess(null);
 
-    const built = buildInput();
+    const built = buildInput(action);
     if ("errors" in built) return setFieldErrors(built.errors);
 
     // Step 1: browser-side validation with the shared schema.
@@ -202,6 +216,12 @@ export function ConnectionForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+      {initial ? (
+        <p className="rounded-md border bg-muted p-3 text-sm">
+          Reconnecting <strong>{initial.name}</strong>. DataCanvas saved where this database is, but
+          never the password: enter it to connect. Your saved layouts will open again.
+        </p>
+      ) : null}
       <Field
         id="connection-name"
         label="Connection name"
@@ -308,6 +328,24 @@ export function ConnectionForm({
         DataCanvas only reads the structure of your database, never its rows. A read-only database
         user is recommended. Credentials stay on this machine, in memory.
       </p>
+
+      {!initial ? (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          <span>
+            Save this connection for next time
+            <span className="block text-xs text-muted-foreground">
+              Keeps the host, database and user name on this computer so your layouts can be
+              reopened. The password is never saved.
+            </span>
+          </span>
+        </label>
+      ) : null}
 
       {formError ? (
         <p role="alert" className="text-sm text-destructive">

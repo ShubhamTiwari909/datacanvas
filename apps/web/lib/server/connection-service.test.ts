@@ -35,6 +35,92 @@ describe("ConnectionService", () => {
     );
   });
 
+  describe("saving connections (profiles)", () => {
+    it("does not save anything unless asked", async () => {
+      const { connections, profiles } = createTestContext();
+      const summary = await connections.createConnection(input());
+      expect(summary.profileId).toBeNull();
+      expect(await profiles.list()).toEqual([]);
+    });
+
+    it("remember saves the non-secret details, and the summary is linked to the profile", async () => {
+      const { connections, profiles } = createTestContext();
+      const summary = await connections.createConnection(input({ remember: true }));
+
+      const [saved] = await profiles.list();
+      expect(summary.profileId).toBe(saved?.id);
+      expect(saved).toMatchObject({
+        name: "Shop",
+        host: "localhost",
+        database: "shop",
+        username: "alice",
+        sslMode: "disable",
+      });
+      expect(JSON.stringify(saved)).not.toContain("s3cret-pw"); // the password is never saved
+    });
+
+    it("remembering the same database twice keeps one profile", async () => {
+      const { connections, profiles } = createTestContext();
+      const a = await connections.createConnection(input({ remember: true }));
+      const b = await connections.createConnection(input({ remember: true }));
+      expect(b.profileId).toBe(a.profileId);
+      expect(await profiles.list()).toHaveLength(1);
+    });
+
+    it("reconnecting an existing profile links to it without creating another", async () => {
+      const { connections, profiles } = createTestContext();
+      const first = await connections.createConnection(input({ remember: true }));
+      await connections.deleteConnection(first.id);
+
+      const again = await connections.createConnection(
+        input({ profileId: first.profileId as string }),
+      );
+
+      expect(again.profileId).toBe(first.profileId);
+      expect(await profiles.list()).toHaveLength(1);
+    });
+
+    it("refuses to link to a profile that does not exist, without opening a connection", async () => {
+      const { connections, createdAdapters } = createTestContext();
+      await expect(
+        connections.createConnection(input({ profileId: "profile-missing1" })),
+      ).rejects.toMatchObject({
+        code: "profile_not_found",
+      });
+      expect(createdAdapters).toHaveLength(0);
+    });
+
+    it("saves nothing when connecting fails", async () => {
+      const { connections, profiles } = createTestContext();
+      await expect(
+        connections.createConnection(input({ remember: true, password: "wrong-password" })),
+      ).rejects.toMatchObject({
+        code: "authentication_failed",
+      });
+      expect(await profiles.list()).toEqual([]);
+    });
+
+    it("saveConnection saves a connection that was opened without remembering it", async () => {
+      const { connections, profiles } = createTestContext();
+      const opened = await connections.createConnection(input());
+
+      const saved = await connections.saveConnection(opened.id);
+
+      expect(saved.profileId).toBeTruthy();
+      expect(await profiles.list()).toHaveLength(1);
+      expect(connections.listConnections()[0]?.profileId).toBe(saved.profileId); // the live entry is updated too
+      expect((await connections.saveConnection(opened.id)).profileId).toBe(saved.profileId); // idempotent
+      expect(await profiles.list()).toHaveLength(1);
+    });
+
+    it("saveConnection rejects an unknown connection", async () => {
+      const { connections } = createTestContext();
+      await expect(connections.saveConnection("nope")).rejects.toMatchObject({
+        code: "connection_not_found",
+      });
+    });
+  });
+
   it("stores nothing when connecting fails", async () => {
     const { connections } = createTestContext();
     await expect(

@@ -14,6 +14,7 @@
  *   - only `PostgresConnectionSummary` (no password) is safe to send back to a client.
  */
 import { z } from "zod";
+import { profileIdSchema } from "./ids.js";
 
 // ---------------------------------------------------------------------------
 // Field rules (shared by both modes)
@@ -172,6 +173,19 @@ export function parsePostgresConnectionString(raw: string): ParseResult<ParsedCo
 // Request schemas (what the browser sends)
 // ---------------------------------------------------------------------------
 
+/**
+ * Fields that say what to do with the connection AFTER it works. They are not
+ * part of the connection itself and are never sent to the database.
+ *   remember   save the connection's non-secret details as a profile
+ *              (the password is never saved);
+ *   profileId  this connection IS an existing saved profile being reconnected
+ *              (so no second profile is created).
+ */
+const persistenceFields = {
+  remember: z.boolean().optional(),
+  profileId: profileIdSchema.optional(),
+};
+
 /** Mode "fields": every part supplied separately. Unknown keys are rejected (strictObject). */
 export const postgresFieldsInputSchema = z.strictObject({
   mode: z.literal("fields"),
@@ -183,6 +197,7 @@ export const postgresFieldsInputSchema = z.strictObject({
   password: passwordSchema.default(""),
   // Optional: when omitted the host decides (see `defaultSslMode`).
   sslMode: sslModeSchema.optional(),
+  ...persistenceFields,
 });
 
 /** Mode "string": a pasted connection URL. The string is parsed during validation. */
@@ -191,6 +206,7 @@ export const postgresStringInputSchema = z
     mode: z.literal("string"),
     name: nameSchema,
     connectionString: z.string().trim().min(1, "Paste a connection string.").max(2048),
+    ...persistenceFields,
   })
   .superRefine((value, ctx) => {
     const parsed = parsePostgresConnectionString(value.connectionString);
@@ -232,7 +248,7 @@ export function resolvePostgresConnection(
   input: PostgresConnectionInput,
 ): ResolvedPostgresConnection {
   if (input.mode === "fields") {
-    const { mode: _mode, sslMode, ...rest } = input;
+    const { mode: _mode, sslMode, remember: _remember, profileId: _profileId, ...rest } = input;
     return { ...rest, sslMode: sslMode ?? defaultSslMode(input.host) };
   }
   const parsed = parsePostgresConnectionString(input.connectionString);

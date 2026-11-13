@@ -12,13 +12,20 @@ import {
 } from "@datacanvas/postgres-adapter/testing";
 import { postgresConnectionInputSchema } from "@datacanvas/shared-types";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { ConnectionRegistry } from "./connection-registry";
+import { ProfileService } from "./profile-service";
+import { ProfileStorage } from "./storage/profile-storage";
+import { WorkspaceStorage } from "./storage/workspace-storage";
 import { ConnectionService, type ProviderConfigs } from "./connection-service";
 
 describe.skipIf(!testDatabaseUrl())("ConnectionService with real PostgreSQL", () => {
   let db: TestDatabase;
   let registry: ConnectionRegistry;
   let service: ConnectionService;
+  let dataDir: string;
 
   const input = (overrides: Record<string, unknown> = {}) =>
     postgresConnectionInputSchema.parse({
@@ -37,12 +44,18 @@ describe.skipIf(!testDatabaseUrl())("ConnectionService with real PostgreSQL", ()
     const adapters = new AdapterRegistry<ProviderConfigs>();
     adapters.register("postgresql", createPostgresAdapter);
     registry = new ConnectionRegistry({ idleTimeoutMs: 1 });
-    service = new ConnectionService({ adapters, connections: registry });
+    dataDir = mkdtempSync(path.join(os.tmpdir(), "datacanvas-test-"));
+    const profiles = new ProfileService({
+      profiles: new ProfileStorage(dataDir),
+      workspaces: new WorkspaceStorage(dataDir),
+    });
+    service = new ConnectionService({ adapters, connections: registry, profiles });
   });
 
   afterAll(async () => {
     await registry.dispose();
     await db.dispose();
+    rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("connects, explores and disconnects", async () => {

@@ -35,6 +35,11 @@ export const DATABASE_ERROR_STATUS: Record<DatabaseErrorCode, number> = {
 const SERVICE_ERROR_STATUS = {
   connection_not_found: 404,
   connection_limit_reached: 409,
+  profile_not_found: 404,
+  workspace_not_found: 404,
+  workspace_limit_reached: 409,
+  invalid_workspace_file: 400,
+  storage_error: 500,
 } as const;
 
 /** A log-safe description: names and codes only, never messages (they may hold secrets). */
@@ -53,6 +58,9 @@ function describeForLog(error: unknown): string {
 
 export function toErrorResponse(error: unknown): Response {
   if (error instanceof ServiceError) {
+    if (error.code === "storage_error") {
+      console.error(`[datacanvas] storage error: ${describeForLog(error)}`);
+    }
     return errorResponse(error.code, error.message, SERVICE_ERROR_STATUS[error.code]);
   }
   if (isDatabaseError(error)) {

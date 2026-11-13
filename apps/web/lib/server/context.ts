@@ -13,9 +13,16 @@ import { AdapterRegistry } from "@datacanvas/database-core";
 import { createPostgresAdapter } from "@datacanvas/postgres-adapter";
 import { ConnectionRegistry } from "./connection-registry";
 import { ConnectionService, type ProviderConfigs } from "./connection-service";
+import { ProfileService } from "./profile-service";
+import { ProfileStorage } from "./storage/profile-storage";
+import { resolveDataDir } from "./storage/data-dir";
+import { WorkspaceStorage } from "./storage/workspace-storage";
+import { WorkspaceService } from "./workspace-service";
 
 export interface ServerContext {
   connections: ConnectionService;
+  profiles: ProfileService;
+  workspaces: WorkspaceService;
 }
 
 const CONTEXT_KEY = Symbol.for("datacanvas.server-context");
@@ -28,7 +35,17 @@ function createServerContext(): ServerContext {
   const registry = new ConnectionRegistry();
   registry.startIdleSweeper();
 
-  return { connections: new ConnectionService({ adapters, connections: registry }) };
+  // Files live in the user's data folder (see storage/data-dir.ts); nothing is created until the first save.
+  const dataDir = resolveDataDir();
+  const profileStorage = new ProfileStorage(dataDir);
+  const workspaceStorage = new WorkspaceStorage(dataDir);
+  const profiles = new ProfileService({ profiles: profileStorage, workspaces: workspaceStorage });
+
+  return {
+    connections: new ConnectionService({ adapters, connections: registry, profiles }),
+    profiles,
+    workspaces: new WorkspaceService({ workspaces: workspaceStorage, profiles: profileStorage }),
+  };
 }
 
 export function getServerContext(): ServerContext {

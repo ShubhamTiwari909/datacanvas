@@ -14,6 +14,7 @@ import {
   tableDetailsEntrySchema,
   tableInfoSchema,
 } from "./metadata.js";
+import { profileIdSchema } from "./ids.js";
 import { postgresConnectionSummarySchema } from "./postgres-connection.js";
 
 /** The server's connection identifiers: unguessable URL-safe tokens. */
@@ -40,6 +41,8 @@ export const tablesDetailsRequestSchema = z.strictObject({
 export const connectionSummarySchema = postgresConnectionSummarySchema.extend({
   id: connectionIdSchema,
   provider: z.literal("postgresql"),
+  /** The saved profile this connection belongs to, or null when it was not saved. */
+  profileId: profileIdSchema.nullable(),
 });
 export type ConnectionSummary = z.infer<typeof connectionSummarySchema>;
 

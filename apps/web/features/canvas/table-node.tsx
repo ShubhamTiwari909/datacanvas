@@ -21,7 +21,7 @@ import {
   COLLAPSED_COLUMN_LIMIT,
 } from "@datacanvas/canvas-engine";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Eye, KeyRound, Layers, Link2, Table2 } from "lucide-react";
+import { AlertTriangle, Eye, KeyRound, Layers, Link2, Table2 } from "lucide-react";
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type TableFlowNode } from "@/stores/canvas-store";
@@ -45,6 +45,31 @@ function TableNodeComponent({ id, data, selected }: NodeProps<TableFlowNode>) {
       new Set((entry?.constraints ?? []).filter((c) => c.kind === kind).flatMap((c) => c.columns));
     return { primary: columnsOf("primary_key"), foreign: columnsOf("foreign_key") };
   }, [entry]);
+
+  // A table a saved layout mentions but the database no longer has. Drawn as a
+  // clear warning (no connection points, so no edges), and kept so nothing is lost.
+  if (data.missing) {
+    return (
+      <div
+        className={cn(
+          "w-[280px] rounded-lg border-2 border-dashed border-destructive/60 bg-card text-card-foreground",
+          selected && "ring-2 ring-ring",
+        )}
+      >
+        <div className="flex h-10 items-center gap-2 px-3">
+          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden="true" />
+          <span className="truncate text-sm font-semibold">{data.name}</span>
+          {data.schema !== "public" ? (
+            <span className="truncate text-xs text-muted-foreground">{data.schema}</span>
+          ) : null}
+        </div>
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+          This table no longer exists in the database. Select it and press Delete to remove it from
+          the layout.
+        </p>
+      </div>
+    );
+  }
 
   const Icon = KIND_ICON[entry?.table.kind ?? "table"];
   const columnNames = entry?.columns.map((c) => c.name) ?? [];

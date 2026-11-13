@@ -75,6 +75,30 @@ export class ConnectionRegistry {
     return summary;
   }
 
+  /** The summary of a connection, or undefined if it does not exist. */
+  getSummary(id: string): ConnectionSummary | undefined {
+    return this.entries.get(id)?.summary;
+  }
+
+  /**
+   * Link a live connection to a saved profile (after "Save connection").
+   * @throws ServiceError `connection_not_found`
+   */
+  setProfileId(id: string, profileId: string): ConnectionSummary {
+    const entry = this.entries.get(id);
+    if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    entry.summary = { ...entry.summary, profileId };
+    return entry.summary;
+  }
+
+  /** Detach every live connection from a profile that was forgotten. */
+  clearProfile(profileId: string): void {
+    for (const entry of this.entries.values()) {
+      if (entry.summary.profileId === profileId)
+        entry.summary = { ...entry.summary, profileId: null };
+    }
+  }
+
   list(): ConnectionSummary[] {
     return [...this.entries.values()].map((entry) => entry.summary);
   }

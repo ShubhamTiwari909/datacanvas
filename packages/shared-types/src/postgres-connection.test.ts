@@ -168,6 +168,51 @@ describe("postgresConnectionInputSchema", () => {
   });
 });
 
+describe("persistence fields (remember, profileId)", () => {
+  const base = { mode: "fields", name: "x", host: "h", database: "d", username: "u" } as const;
+
+  it("accepts them in both modes", () => {
+    expect(postgresConnectionInputSchema.safeParse({ ...base, remember: true }).success).toBe(true);
+    expect(
+      postgresConnectionInputSchema.safeParse({
+        mode: "string",
+        name: "x",
+        connectionString: "postgresql://u:p@h/d",
+        remember: false,
+        profileId: "profile-12345678",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unsafe profile id", () => {
+    expect(postgresConnectionInputSchema.safeParse({ ...base, profileId: "../x" }).success).toBe(
+      false,
+    );
+  });
+
+  it("never lets them reach the connection that is handed to the database layer", () => {
+    const resolved = resolvePostgresConnection(
+      postgresConnectionInputSchema.parse({
+        ...base,
+        remember: true,
+        profileId: "profile-12345678",
+      }),
+    );
+    expect(resolved).not.toHaveProperty("remember");
+    expect(resolved).not.toHaveProperty("profileId");
+
+    const fromString = resolvePostgresConnection(
+      postgresConnectionInputSchema.parse({
+        mode: "string",
+        name: "x",
+        connectionString: "postgresql://u:p@h/d",
+        remember: true,
+      }),
+    );
+    expect(fromString).not.toHaveProperty("remember");
+  });
+});
+
 describe("defaultSslMode", () => {
   it("disables TLS only for this machine", () => {
     expect(defaultSslMode("localhost")).toBe("disable");

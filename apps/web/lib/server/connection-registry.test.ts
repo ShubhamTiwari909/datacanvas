@@ -12,6 +12,7 @@ const details: Omit<ConnectionSummary, "id"> = {
   username: "alice",
   sslMode: "disable",
   hasPassword: true,
+  profileId: null,
 };
 
 /** A registry whose clock the test controls. */

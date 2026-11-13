@@ -28,6 +28,8 @@ import {
   type ResolvedPostgresConnection,
 } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
+import type { ProfileService } from "./profile-service";
+import { ServiceError } from "./service-error";
 
 /** Connection details each provider needs. Only PostgreSQL for now. */
 export type ProviderConfigs = { postgresql: ResolvedPostgresConnection };
@@ -35,6 +37,7 @@ export type ProviderConfigs = { postgresql: ResolvedPostgresConnection };
 export interface ConnectionServiceDependencies {
   adapters: AdapterRegistry<ProviderConfigs>;
   connections: ConnectionRegistry;
+  profiles: ProfileService;
 }
 
 export interface TableDetails {
@@ -43,13 +46,30 @@ export interface TableDetails {
   indexes: IndexInfo[];
 }
 
+/** The non-secret fields that make up a saved profile. */
+function profileDetails(
+  summary: Omit<ConnectionSummary, "id" | "profileId" | "hasPassword"> & { hasPassword?: boolean },
+) {
+  return {
+    provider: summary.provider,
+    name: summary.name,
+    host: summary.host,
+    port: summary.port,
+    database: summary.database,
+    username: summary.username,
+    sslMode: summary.sslMode,
+  };
+}
+
 export class ConnectionService {
   private readonly adapters: AdapterRegistry<ProviderConfigs>;
   private readonly connections: ConnectionRegistry;
+  private readonly profiles: ProfileService;
 
   constructor(dependencies: ConnectionServiceDependencies) {
     this.adapters = dependencies.adapters;
     this.connections = dependencies.connections;
+    this.profiles = dependencies.profiles;
   }
 
   /**
@@ -62,23 +82,53 @@ export class ConnectionService {
   }
 
   /**
-   * Connect for real and remember the connection. If connecting fails, or the
-   * registry is full, nothing is stored (and nothing stays open).
+   * Connect for real and remember the connection (in memory). If connecting
+   * fails, or the registry is full, nothing is stored (and nothing stays open).
+   *
+   * Saving: `input.profileId` links the connection to an EXISTING saved profile
+   * (reconnecting after a restart); otherwise `input.remember` saves a new
+   * profile from the connection's non-secret details. Either way the password
+   * is never written anywhere.
    */
   async createConnection(input: PostgresConnectionInput): Promise<ConnectionSummary> {
     const resolved = resolvePostgresConnection(input);
+    // Cheap check first: do not open a database connection for a profile that is gone.
+    let profileId: string | null = input.profileId
+      ? (await this.profiles.get(input.profileId)).id
+      : null;
+
     const adapter = this.adapters.create("postgresql", resolved);
     await adapter.connect(); // throws DatabaseError on failure: nothing registered yet
     try {
       // The summary has no password; the password stays inside `adapter`.
-      return this.connections.add(
-        { ...summarizePostgresConnection(resolved), provider: "postgresql" },
-        adapter,
-      );
+      const details = { ...summarizePostgresConnection(resolved), provider: "postgresql" as const };
+      if (profileId === null && input.remember) {
+        profileId = (await this.profiles.add(profileDetails(details))).id;
+      }
+      return this.connections.add({ ...details, profileId }, adapter);
     } catch (error) {
       await adapter.disconnect(); // e.g. the registry is full: do not leave a connection open
       throw error;
     }
+  }
+
+  /**
+   * Save a live connection's non-secret details as a profile ("Save connection"
+   * for a connection that was opened without remembering it).
+   * @throws ServiceError `connection_not_found`
+   */
+  async saveConnection(id: string): Promise<ConnectionSummary> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    if (summary.profileId !== null) return summary;
+
+    const profile = await this.profiles.add(profileDetails(summary));
+    return this.connections.setProfileId(id, profile.id);
+  }
+
+  /** Called when a saved profile is forgotten, so no live connection keeps pointing at it. */
+  unlinkProfile(profileId: string): void {
+    this.connections.clearProfile(profileId);
   }
 
   listConnections(): ConnectionSummary[] {

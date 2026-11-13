@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 7).** You can connect to a PostgreSQL database, browse its structure, and arrange tables on an interactive canvas with foreign-key edges. Layouts are not saved yet and it is not published to npm yet.
+> **Status: early development (Phase 8).** You can connect to a PostgreSQL database, browse its structure, arrange tables on an interactive canvas, and have layouts and connection details saved and restored across restarts (passwords are never saved). It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 

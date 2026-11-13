@@ -10,7 +10,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 export function ConnectPostgresButton() {
   const open = useWorkspaceStore((s) => s.openConnectDialog);
   return (
-    <Button size="lg" onClick={open}>
+    <Button size="lg" onClick={() => open()}>
       Connect PostgreSQL
     </Button>
   );

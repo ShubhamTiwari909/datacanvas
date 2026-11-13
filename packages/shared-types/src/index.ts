@@ -14,3 +14,7 @@ export * from "./api-error.js";
 export * from "./postgres-connection.js";
 export * from "./metadata.js";
 export * from "./connections.js";
+export * from "./ids.js";
+export * from "./versioned-file.js";
+export * from "./profiles.js";
+export * from "./workspace.js";

@@ -530,3 +530,81 @@ The canvas needs many tables at once, so `DatabaseAdapter.getTablesDetails(table
 - While dragging, edges are NOT recomputed: `useCanvasEdges` selects small string arrays with `useShallow`, so their identity only changes when tables are added, removed or expanded.
 - Collapsed tables show at most 12 columns.
 - Adding a whole schema is capped at 200 tables.
+
+## Phase 8: saving and restoring workspaces
+
+Layouts and connection details now survive closing DataCanvas, even if it restarts on a different port.
+
+### What is saved, and where
+
+```text
+~/.datacanvas/                       (DATACANVAS_HOME overrides; created owner-only, files mode 0600)
+├── connections.json                 saved connection profiles   { format, schemaVersion, profiles: [...] }
+└── workspaces/<id>.json             one file per layout         { format, schemaVersion, id, name, ..., canvas }
+```
+
+|             | Saved connection profile                   | Workspace                                                                 |
+| ----------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| Holds       | name, host, port, database, user, SSL mode | table names, positions, expanded flags, pan and zoom, a display-only hint |
+| Never holds | **the password**                           | credentials, columns/types (they would go stale), selection               |
+| Lives for   | until the user forgets it                  | until deleted                                                             |
+| Linked by   | `profileId` on a live connection           | `profileId` on the workspace                                              |
+
+Why files and not IndexedDB: IndexedDB belongs to a browser origin including its port, so starting on 4748 instead of 4747 would silently hide everything. Files in the home folder do not depend on the port.
+
+### How React Flow state becomes JSON and comes back
+
+```text
+SAVE   canvas store nodes (React Flow Node objects)          serializeCanvas()
+         { id, type, position:{x,y}, data:{schema,name,expanded,columnCount,missing},
+           selected, measured, dragging, ... }
+       -> keep only:  { schema, name, x, y, expanded }  (positions rounded to 0.1)  + viewport {x,y,zoom}
+       -> PUT /api/workspaces/:id  (body validated with Zod)
+       -> server stamps id/timestamps -> JSON.stringify -> writeFileAtomic()
+
+LOAD   GET /api/workspaces/:id -> parseWorkspaceFile(): migrate to current version, then validate (Zod)
+       -> restoreWorkspace(): list each schema once, load structure of tables that exist (one bulk request)
+       -> canvasStore.restore(nodes, viewport): nodes get their saved positions; tables that no longer
+          exist are kept but flagged `missing`
+       -> React Flow draws; the saved viewport is applied with setViewport
+```
+
+The saved document contains no selection, measurements or metadata: those are recomputed. Edges are not saved either: they are derived again from the relationships.
+
+### Atomic writes
+
+`writeFileAtomic` writes the complete new content to a temporary file in the SAME folder (`.name.<random>.tmp`, created exclusively with mode 0600), flushes it to disk (`fsync`), then `rename`s it over the real file. A rename is one operation, so a reader or a later run sees the whole old file or the whole new one, never half. A test hammers one file with 40 concurrent writers while a reader parses continuously: every read is complete JSON. A failed write removes its temporary file and leaves the original intact. `KeyedMutex` serialises read-modify-write sequences per file so two requests cannot overwrite each other's change.
+
+### Versioned formats and migrations
+
+Every file has `format` and `schemaVersion`. `migrateToCurrent` upgrades by running `migrations[n]` (version n to n+1) in order, THEN validates against the current schema, so the rest of the code only ever sees one layout. A file from a NEWER release is refused with a clear message instead of being guessed at. A test uses a pretend three-version format to prove the chain (rename a field at v1 to v2, add a field at v2 to v3) works before a real version 2 exists.
+
+What happens when the workspace format changes in a future release (say v2 renames `expanded` to `collapsed`): bump `CURRENT_WORKSPACE_VERSION` to 2, add `WORKSPACE_MIGRATIONS[1] = (data) => ...` that rewrites each node, change `savedNodeSchema`, and add a test with a real v1 file. Old files open automatically and are written back as v2 on the next save. Files from v3 open in neither (refused).
+
+### API additions
+
+| Method and path                                        | Purpose                                                                               |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `GET /api/profiles`                                    | saved connection profiles                                                             |
+| `DELETE /api/profiles/:id`                             | forget it AND delete its workspaces (live connections opened from it are unlinked)    |
+| `POST /api/connections` with `remember` or `profileId` | save a new profile / reconnect an existing one (password still required, never saved) |
+| `POST /api/connections/:id/save`                       | save a live connection as a profile afterwards                                        |
+| `GET /api/workspaces[?profileId=]`                     | summaries, newest first                                                               |
+| `GET / PUT / DELETE /api/workspaces/:id`               | read, create or update (client chooses the id, server stamps times), delete           |
+| `GET /api/workspaces/:id/export`                       | download `<name>.datacanvas.json` (machine-specific profile link removed)             |
+| `POST /api/workspaces/import[?profileId=]`             | upgrade, validate, save as a NEW workspace                                            |
+
+### Autosave
+
+`createAutosaver` listens to the canvas store. Each change restarts an 800 ms timer (debounce), so a drag is one save. Before writing it builds the document that would be saved and compares a signature with the last saved one, so selecting or measuring never writes. One save per connection runs at a time; a change during a save triggers a follow-up. The first save of a layout creates the workspace; later saves update it; a rename is part of the document. It only runs for connections linked to a saved profile (the file must be findable after a restart); for others the bar says the layout is not saved and offers "Save connection". Switching or creating a workspace flushes the current one first.
+
+### Stale layouts
+
+A saved layout names tables, but the database may have changed. Restoring lists each referenced schema once (not one request per table). Tables that are gone become dashed "no longer exists" cards at their saved positions, are saved again with the layout, and a banner says how many. A missing schema counts as missing tables; any other failure (unreachable, timeout) aborts the restore and leaves the canvas as it was.
+
+### Safety summary
+
+- An id becomes a file name in exactly one place; the id pattern allows no path characters, and tests try `../../etc/passwd`, `..`, `a/b`, NUL, over-long and empty ids on every storage operation: nothing is read, written or created outside the workspaces folder.
+- Damaged files: a workspace file is skipped when listing (never deleted); `connections.json` is moved aside and a fresh one started; a file from a newer release is refused untouched.
+- Error messages never include paths, file content or the system's message (a test checks the path is absent).
+- Limits: 2000 nodes per workspace, 1 MB per request, 500 workspaces, 100 profiles, coordinates within +-10 million, zoom 0.01 to 10.

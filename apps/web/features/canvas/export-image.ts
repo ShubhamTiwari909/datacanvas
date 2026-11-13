@@ -65,6 +65,20 @@ export function exportFileStem(name: string): string {
 }
 
 /**
+ * The page's own background color, so an image exported in dark mode is dark
+ * (the table cards keep their theme colors, and light text on a white sheet
+ * would look broken). Falls back to white when the color cannot be read or is
+ * transparent.
+ */
+export function exportBackground(): string {
+  if (typeof document === "undefined") return "#ffffff";
+  const color = getComputedStyle(document.body).backgroundColor;
+  return color === "" || color === "transparent" || color === "rgba(0, 0, 0, 0)"
+    ? "#ffffff"
+    : color;
+}
+
+/**
  * Render the tables inside `viewportElement` to an image and ask the browser to
  * save it. `bounds` is the bounding box of the tables in canvas coordinates.
  */
@@ -78,7 +92,7 @@ export async function exportCanvasImage(
   const options = {
     width: geometry.width,
     height: geometry.height,
-    backgroundColor: "#ffffff",
+    backgroundColor: exportBackground(),
     pixelRatio: geometry.pixelRatio,
     // Draw the viewport layer as if panned and zoomed to fit the bounding box exactly.
     style: {

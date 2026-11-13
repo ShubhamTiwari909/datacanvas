@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-13
+
+### Added
+
+- Dark mode. A sun/moon button in the header chooses Light, Dark or System (follows the operating system and changes with it). The choice is remembered in the browser only, and is applied before the first paint so dark-mode users see no white flash. The canvas (grid, controls, minimap) follows the theme, and images exported in dark mode have a dark background.
+
 ## [1.0.0] - 2026-11-13
 
 First stable release. (`1.0.0-rc.1`, published earlier under the `next` tag, was the release candidate.)

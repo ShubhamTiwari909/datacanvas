@@ -630,3 +630,9 @@ Follow-up decisions are 91 and 92.
 **Decision:** the first stable version is 1.0.0 (`packages/cli/package.json`), published to the `latest` tag; `1.0.0-rc.1` was the release candidate under `next`. Before it, code and files that nothing used were removed: `shortestPath` in canvas-engine (the Paths tab has its own search that returns every shortest route), `describeDatabaseError` in database-core (route handlers use `handleRoute`; its documentation had it wrong), an unused screenshot, and the "Phase N" wording in comments and package descriptions. The development plan moved from the repository root to `docs/development-plan.md`, and the release checklist became `docs/releasing.md`.
 
 **Why:** dead code that still has tests looks supported, and two shortest-path implementations invite drift. **How it was found:** a scan for dependencies and exported functions that nothing but their own file or tests refers to found only those two functions and no unused dependency. **Kept on purpose:** `setServerContextForTests` (a test hook that tests need) and exported types used for API completeness.
+
+## 100. Theme: a class on <html>, an inline script, and the choice kept in the browser only
+
+**Decision:** light, dark and system are a `dark` class on `<html>`; the saved choice lives in `localStorage` (`datacanvas-theme`) and is applied by a small inline script before the first paint; "system" follows `prefers-color-scheme` live. Version 1.0.1.
+
+**Why:** a class matches the existing shadcn palette and Tailwind's `dark:` variant; without the inline script a dark-mode user would see a white flash on every load. The script is a fixed constant with no user input; it is the one inline script in the app (the Content-Security-Policy that was listed as a known gap would need a nonce or hash for it). Nothing about the theme is sent to the server or saved in a workspace file. **Not covered:** a high-contrast theme, per-workspace themes, and a color picker.

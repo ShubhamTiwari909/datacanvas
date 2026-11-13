@@ -50,4 +50,10 @@ test("README screenshots", async ({ page, app, database }) => {
   await page.locator('.react-flow__node[data-id*="orders"]').first().click();
   await page.waitForTimeout(500);
   await page.screenshot({ path: out("canvas.png") });
+
+  // The same canvas in dark mode.
+  await page.getByRole("button", { name: /^Theme:/ }).click();
+  await page.getByRole("menuitemradio", { name: "Dark" }).click();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: out("canvas-dark.png") });
 });

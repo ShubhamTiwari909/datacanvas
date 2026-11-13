@@ -30,6 +30,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureWorkspaceLoaded } from "@/features/workspaces/workspace-actions";
 import { WorkspaceBar } from "@/features/workspaces/workspace-bar";
 import { useCanvasStore, type TableFlowNode } from "@/stores/canvas-store";
+import { useThemeStore } from "@/stores/theme-store";
 import { usePersistenceStore } from "@/stores/persistence-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { CanvasConnectionProvider } from "./canvas-context";
@@ -46,6 +47,8 @@ const nodeTypes: NodeTypes = { table: TableNode };
 const NO_NODES: TableFlowNode[] = [];
 
 function CanvasInner({ connectionId }: { connectionId: string }) {
+  // The canvas library draws its own grid, controls and minimap in the matching colors.
+  const theme = useThemeStore((s) => s.resolved);
   const nodes = useCanvasStore((s) => s.canvases[connectionId]?.nodes) ?? NO_NODES;
   const layoutVersion = useCanvasStore((s) => s.canvases[connectionId]?.layoutVersion ?? 0);
   const restoreVersion = useCanvasStore((s) => s.canvases[connectionId]?.restoreVersion ?? 0);
@@ -165,7 +168,7 @@ function CanvasInner({ connectionId }: { connectionId: string }) {
             deleteKeyCode={["Backspace", "Delete"]}
             // With hundreds of tables, only draw what is on screen.
             onlyRenderVisibleElements
-            colorMode="light"
+            colorMode={theme}
             aria-label="Database canvas"
           >
             {gridVisible ? (

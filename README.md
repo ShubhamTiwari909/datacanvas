@@ -16,6 +16,8 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 ![The DataCanvas canvas showing a sample shop database: tables, relationships and the inspector panel](docs/images/canvas.png)
 
+![The same canvas in dark mode](docs/images/canvas-dark.png)
+
 ## What you can do
 
 - **Connect** to PostgreSQL with a connection string or separate fields. Passwords are kept in memory only.
@@ -27,6 +29,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 - **Arrange** tables on an infinite canvas: drag, zoom, auto-layout (hierarchical, grouped, compact), search, filters, and focus on one table and its neighbours.
 - **Save** layouts per connection; they are restored the next time you connect.
 - **Export** a diagram as PNG or SVG, or a workspace as a file.
+- **Light and dark themes**, or follow your system (button in the top bar).
 
 ## Your database, your machine, your control
 

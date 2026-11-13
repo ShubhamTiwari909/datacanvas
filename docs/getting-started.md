@@ -41,6 +41,10 @@ Good practice:
 - **Layout** arranges tables (hierarchical, grouped by connected tables, compact, or a plain grid).
 - **Explore** can focus on the selected table and the tables within 1 to 5 relationships of it, dimming or hiding the rest. **Filters** hides schemas, views or relationship types.
 
+## Dark mode
+
+The sun or moon button in the top bar chooses **Light**, **Dark** or **System** (follow your operating system, live). The choice is saved in your browser only.
+
 ## 4. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.

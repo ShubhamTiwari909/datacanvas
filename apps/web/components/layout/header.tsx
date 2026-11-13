@@ -1,5 +1,6 @@
-/** Top bar: product name on the left, backend status on the right. */
+/** Top bar: product name on the left, backend status and the theme button on the right. */
 import { Database } from "lucide-react";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { BackendStatus } from "@/features/health/backend-status";
 
 export function Header() {
@@ -11,6 +12,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-4">
         <BackendStatus />
+        <ThemeToggle />
       </div>
     </header>
   );

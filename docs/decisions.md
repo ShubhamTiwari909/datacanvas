@@ -516,3 +516,28 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - Simultaneous first launches can race.
 - Killing the CLI with SIGKILL leaves the server process behind.
 - Tarball size 4.9 MB packed / 22.6 MB unpacked; cold start about 360 ms on the test machine.
+
+## 82. End-to-end tests run against the packaged app
+
+**Decision:** Playwright starts `.package/bin/datacanvas.mjs`, not the dev server, and one throwaway database per test.
+
+**Why:** the dev server differs from what users run (no proxy token flow, different bundling). Testing the assembled package catches packaging mistakes the unit tests cannot.
+
+## 83. Playwright pinned to 1.64.0
+
+**Decision:** `@playwright/test` is pinned to 1.64.0 and only Chromium is tested.
+
+**Why:** 1.64 uses a Chromium build that was already installed on the development machine; a newer release would have needed a large browser download. CI installs its own browser. Firefox and WebKit are left out for now.
+
+## 84. Performance budgets catch changes in kind
+
+**Decision:** the 600-table database test and the 400-table browser test use budgets many times the measured values (database calls 5-25 ms against a 500-1000 ms budget; layout 51-107 ms against 15 s).
+
+**Why:** shared CI machines are noisy. A budget that flaps teaches people to ignore it; one that only trips on a real regression stays useful.
+
+## 85. Known limits of Phase 12
+
+- The CI workflow is unproven until it runs on GitHub; Windows is the likeliest to need fixes.
+- Windows cannot be asked to stop gracefully by a script, so the clean-shutdown checks run on macOS and Linux only.
+- No tests on other PostgreSQL versions than the one used here (a PostgreSQL 17 service is configured for CI).
+- The TLS-mismatch test accepts either `ssl_error` or `unreachable`, because which one PostgreSQL's reply produces depends on the server.

@@ -38,3 +38,7 @@ apps/web/AGENTS.md
 # Assembled npm package and packed tarballs
 .package/
 *.tgz
+
+# Playwright
+test-results/
+playwright-report/

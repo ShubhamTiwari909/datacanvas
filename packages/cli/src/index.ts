@@ -25,6 +25,7 @@ import {
   removeInstance,
   writeInstance,
 } from "./instance.js";
+import { isSupportedNode, unsupportedNodeMessage } from "./node-version.js";
 import { findFreePort, isPortFree } from "./port.js";
 import { VERSION } from "./version.js";
 import {
@@ -33,9 +34,6 @@ import {
   stopWebServer,
   waitUntilHealthy,
 } from "./web-server.js";
-
-const MIN_NODE_MAJOR = 20;
-const MIN_NODE_MINOR = 9; // matches "engines" (>=20.9.0), the floor Next.js requires
 
 const HELP = `DataCanvas ${VERSION}
 A local-first visual PostgreSQL explorer.
@@ -55,13 +53,7 @@ function fail(message: string): never {
 }
 
 function checkNodeVersion(): void {
-  const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-  if (major < MIN_NODE_MAJOR || (major === MIN_NODE_MAJOR && minor < MIN_NODE_MINOR)) {
-    fail(
-      `DataCanvas needs Node.js ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR} or newer, but this is ${process.versions.node}.\n` +
-        "Install a current LTS version from https://nodejs.org and try again.",
-    );
-  }
+  if (!isSupportedNode(process.versions.node)) fail(unsupportedNodeMessage(process.versions.node));
 }
 
 async function main(): Promise<void> {

@@ -1,0 +1,77 @@
+/**
+ * Performance in the real UI: a schema with 400 tables put on the canvas.
+ * Budgets are generous (a loaded CI machine is slower than a laptop); they
+ * catch a change in kind, such as rendering every node at once or a layout
+ * that never finishes.
+ */
+import pg from "pg";
+import { expect, test } from "./fixtures";
+
+const TABLES = 400;
+
+test("400 tables: load the canvas, auto-layout, stay responsive", async ({
+  page,
+  app,
+  database,
+}) => {
+  test.setTimeout(120_000);
+
+  // Build the big schema.
+  const client = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await client.connect();
+  const sql = ["CREATE SCHEMA big;"];
+  for (let i = 0; i < TABLES; i += 1) {
+    const parent = Math.max(0, i - 1 - (i % 5));
+    const reference = i === 0 ? "" : `, parent_id integer REFERENCES big.t${parent}(id)`;
+    sql.push(
+      `CREATE TABLE big.t${i} (id integer PRIMARY KEY, name text, a int, b int, c int${reference});`,
+    );
+  }
+  await client.query(sql.join("\n"));
+  await client.end();
+
+  await page.goto(app.link);
+  await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+  await page.getByLabel("Connection name").fill("Big");
+  await page.getByRole("tab", { name: /connection string/i }).click();
+  await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+  await page.getByRole("button", { name: /^Connect$/ }).click();
+  await expect(page.getByRole("button", { name: "Disconnect Big" })).toBeVisible();
+
+  // Open the schema and add all of its tables.
+  await page
+    .getByRole("button", { name: /^big\b/ })
+    .first()
+    .click();
+  const started = Date.now();
+  await page.getByRole("button", { name: "Add all tables of big to the canvas" }).click();
+  await expect(page.getByText(`${TABLES} tables`, { exact: false }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  const addMs = Date.now() - started;
+  console.info(`[perf] add ${TABLES} tables to the canvas: ${addMs} ms`);
+  expect(addMs).toBeLessThan(15_000);
+
+  // Only the nodes in view are drawn: the page must not hold hundreds of DOM nodes.
+  const drawn = await page.locator(".react-flow__node").count();
+  console.info(`[perf] nodes drawn in the DOM: ${drawn} of ${TABLES}`);
+  expect(drawn).toBeLessThan(TABLES);
+
+  // Auto-layout the whole thing.
+  const layoutStart = Date.now();
+  await page.getByRole("button", { name: "Layout", exact: true }).click();
+  await page.getByRole("menuitem", { name: /Hierarchical/ }).click();
+  await expect(page.getByRole("menuitem", { name: /Hierarchical/ })).toHaveCount(0);
+  // Wait for the UI to settle: the toolbar must answer a click right after the layout.
+  await page.getByRole("button", { name: "Filters" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  const layoutMs = Date.now() - layoutStart;
+  console.info(`[perf] hierarchical layout + menu response: ${layoutMs} ms`);
+  expect(layoutMs).toBeLessThan(15_000);
+});

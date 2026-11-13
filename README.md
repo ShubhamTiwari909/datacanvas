@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 11).** You can connect to a PostgreSQL database, browse its structure, arrange tables on an interactive canvas, have layouts and connection details saved and restored across restarts (passwords are never saved), and explore large schemas with search, filters, focus mode, automatic layouts, an inspector panel and image export. The local server is protected by Host, Origin and session-token checks (see [SECURITY.md](SECURITY.md)). It is not published to npm yet.
+> **Status: early development (Phase 12).** You can connect to a PostgreSQL database, browse its structure, arrange tables on an interactive canvas, have layouts and connection details saved and restored across restarts (passwords are never saved), and explore large schemas with search, filters, focus mode, automatic layouts, an inspector panel and image export. The local server is protected by Host, Origin and session-token checks (see [SECURITY.md](SECURITY.md)). It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 
@@ -28,6 +28,7 @@ npm run dev        # builds the packages, then starts the web app at http://127.
 npm run build      # compiles the packages, then makes the production Next.js build
 npm run test       # unit tests (Vitest)
 npm run package    # assembles the publishable npm package in .package/
+npm run test:e2e   # browser tests against the packaged app (needs a test PostgreSQL)
 npm run verify:package   # packs it, installs the tarball in an empty project, tests the command
 npm run check      # format check + lint + typecheck
 ```

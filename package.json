@@ -15,7 +15,7 @@
     "dev": "tsc -b && npm run dev -w apps/web",
     "build": "tsc -b && npm run build -w apps/web",
     "build:packages": "tsc -b",
-    "typecheck": "tsc -b && npm run typecheck -w apps/web",
+    "typecheck": "tsc -b && npm run typecheck -w apps/web && tsc -p e2e",
     "clean": "tsc -b --clean",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -25,10 +25,12 @@
     "test": "tsc -b && vitest run",
     "test:watch": "vitest",
     "package": "npm run build && node scripts/build-package.mjs",
-    "verify:package": "node scripts/verify-package.mjs"
+    "verify:package": "node scripts/verify-package.mjs",
+    "test:e2e": "npx playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.6",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",

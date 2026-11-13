@@ -1,0 +1,14 @@
+{
+  // Type-checks the Playwright tests (Playwright itself strips types without checking them).
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "rootDir": "..",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["./**/*.ts", "../playwright.config.ts"]
+}

@@ -665,3 +665,20 @@ Verified in one browser on one machine. No independent review. No full Content-S
 ## Phase 11: what is not covered
 
 Verified on macOS only (no Windows or Linux run, no real `npx` from the registry because nothing is published). Two simultaneous first launches can race. A `kill -9` of the CLI leaves the server running until it is stopped by hand.
+
+## Phase 12: testing and QA
+
+Four layers, from fast to slow:
+
+1. **Unit tests (Vitest)**: pure logic, schemas, the request guard, workspace migration, the CLI helpers.
+2. **Integration tests (Vitest)**: the PostgreSQL adapter and the services against a real, disposable PostgreSQL (`DATACANVAS_TEST_PG_URL`; skipped without it), plus a performance test on a 600-table schema (`postgres.adapter.performance.test.ts`).
+3. **Rule tests** (`tests/`): architecture and security rules that fail when someone breaks them quietly.
+4. **End-to-end (Playwright, `e2e/`)**: a real Chromium against the real packaged app. `e2e/fixtures.ts` starts `.package/bin/datacanvas.mjs` on a free port with a private data folder and a throwaway database. Specs: `core-flow` (connect, browse, canvas, drag a node, autosave, reload, disconnect, reconnect, layout restored), `install-qa` (wrong password, unreachable database, TLS mismatch, port in use), `performance` (400 tables). Run with `npm run package && npm run test:e2e`.
+
+`npm run verify:package` is the install test: it packs, installs the tarball into an empty project and drives the installed command (22 checks).
+
+`.github/workflows/ci.yml` runs everything on Linux and the install check on macOS, Linux and Windows with two Node versions.
+
+## Phase 12: what is not covered
+
+The CI file has never run on GitHub. Nothing was run on Windows or Linux, or in Firefox or WebKit. The end-to-end tests drive `.package/` (the assembled package), not a tarball install (`verify:package` covers that). No test runs the unsupported-Node message on a real old Node; only the version check is unit tested.

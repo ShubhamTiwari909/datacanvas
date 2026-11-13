@@ -138,4 +138,21 @@ describe("autoLayout (real ELK)", () => {
     expect(performance.now() - started).toBeLessThan(5000);
     expect(overlapping(nodes, positions)).toBeNull();
   }, 15000);
+
+  it.each(["hierarchical", "grouped", "compact"] as const)(
+    "lays out 400 tables with %s without overlaps (several-hundred-table schema)",
+    async (kind) => {
+      const nodes = Array.from({ length: 400 }, (_v, i) => node(`t${i}`, 100 + (i % 7) * 40));
+      const edges = Array.from({ length: 399 }, (_v, i) =>
+        edge(`t${i + 1}`, `t${Math.floor(i / 3)}`),
+      );
+      const started = performance.now();
+      const positions = await autoLayout(kind, nodes, edges);
+      const ms = Math.round(performance.now() - started);
+      console.info(`[perf] ${kind} layout of 400 tables: ${ms} ms`);
+      expect(ms).toBeLessThan(15000);
+      expect(overlapping(nodes, positions)).toBeNull();
+    },
+    30000,
+  );
 });

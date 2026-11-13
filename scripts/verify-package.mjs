@@ -25,6 +25,12 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageDir = path.join(root, ".package");
 const results = [];
+const isWindows = process.platform === "win32";
+
+/** npm is a .cmd file on Windows, which Node can only start through a shell. */
+function npm(args, options) {
+  return execFileSync("npm", args, { ...options, shell: isWindows });
+}
 
 function check(name, ok, detail = "") {
   results.push({ name, ok });
@@ -70,7 +76,7 @@ async function main() {
   console.log(`Working in ${work}\n`);
 
   // 1. Pack.
-  const packOut = execFileSync("npm", ["pack", "--json", "--pack-destination", work], {
+  const packOut = npm(["pack", "--json", "--pack-destination", work], {
     cwd: packageDir,
     encoding: "utf8",
   });
@@ -103,7 +109,7 @@ async function main() {
   const project = path.join(work, "project");
   await mkdir(project);
   await writeFile(path.join(project, "package.json"), '{"name":"verify","private":true}\n');
-  execFileSync("npm", ["install", tarball, "--no-audit", "--no-fund", "--loglevel=error"], {
+  npm(["install", tarball, "--no-audit", "--no-fund", "--loglevel=error"], {
     cwd: project,
     stdio: "pipe",
   });
@@ -196,11 +202,14 @@ async function main() {
   );
 
   // 6. Clean shutdown.
+  // On Windows a signal sent by a script cannot ask for a graceful stop (the
+  // process is simply ended), so the clean-exit and run-file checks apply to
+  // macOS and Linux only; Windows still checks that the process stops.
   child.kill("SIGINT");
   const end = await Promise.race([exited, sleep(10_000).then(() => "timeout")]);
   check(
-    "Ctrl+C stops it cleanly (exit code 0)",
-    end !== "timeout" && end.code === 0,
+    isWindows ? "the process stops" : "Ctrl+C stops it cleanly (exit code 0)",
+    end !== "timeout" && (isWindows || end.code === 0),
     JSON.stringify(end),
   );
   let runFileGone = false;
@@ -209,7 +218,7 @@ async function main() {
   } catch {
     runFileGone = true;
   }
-  check("run file is removed on shutdown", runFileGone);
+  if (!isWindows) check("run file is removed on shutdown", runFileGone);
   check(
     "port is released",
     await fetch(`${base}/api/health`).then(

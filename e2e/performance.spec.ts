@@ -1,5 +1,5 @@
 /**
- * Performance in the real UI: a schema with 400 tables put on the canvas.
+ * Performance in the real UI: a schema with 1000 tables (the most one click adds) put on the canvas.
  * Budgets are generous (a loaded CI machine is slower than a laptop); they
  * catch a change in kind, such as rendering every node at once or a layout
  * that never finishes.
@@ -7,14 +7,14 @@
 import pg from "pg";
 import { expect, test } from "./fixtures";
 
-const TABLES = 400;
+const TABLES = 1000;
 
-test("400 tables: load the canvas, auto-layout, stay responsive", async ({
+test("1000 tables: load the canvas, auto-layout, stay responsive", async ({
   page,
   app,
   database,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   // Build the big schema.
   const client = new pg.Client({
@@ -51,7 +51,7 @@ test("400 tables: load the canvas, auto-layout, stay responsive", async ({
     .click();
   const started = Date.now();
   await page.getByRole("button", { name: "Add all tables of big to the canvas" }).click();
-  await expect(page.getByText(`${TABLES} tables`, { exact: false }).first()).toBeVisible({
+  await expect(page.getByText(`${TABLES} tables`, { exact: true })).toBeVisible({
     timeout: 30_000,
   });
   const addMs = Date.now() - started;
@@ -73,5 +73,5 @@ test("400 tables: load the canvas, auto-layout, stay responsive", async ({
   await expect(page.getByRole("menu")).toBeVisible();
   const layoutMs = Date.now() - layoutStart;
   console.info(`[perf] hierarchical layout + menu response: ${layoutMs} ms`);
-  expect(layoutMs).toBeLessThan(15_000);
+  expect(layoutMs).toBeLessThan(30_000);
 });

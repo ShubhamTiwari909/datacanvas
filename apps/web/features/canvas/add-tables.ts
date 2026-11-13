@@ -12,8 +12,14 @@ import { getTables } from "@/features/explorer/api";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useMetadataStore } from "@/stores/metadata-store";
 
-/** Adding a whole schema is capped so one click cannot freeze the browser with thousands of nodes. */
-export const MAX_TABLES_ADDED_AT_ONCE = 200;
+/**
+ * Adding a whole schema is capped so one click cannot freeze the browser with
+ * thousands of nodes. 1000 was measured in a real browser (see
+ * e2e/performance.spec.ts): only the nodes in view are drawn, adding and
+ * auto-layout stay within a few seconds. It must stay below the 2000 nodes a
+ * saved workspace may hold (MAX_WORKSPACE_NODES).
+ */
+export const MAX_TABLES_ADDED_AT_ONCE = 1000;
 
 export async function addTablesToCanvas(
   connectionId: string,

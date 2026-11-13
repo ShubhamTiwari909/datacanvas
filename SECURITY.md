@@ -54,4 +54,4 @@ The full reasoning is in [docs/threat-model.md](docs/threat-model.md).
 
 ## Reporting a problem
 
-Please report vulnerabilities privately to the maintainers (a contact address will be added before the first public release) and do not open a public issue with exploit details.
+Please report vulnerabilities privately through GitHub's private vulnerability reporting on this repository (the **Security** tab, then **Report a vulnerability**), and do not open a public issue with exploit details.

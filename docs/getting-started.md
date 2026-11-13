@@ -2,11 +2,16 @@
 
 ## 1. Start DataCanvas
 
+From a clone of this repository:
+
 ```bash
-npx --yes datacanvas
+npm install     # once
+npm run app     # builds the app and starts it
 ```
 
-You need Node.js 20.9 or newer (`node --version`). The first run downloads the package (about 5 MB) and starts in under a second afterwards.
+(If the package is ever published to npm, `npx --yes datacanvas` will do the same without cloning anything; the options below work the same way.) Pass options after `--`, for example `npm run app -- --port 4900 --no-open`.
+
+You need Node.js 20.9 or newer (`node --version`). Building takes about a minute the first time. After that, `npm run start` starts the already built app in under a second (run `npm run app` again after changing the code).
 
 It prints a private link such as `http://127.0.0.1:4747/?token=...`. The token is new on every run: it is what keeps other websites and programs out. Open the link (a browser opens by itself when possible). The token disappears from the address bar after the first load.
 

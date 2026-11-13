@@ -1,5 +1,9 @@
 # Release checklist (Phase 13)
 
+> **Publishing from your machine** (`npm run publish:npm`): it rebuilds, tests the packed tarball, runs the release gate, refuses a version that already exists, and rehearses with `--dry-run` unless you add `--publish`. It publishes only when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`, currently `shubhamtiwari909`). A pre-release version such as `1.0.0-rc.1` goes to the `next` tag, so `npx datacanvas` still means the last stable version; install a pre-release with `npx --yes datacanvas@next`. Steps: `npm login` (with two-factor authentication), `npm run publish:npm` (rehearsal), `npm run publish:npm -- --publish`, then `git tag v<version> && git push origin v<version>`. For a stable release, change the version in `packages/cli/package.json`, add its section to `CHANGELOG.md`, and repeat. Local publishing cannot attach provenance; the tag-driven workflow can once trusted publishing is configured on npmjs.com.
+>
+> **Earlier plan: repository only.** The code is used from the GitHub repository and is not published to npm for now, so the npm items below (version, trusted publishing, tag) can wait. What the repository itself needs: set `"repository"`, `"homepage"` and `"bugs"` in the root `package.json` once the address exists; in the repository's settings turn on **private vulnerability reporting** (SECURITY.md points to it); protect `main` so CI must pass; and watch the first CI run (it has never run).
+
 Everything here needs a person with the right accounts and authority. The code is ready to release only when `npm run release:check` prints "No blockers."
 
 ## Decisions only the maintainer can make

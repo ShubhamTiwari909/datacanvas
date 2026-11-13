@@ -33,8 +33,10 @@ async function main() {
 
   if (pkg.name !== "datacanvas")
     blockers.push(`package name is "${pkg.name}", expected "datacanvas"`);
-  if (!/^\d+\.\d+\.\d+$/.test(pkg.version) || pkg.version === "0.0.0") {
-    blockers.push(`version is ${pkg.version}; set a real version (1.0.0 for the first release)`);
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(pkg.version) || pkg.version === "0.0.0") {
+    blockers.push(
+      `version is ${pkg.version}; set a real version (for example 1.0.0-rc.1 or 1.0.0)`,
+    );
   }
   if (!pkg.license)
     blockers.push('no "license" in the root package.json (the maintainer must choose one)');

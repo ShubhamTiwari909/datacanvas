@@ -2,6 +2,14 @@
   "name": "datacanvas-monorepo",
   "version": "0.0.0",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShubhamTiwari909/pg-visualizer.git"
+  },
+  "homepage": "https://github.com/ShubhamTiwari909/pg-visualizer#readme",
+  "bugs": {
+    "url": "https://github.com/ShubhamTiwari909/pg-visualizer/issues"
+  },
   "private": true,
   "description": "DataCanvas: a local-first visual PostgreSQL explorer (monorepo root, not published).",
   "type": "module",
@@ -31,7 +39,10 @@
     "screenshots": "SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts",
     "release:check": "node scripts/release-check.mjs",
     "notices": "node scripts/generate-notices.mjs",
-    "test:pg-matrix": "node scripts/pg-matrix.mjs"
+    "test:pg-matrix": "node scripts/pg-matrix.mjs",
+    "start": "node .package/bin/datacanvas.mjs",
+    "app": "npm run package && npm run start --",
+    "publish:npm": "node scripts/publish.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

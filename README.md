@@ -2,13 +2,18 @@
 
 **See your PostgreSQL database as a map.** Connect, explore tables and relationships on an interactive canvas, and keep your layouts. It runs on your computer and nothing leaves it.
 
+Run it from a clone of this repository (you need [Node.js](https://nodejs.org) 20.9 or newer and npm 10 or newer):
+
 ```bash
-npx --yes datacanvas
+git clone https://github.com/ShubhamTiwari909/pg-visualizer.git
+cd pg-visualizer
+npm install
+npm run app
 ```
 
-That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9 or newer: no clone, no build, no `.env` file, no account.
+`npm run app` builds the app (about a minute the first time) and starts it. It prints a private link: open it in your browser. Press Ctrl+C to stop. There is no `.env` file, no account and nothing to configure.
 
-> **Status: release candidate work, not published yet.** Everything described here exists and is tested, but the package is not on npm and the repository has not had a public release. See [docs/release-checklist.md](docs/release-checklist.md).
+> **Status:** used from this repository; it is **not published to npm**. If it is published later, the whole installation will be `npx --yes datacanvas` (nothing to clone or build). See [docs/release-checklist.md](docs/release-checklist.md).
 
 ![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
 
@@ -41,7 +46,7 @@ Read [SECURITY.md](SECURITY.md) for exactly what is stored, what is read, and th
 
 ## Quick start
 
-1. Run `npx --yes datacanvas`.
+1. Run `npm run app` in a clone of this repository (after `npm install`).
 2. Open the private link it prints (a browser opens by itself when it can).
 3. Choose **Connect PostgreSQL**, paste a connection string, and press **Connect**.
 4. Add tables to the canvas from the schema list, or use the grid button beside a schema to add all of its tables.

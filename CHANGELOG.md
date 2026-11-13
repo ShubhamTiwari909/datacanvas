@@ -2,9 +2,11 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project intends to follow [Semantic Versioning](https://semver.org/) from 1.0.0.
 
-## [Unreleased] - target 1.0.0
+## [Unreleased]
 
-First public release (not yet published).
+## [1.0.0-rc.1] - 2026-11-13
+
+First release candidate (pre-release, published under the `next` tag).
 
 ### Added
 

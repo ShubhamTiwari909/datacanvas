@@ -1,6 +1,6 @@
 {
   "name": "@datacanvas/cli",
-  "version": "0.0.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "Placeholder for the `datacanvas` command. Real behaviour arrives in Phases 2 and 11.",
   "type": "module",

@@ -42,4 +42,11 @@ jobs:
       - name: The tag must match the package version
         run: |
           test "v$(node -p "require('./.package/package.json').version")" = "${GITHUB_REF_NAME}"
-      - run: npm publish ./.package --provenance --access public
+      - name: Publish (pre-releases go to the "next" tag, stable versions to "latest")
+        run: |
+          VERSION="$(node -p "require('./.package/package.json').version")"
+          case "$VERSION" in
+            *-*) TAG=next ;;
+            *)   TAG=latest ;;
+          esac
+          npm publish ./.package --provenance --access public --tag "$TAG"

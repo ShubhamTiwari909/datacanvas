@@ -1,6 +1,7 @@
 {
   "name": "datacanvas-monorepo",
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "private": true,
   "description": "DataCanvas: a local-first visual PostgreSQL explorer (monorepo root, not published).",
   "type": "module",
@@ -28,7 +29,8 @@
     "verify:package": "node scripts/verify-package.mjs",
     "test:e2e": "npx playwright test",
     "screenshots": "SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "notices": "node scripts/generate-notices.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

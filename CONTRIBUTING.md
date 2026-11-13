@@ -11,16 +11,16 @@ Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; the
 
 ## Scripts (run from the repo root)
 
-| Script                 | What it does                                                        |
-| ---------------------- | ------------------------------------------------------------------- |
-| `npm run dev`          | Build the packages, then start the web app on 127.0.0.1:4747        |
-| `npm run build`        | Build the packages, then the production Next.js app                 |
-| `npm run typecheck`    | Type-check the packages (`tsc -b`) and the web app (`tsc --noEmit`) |
-| `npm run lint`         | ESLint across the repo                                              |
-| `npm run format`       | Prettier: rewrite files                                             |
-| `npm run format:check` | Prettier: fail if any file is not formatted                         |
-| `npm run check`        | format check, lint and typecheck together                           |
-| `npm run clean`        | Remove build output of the TypeScript projects                      |
+| Script                   | What it does                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| `npm run dev`            | Build the packages, then start the web app on 127.0.0.1:4747                 |
+| `npm run build`          | Build the packages, then the production Next.js app                          |
+| `npm run typecheck`      | Type-check the packages (`tsc -b`) and the web app (`tsc --noEmit`)          |
+| `npm run lint`           | ESLint across the repo                                                       |
+| `npm run format`         | Prettier: rewrite files                                                      |
+| `npm run format:check`   | Prettier: fail if any file is not formatted                                  |
+| `npm run check`          | format check, lint and typecheck together                                    |
+| `npm run clean`          | Remove build output of the TypeScript projects                               |
 
 Run `npm run check` before every commit.
 
@@ -48,6 +48,10 @@ Documentation is written together with the code, not afterwards.
 - Packages are ES modules compiled with `module: NodeNext`, so relative imports need a `.js` extension (for example `import { x } from "./x.js"`).
 - Use `import type` for type-only imports (enforced by ESLint and `verbatimModuleSyntax`).
 - Packages reference each other through TypeScript project references; add a `references` entry when one package depends on another.
+
+## Licensing of contributions
+
+DataCanvas is licensed under the Apache License 2.0. No contributor license agreement or sign-off is required: as section 5 of that license says, a contribution you submit is licensed under the same terms unless you state otherwise. Only submit code you have the right to contribute, and run `npm run notices` if you add or change a dependency (every new dependency also needs a documented purpose and a compatible license).
 
 ## Commits
 

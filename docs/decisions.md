@@ -564,5 +564,25 @@ Short records of choices that are not obvious from the code. Newest at the botto
 
 - Nothing is published; no remote exists.
 - No demo GIF.
-- The README says "No license has been chosen yet" until the maintainer decides.
+- The license is a draft until the internal team confirms it.
 - The CI and release workflows are untested on GitHub.
+
+## 90. Apache-2.0 as the draft license
+
+**Decision:** the project is drafted under the Apache License 2.0 (`LICENSE` is the unmodified official text, verified by its SHA-1 against the known value; `"license": "Apache-2.0"` in the root `package.json`). **This is a draft until the relevant internal team confirms it.**
+
+**Why:** it is permissive like MIT, so it does not obstruct use of a tool, but it adds an explicit patent grant and a contribution clause, which suits a company-backed project. Almost every dependency is MIT, ISC, BSD or Apache-2.0, so they raise no conflict. The exception is `elkjs` (EPL-2.0 OR GPL-3.0-or-later): see decision 69. If it cannot ship, auto-layout can move to a permissively licensed library behind the same `autoLayout` function.
+
+Follow-up decisions are 91 and 92.
+
+## 91. `elkjs` is used under its EPL-2.0 option
+
+**Decision:** `elkjs` is dual-licensed (EPL-2.0 OR GPL-3.0-or-later); DataCanvas uses it under **EPL-2.0**, for now. `scripts/generate-notices.mjs` records that choice in `THIRD-PARTY-NOTICES.md`, with the source address.
+
+**Why:** EPL-2.0 is weak copyleft: it applies to `elkjs` itself (changes to it must be shared under EPL) but not to DataCanvas. The GPL option would reach the whole package. **Still to confirm** with the relevant internal team that organization policy allows an EPL-2.0 dependency. **Fallback:** replace it behind `autoLayout` with a permissive library.
+
+## 92. Ownership and contributions
+
+**Decision:** the repository will live under the organization's GitHub, so `NOTICE` names **AnywhereWorks** as the copyright holder (an assumption taken from the organization, easy to change). No CLA or DCO: contributions rely on Apache-2.0 section 5 (`CONTRIBUTING.md` says so).
+
+**Why:** the maintainer stated that organization ownership is not an issue and that no contributor agreement is wanted. **Revisit** if outside contributions grow or the license changes.

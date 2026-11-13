@@ -236,7 +236,7 @@ async function main() {
     keywords: ["postgresql", "postgres", "database", "schema", "visualizer", "erd", "local-first"],
     type: "module",
     bin: { datacanvas: "bin/datacanvas.mjs" },
-    files: ["bin", "web", "README.md"],
+    files: ["bin", "web", "README.md", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"],
     engines: { node: ">=20.9.0" },
     // `npm pack` only bundles a package that is BOTH listed in `dependencies`
     // and named in `bundleDependencies`. Listing it in `dependencies` alone
@@ -246,7 +246,9 @@ async function main() {
     bundleDependencies: bundled,
   };
   await writeFile(path.join(outDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
-  await cp(path.join(root, "README.md"), path.join(outDir, "README.md"));
+  for (const file of ["README.md", "LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+    await cp(path.join(root, file), path.join(outDir, file));
+  }
 
   console.log(`Package assembled in ${path.relative(root, outDir)}/`);
   console.log(`  version:          ${packageJson.version}`);

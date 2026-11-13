@@ -88,4 +88,4 @@ The project was built in phases; the plan is in [pg-visualizer.md](pg-visualizer
 
 ## License
 
-No license has been chosen yet. Until one is added, all rights are reserved. See [docs/release-checklist.md](docs/release-checklist.md).
+Licensed under the [Apache License 2.0](LICENSE). Third-party packages keep their own licenses; one of them (`elkjs`, used for automatic layouts) is dual-licensed EPL-2.0 OR GPL-3.0-or-later. See [docs/decisions.md](docs/decisions.md) (decisions 69, 90 and 91).

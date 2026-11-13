@@ -4,7 +4,7 @@ Everything here needs a person with the right accounts and authority. The code i
 
 ## Decisions only the maintainer can make
 
-1. **License.** Choose one with the relevant internal team, add a `LICENSE` file, and set `"license"` in the root `package.json`. Until then all rights are reserved. Note that `elkjs` (automatic layouts) is licensed **EPL-2.0 OR GPL-3.0-or-later**; confirm that shipping it inside the package fits the license you choose and your organization's policy (see decision 69 in `decisions.md`).
+1. **License.** Apache-2.0 (`LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES.md`, `"license"` in the root `package.json`). Decided so far (see decisions 90-92): `elkjs` is used under its EPL-2.0 option; the copyright holder is AnywhereWorks (an assumption taken from the organization; change `NOTICE` if wrong); no contributor agreement. **Still to confirm with the relevant internal team:** that shipping an EPL-2.0 dependency inside the Apache-2.0 package meets organization policy.
 2. **Repository.** Create the GitHub repository, push, then set `"repository"`, `"homepage"` and `"bugs"` in the root `package.json`. The build copies them into the published package. Relative images and links in the README resolve against the repository once it is set.
 3. **Security contact.** Replace the placeholder in `SECURITY.md` with a monitored address or GitHub's private vulnerability reporting.
 4. **Package name.** `datacanvas` was free on npm when last checked; nothing reserves it until you publish. Check again right before.

@@ -49,6 +49,11 @@ async function main() {
     if (pkg.scripts?.[script]) blockers.push(`the package defines a ${script} script`);
   }
 
+  for (const file of ["NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+    if (!(await exists(file)))
+      blockers.push(`no ${file} (run \`npm run notices\` for the notices file)`);
+  }
+
   const security = await readFile(path.join(root, "SECURITY.md"), "utf8");
   if (/a contact address will be added/i.test(security)) {
     blockers.push("SECURITY.md still has the placeholder for the vulnerability contact");

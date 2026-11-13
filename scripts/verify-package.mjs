@@ -87,7 +87,8 @@ async function main() {
     `Tarball: ${packed.filename}, ${mb(packed.size)} packed, ${mb(packed.unpackedSize)} unpacked, ${files.length} files\n`,
   );
 
-  const allowed = /^(bin\/|web\/|node_modules\/|README\.md$|package\.json$|LICENSE)/;
+  const allowed =
+    /^(bin\/|web\/|node_modules\/|README\.md$|package\.json$|LICENSE$|NOTICE$|THIRD-PARTY-NOTICES\.md$)/;
   check(
     "only bin/, web/, node_modules/, README, package.json are packed",
     files.every((f) => allowed.test(f)),

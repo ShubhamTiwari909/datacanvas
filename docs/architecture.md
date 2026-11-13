@@ -228,7 +228,7 @@ No real database is involved yet. This phase defines the vocabulary and the cont
 packages/database-core/src/
 ├── models.ts            metadata types: SchemaInfo, TableInfo, ColumnInfo, ConstraintInfo,
 │                        IndexInfo, RelationshipInfo, ...
-├── errors.ts            DatabaseError, error codes, safe messages, describeDatabaseError()
+├── errors.ts            DatabaseError, error codes, safe messages
 ├── adapter.ts           the DatabaseAdapter interface
 ├── registry.ts          AdapterRegistry: provider name -> adapter factory
 ├── index.ts             public entry point
@@ -270,7 +270,7 @@ Rules every implementation follows:
 
 ### Errors
 
-`DatabaseError` carries a stable `code` (`authentication_failed`, `unreachable`, `ssl_error`, `timeout`, `permission_denied`, `database_not_found`, `not_found`, `not_connected`, `unexpected`) and a **safe, fixed message per code**. The original driver error is kept in `cause` for server-side debugging only and is not serialised (`toJSON` returns just `code` and `message`). `describeDatabaseError(anything)` is what route handlers use in `catch`: any non-`DatabaseError` collapses to `unexpected`, so driver details cannot leak.
+`DatabaseError` carries a stable `code` (`authentication_failed`, `unreachable`, `ssl_error`, `timeout`, `permission_denied`, `database_not_found`, `not_found`, `not_connected`, `unexpected`) and a **safe, fixed message per code**. The original driver error is kept in `cause` for server-side debugging only and is not serialised (`toJSON` returns just `code` and `message`). Route handlers run inside `handleRoute` (`apps/web/lib/server/error-response.ts`), which turns any error that is not a `DatabaseError` or `ServiceError` into the generic `unexpected` response, so driver details cannot leak.
 
 ### Relationships
 
@@ -615,7 +615,7 @@ Phase 9 adds the tools that keep a big schema usable: search, filters, focus mod
 
 **Pure logic lives in `canvas-engine`** (no React, no I/O, easy to test):
 
-- `graph.ts` builds the relationship graph from edges and answers questions on it: `reachableWithin` (breadth-first search, N hops, direction-aware), `shortestPath`, `connectedComponents`.
+- `graph.ts` builds the relationship graph from edges and answers questions on it: `reachableWithin` (breadth-first search, N hops, direction-aware) and `connectedComponents`. (Routes between two tables are found by the Paths tab's own search, see Path finder.)
 - `filters.ts` decides which nodes and edges are visible (schemas, views, relationship types).
 - `pack.ts` (`shelfPack`) places several groups of tables side by side without overlap.
 - `ids.ts` gained `parseNodeId`, the inverse of `nodeIdFor`.
@@ -691,7 +691,7 @@ Everything that can be prepared without the maintainer's accounts is in place:
 - **Release gate:** `npm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and lists every blocker: placeholder version, missing license, repository or security contact, missing changelog section. It reports, and never fills in, decisions that belong to the maintainer.
 - **Metadata:** `scripts/build-package.mjs` copies `license`, `author`, `repository`, `homepage` and `bugs` from the root `package.json` into the published package; it never invents them.
 - **Release workflow:** `.github/workflows/release.yml` runs on a pushed `v*` tag, repeats the whole check, requires `release:check` to pass and the tag to match the version, then publishes with npm provenance through trusted publishing (no stored token).
-- **Checklist:** `docs/release-checklist.md` lists the human decisions, accounts and steps.
+- **Releasing:** `docs/releasing.md` lists the steps, the accounts and what is still open.
 
 ## Phase 13: what is not covered
 

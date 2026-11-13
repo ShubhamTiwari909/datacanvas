@@ -9,9 +9,8 @@
  *   5. opens the browser,
  *   6. on Ctrl+C / SIGTERM stops the server cleanly.
  *
- * This is the Phase 2 "walking skeleton": it proves the whole install path
- * works end to end. Phase 11 polishes it (single-instance detection, richer
- * messages, more checks).
+ * Before starting it creates the data folder on the first run, and if a
+ * DataCanvas is already running it opens that one instead (see instance.ts).
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -4,7 +4,6 @@
  * The database is a GRAPH: tables are nodes, foreign keys are edges. These
  * pure functions answer the questions the canvas asks:
  *   - which tables are within N hops of this one?       (reachableWithin)
- *   - how are these two tables connected?               (shortestPath)
  *   - which tables form separate clusters?              (connectedComponents)
  *
  * All of them use BREADTH-FIRST search (BFS): explore every neighbour at
@@ -94,43 +93,6 @@ export function reachableWithin(
     level = next;
   }
   return distance;
-}
-
-/**
- * The shortest chain of tables from `from` to `to` (both included), or null if
- * they are not connected. Walks BFS and remembers, for each node, which node it
- * was reached from, then follows those links back from the target.
- */
-export function shortestPath(
-  from: string,
-  to: string,
-  edges: readonly GraphEdge[],
-  direction: Direction = "both",
-): string[] | null {
-  if (from === to) return [from];
-  const neighbours = neighbourLists(edges, direction);
-  const cameFrom = new Map<string, string>();
-  const queue: string[] = [from];
-  const seen = new Set<string>([from]);
-
-  for (let head = 0; head < queue.length; head += 1) {
-    const node = queue[head] as string;
-    for (const neighbour of neighbours.get(node) ?? []) {
-      if (seen.has(neighbour)) continue;
-      seen.add(neighbour);
-      cameFrom.set(neighbour, node);
-      if (neighbour === to) {
-        const path = [to];
-        for (let step = to; step !== from;) {
-          step = cameFrom.get(step) as string;
-          path.push(step);
-        }
-        return path.reverse();
-      }
-      queue.push(neighbour);
-    }
-  }
-  return null;
 }
 
 /**

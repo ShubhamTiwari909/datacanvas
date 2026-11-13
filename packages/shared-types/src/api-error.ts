@@ -17,7 +17,7 @@ export const API_ERROR_CODES = [
   "validation_error",
   "unsupported_media_type",
   "payload_too_large",
-  // Local-server protection (Phase 10): wrong Host/Origin, or no valid session.
+  // Local-server protection: wrong Host/Origin, or no valid session.
   "unauthorized",
   "forbidden",
   // Database problems (mirror DatabaseErrorCode in @datacanvas/database-core;

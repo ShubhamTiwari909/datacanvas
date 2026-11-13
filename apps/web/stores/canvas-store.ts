@@ -4,7 +4,7 @@
  *
  * It deliberately holds NO database metadata (columns, types, ...); nodes read
  * that from the metadata store. What is here is exactly what a saved workspace
- * will need to remember (Phase 8).
+ * needs to remember.
  *
  * Edges are NOT stored: they are derived from the relationships and the tables
  * currently on the canvas (see features/canvas/use-canvas-edges.ts), so there is

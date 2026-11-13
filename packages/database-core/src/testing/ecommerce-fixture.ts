@@ -3,7 +3,7 @@
  *
  *   users ◄── orders ◄── order_items ──► products
  *
- * It mirrors the PostgreSQL test database that Phase 5 creates, so the same
+ * It mirrors the PostgreSQL test database that examples/ecommerce.sql creates, so the same
  * expectations will hold for the mock and the real adapter.
  *
  * Contents: schema "public" with tables users, products, orders, order_items

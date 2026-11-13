@@ -17,7 +17,6 @@ test("README screenshots", async ({ page, app, database }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(app.link);
   await expect(page.getByText("Welcome to DataCanvas")).toBeVisible();
-  await page.screenshot({ path: out("welcome.png") });
 
   await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
   await page.getByLabel("Connection name").fill("Sample shop");

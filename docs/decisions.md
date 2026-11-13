@@ -624,3 +624,9 @@ Follow-up decisions are 91 and 92.
 **Decision:** routes are built from real foreign keys, in both directions; the join is text to copy (`INNER JOIN`, `SELECT *`, `LIMIT 100`, tables aliased t1, t2, ...). Equally short routes are all shown, up to five.
 
 **Why:** a join does not care which table holds the key, so both directions are followed, but the direction is kept because parent-to-child steps multiply rows. Aliases are numbered because a table called `user` or `order` would need quoting as an alias. No route means no declared chain: joinable columns without a constraint are not guessed (the same promise as the canvas). **Not covered:** `LEFT JOIN` variants, choosing which columns to select, non-shortest routes, routes through views, and joins through tables on a different connection.
+
+## 99. Version 1.0.0, and what was removed for it
+
+**Decision:** the first stable version is 1.0.0 (`packages/cli/package.json`), published to the `latest` tag; `1.0.0-rc.1` was the release candidate under `next`. Before it, code and files that nothing used were removed: `shortestPath` in canvas-engine (the Paths tab has its own search that returns every shortest route), `describeDatabaseError` in database-core (route handlers use `handleRoute`; its documentation had it wrong), an unused screenshot, and the "Phase N" wording in comments and package descriptions. The development plan moved from the repository root to `docs/development-plan.md`, and the release checklist became `docs/releasing.md`.
+
+**Why:** dead code that still has tests looks supported, and two shortest-path implementations invite drift. **How it was found:** a scan for dependencies and exported functions that nothing but their own file or tests refers to found only those two functions and no unused dependency. **Kept on purpose:** `setServerContextForTests` (a test hook that tests need) and exported types used for API completeness.

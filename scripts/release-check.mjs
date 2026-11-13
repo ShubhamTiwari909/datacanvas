@@ -87,7 +87,7 @@ async function main() {
       shell: process.platform === "win32",
     });
     notes.push(
-      `"${pkg.name}" already exists on npm: check that you own it, or choose another name`,
+      `"${pkg.name}" already exists on npm (expected after the first publish; if you did not publish it, choose another name)`,
     );
   } catch (error) {
     const text = String(error.stderr ?? "");

@@ -2,7 +2,7 @@
   "name": "@datacanvas/web",
   "version": "0.0.0",
   "private": true,
-  "description": "DataCanvas web app: Next.js UI and (from Phase 2) the /api route handlers.",
+  "description": "DataCanvas web app: the Next.js interface and the /api route handlers.",
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 4747",
     "build": "next build",

@@ -74,19 +74,3 @@ export class DatabaseError extends Error {
 export function isDatabaseError(value: unknown): value is DatabaseError {
   return value instanceof DatabaseError;
 }
-
-/**
- * Reduce ANY thrown value to something safe to send to a client.
- *
- * Route handlers call this in their catch blocks. Our own `DatabaseError`s keep
- * their code and message; anything else (a bug, a raw driver error that an
- * adapter forgot to translate) becomes the generic "unexpected" error, so its
- * details cannot leak.
- */
-export function describeDatabaseError(error: unknown): {
-  code: DatabaseErrorCode;
-  message: string;
-} {
-  if (isDatabaseError(error)) return { code: error.code, message: error.message };
-  return { code: "unexpected", message: DEFAULT_ERROR_MESSAGES.unexpected };
-}

@@ -2,18 +2,11 @@
 
 **See your PostgreSQL database as a map.** Connect, explore tables and relationships on an interactive canvas, and keep your layouts. It runs on your computer and nothing leaves it.
 
-Run it from a clone of this repository (you need [Node.js](https://nodejs.org) 20.9 or newer and npm 10 or newer):
-
 ```bash
-git clone https://github.com/ShubhamTiwari909/pg-visualizer.git
-cd pg-visualizer
-npm install
-npm run app
+npx --yes @shubhamtiwari909/datacanvas
 ```
 
-`npm run app` builds the app (about a minute the first time) and starts it. It prints a private link: open it in your browser. Press Ctrl+C to stop. There is no `.env` file, no account and nothing to configure.
-
-> **Status:** used from this repository; it is **not published to npm**. If it is published later, the whole installation will be `npx --yes @shubhamtiwari909/datacanvas` (nothing to clone or build). See [docs/release-checklist.md](docs/release-checklist.md).
+That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9 or newer: no clone, no build, no `.env` file, no account. It prints a private link and opens your browser; press Ctrl+C to stop.
 
 ![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
 
@@ -46,7 +39,7 @@ Read [SECURITY.md](SECURITY.md) for exactly what is stored, what is read, and th
 
 ## Quick start
 
-1. Run `npm run app` in a clone of this repository (after `npm install`).
+1. Run `npx --yes @shubhamtiwari909/datacanvas`.
 2. Open the private link it prints (a browser opens by itself when it can).
 3. Choose **Connect PostgreSQL**, paste a connection string, and press **Connect**.
 4. Add tables to the canvas from the schema list, or use the grid button beside a schema to add all of its tables.
@@ -54,6 +47,8 @@ Read [SECURITY.md](SECURITY.md) for exactly what is stored, what is read, and th
 More detail, including tips for read-only users and TLS, is in [docs/getting-started.md](docs/getting-started.md).
 
 ## Options
+
+Add them after the command, for example `npx --yes @shubhamtiwari909/datacanvas --port 4900 --no-open`. Once installed globally (`npm install -g @shubhamtiwari909/datacanvas`) the command is just `datacanvas`.
 
 ```text
 datacanvas [options]
@@ -71,8 +66,11 @@ Your data lives in `~/.datacanvas` (set `DATACANVAS_HOME` to change it). Startin
 Requirements: Node.js 20.9 or newer and npm 10 or newer.
 
 ```bash
+git clone https://github.com/ShubhamTiwari909/pg-visualizer.git
+cd pg-visualizer
 npm install              # installs every workspace and links them together
-npm run dev              # builds the packages, then starts the web app at http://127.0.0.1:4747
+npm run app              # builds the app and runs it from this clone (about a minute the first time)
+npm run dev              # development mode: builds the packages, then starts the web app at http://127.0.0.1:4747
 npm run check            # format check + lint + typecheck + tests
 npm run package          # assembles the publishable npm package in .package/
 npm run verify:package   # packs it, installs the tarball in an empty project, tests the command
@@ -98,7 +96,7 @@ examples/           Sample database and a disposable PostgreSQL
 docs/               Architecture, decisions, threat model, guides
 ```
 
-The project was built in phases; the plan is in [pg-visualizer.md](pg-visualizer.md).
+The project was built in phases; the original plan is kept in [docs/development-plan.md](docs/development-plan.md).
 
 ## License
 

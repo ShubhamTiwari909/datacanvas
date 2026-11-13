@@ -7,6 +7,6 @@ package-lock.json
 *.tsbuildinfo
 
 # The planning document is hand-formatted (wide tables, ASCII diagrams)
-pg-visualizer.md
+docs/development-plan.md
 .package
 *.tgz

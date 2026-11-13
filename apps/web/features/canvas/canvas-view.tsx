@@ -7,7 +7,7 @@
  * REMINDERS about coordinates: a node's `position` is in CANVAS space (a big
  * plane that does not change when you pan or zoom). The viewport is the window
  * onto that plane: `screen = canvas * zoom + pan`. React Flow keeps the
- * viewport internally; we never store it here (Phase 8 will save it).
+ * viewport internally; it is not stored here (a saved workspace records it when saving).
  */
 "use client";
 

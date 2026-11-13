@@ -1,6 +1,6 @@
 {
   "name": "datacanvas-monorepo",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -38,7 +38,7 @@
     "test:e2e": "npx playwright test",
     "screenshots": "SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts",
     "release:check": "node scripts/release-check.mjs",
-    "notices": "node scripts/generate-notices.mjs",
+    "notices": "node scripts/generate-notices.mjs && prettier --write THIRD-PARTY-NOTICES.md",
     "test:pg-matrix": "node scripts/pg-matrix.mjs",
     "start": "node .package/bin/datacanvas.mjs",
     "app": "npm run package && npm run start --",

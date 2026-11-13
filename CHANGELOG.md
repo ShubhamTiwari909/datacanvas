@@ -4,9 +4,9 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
-## [1.0.0-rc.1] - 2026-11-13
+## [1.0.0] - 2026-11-13
 
-First release candidate (pre-release, published under the `next` tag).
+First stable release. (`1.0.0-rc.1`, published earlier under the `next` tag, was the release candidate.)
 
 ### Added
 

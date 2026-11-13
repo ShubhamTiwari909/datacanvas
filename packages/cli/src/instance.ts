@@ -2,7 +2,7 @@
  * Remembering the running DataCanvas, so a second `npx @shubhamtiwari909/datacanvas` opens the
  * first one instead of starting another server.
  *
- * Because every run has a private session token (Phase 10), a second launch
+ * Because every run has a private session token a second launch
  * cannot just open `http://127.0.0.1:4747`: it would be refused. So the
  * running instance leaves a small file, `run.json`, in the data folder with its
  * port and token, readable by the owner only (mode 0600). The file is deleted

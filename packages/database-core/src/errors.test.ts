@@ -3,7 +3,6 @@ import {
   DATABASE_ERROR_CODES,
   DEFAULT_ERROR_MESSAGES,
   DatabaseError,
-  describeDatabaseError,
   isDatabaseError,
 } from "./errors.js";
 
@@ -35,29 +34,5 @@ describe("DatabaseError", () => {
     expect(isDatabaseError(new DatabaseError("timeout"))).toBe(true);
     expect(isDatabaseError(new Error("x"))).toBe(false);
     expect(isDatabaseError({ code: "timeout" })).toBe(false);
-  });
-});
-
-describe("describeDatabaseError", () => {
-  it("passes through the code and message of our own errors", () => {
-    expect(describeDatabaseError(new DatabaseError("ssl_error"))).toEqual({
-      code: "ssl_error",
-      message: DEFAULT_ERROR_MESSAGES.ssl_error,
-    });
-  });
-
-  it("hides the details of any other error", () => {
-    const leaky = new Error(
-      "connect ECONNREFUSED 10.0.0.5:5432 for postgres://u:secret@10.0.0.5/db",
-    );
-    const described = describeDatabaseError(leaky);
-    expect(described.code).toBe("unexpected");
-    expect(JSON.stringify(described)).not.toContain("secret");
-    expect(JSON.stringify(described)).not.toContain("10.0.0.5");
-  });
-
-  it("copes with non-Error throwables", () => {
-    expect(describeDatabaseError("boom").code).toBe("unexpected");
-    expect(describeDatabaseError(undefined).code).toBe("unexpected");
   });
 });

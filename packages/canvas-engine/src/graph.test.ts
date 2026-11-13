@@ -4,7 +4,6 @@ import {
   connectedComponents,
   reachableWithin,
   relationshipEdges,
-  shortestPath,
   type GraphEdge,
 } from "./graph.js";
 import { nodeIdFor } from "./ids.js";
@@ -100,41 +99,6 @@ describe("reachableWithin", () => {
     const reached = reachableWithin(["n0"], chain, Infinity);
     expect(reached.size).toBe(5001);
     expect(reached.get("n5000")).toBe(5000);
-  });
-});
-
-describe("shortestPath", () => {
-  it("finds the shortest chain between two tables, ignoring direction by default", () => {
-    expect(shortestPath("user_profiles", "products", edges)).toEqual([
-      "user_profiles",
-      "users",
-      "orders",
-      "order_items",
-      "products",
-    ]);
-  });
-
-  it("respects direction when asked", () => {
-    expect(shortestPath("order_items", "users", edges, "outgoing")).toEqual([
-      "order_items",
-      "orders",
-      "users",
-    ]);
-    expect(shortestPath("users", "order_items", edges, "outgoing")).toBeNull();
-  });
-
-  it("returns just the table for a path from a table to itself", () => {
-    expect(shortestPath("users", "users", edges)).toEqual(["users"]);
-  });
-
-  it("returns null when the tables are not connected", () => {
-    expect(shortestPath("users", "regions", edges)).toBeNull();
-    expect(shortestPath("users", "audit_log", edges)).toBeNull();
-  });
-
-  it("picks a SHORTEST path when several exist", () => {
-    const diamond = [e("a", "b"), e("b", "d"), e("a", "c"), e("c", "x"), e("x", "d"), e("a", "d")];
-    expect(shortestPath("a", "d", diamond)).toEqual(["a", "d"]);
   });
 });
 

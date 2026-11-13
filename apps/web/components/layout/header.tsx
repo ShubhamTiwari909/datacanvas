@@ -1,6 +1,5 @@
-/** Top bar: product name on the left, backend status and global actions on the right. */
-import { Database, Settings } from "lucide-react";
-import { Button } from "@/components/ui/button";
+/** Top bar: product name on the left, backend status on the right. */
+import { Database } from "lucide-react";
 import { BackendStatus } from "@/features/health/backend-status";
 
 export function Header() {
@@ -12,11 +11,6 @@ export function Header() {
       </div>
       <div className="flex items-center gap-4">
         <BackendStatus />
-        {/* Disabled until a settings screen exists (not part of the MVP phases yet). */}
-        <Button variant="ghost" size="sm" disabled title="Settings are not available yet">
-          <Settings aria-hidden="true" />
-          <span className="hidden sm:inline">Settings</span>
-        </Button>
       </div>
     </header>
   );

@@ -14,6 +14,7 @@ First public release (not yet published).
 - Relationship detection with cardinality, including cross-schema relationships.
 - Interactive canvas: drag, zoom, minimap, grid, multi-select, search (on the canvas and in the database), filters, focus mode, inspector panel.
 - Schema overview tab: per-schema counts, cross-schema connections, most connected tables, largest tables and tables without relationships.
+- Paths tab: shortest chains of foreign keys between two tables, with the join SQL to copy.
 - Health tab: model checks (no primary key, foreign key without index, duplicate and redundant indexes, nullable foreign keys, wide tables) with explanations and copyable SQL.
 - Adding a whole schema to the canvas now allows up to 1000 tables (was 200).
 - Automatic layouts (hierarchical, grouped, compact, grid).

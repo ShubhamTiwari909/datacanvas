@@ -7,12 +7,11 @@
  */
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Check, Copy, Info, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Info, ShieldCheck } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/copy-button";
 import { addTablesToCanvas } from "@/features/canvas/add-tables";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -20,31 +19,6 @@ import { CHECKS, CHECK_ORDER, type HealthFinding } from "./health-checks";
 import { loadHealth, MAX_HEALTH_TABLES } from "./load-health";
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="ghost"
-      aria-label="Copy the SQL"
-      onClick={() => {
-        // The clipboard can be unavailable (permissions, insecure context): then nothing happens.
-        void navigator.clipboard
-          ?.writeText(text)
-          .then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
-          })
-          .catch(() => {});
-      }}
-    >
-      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      {copied ? "Copied" : "Copy"}
-    </Button>
-  );
-}
 
 function Finding({
   finding,

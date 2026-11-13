@@ -618,3 +618,9 @@ Follow-up decisions are 91 and 92.
 **Decision:** `MAX_TABLES_ADDED_AT_ONCE` is 1000, below the 2000 nodes a saved workspace may hold.
 
 **Why:** the maintainer hit the 200 limit on a real 332-table schema. Measured in a real browser with 1000 tables: adding about 1.7 s, 20 nodes in the page at a time (only visible ones are drawn), the layout algorithm 0.2 to 0.65 s but page work around it in bursts of up to about 0.8 s. **Correction:** the earlier 400-table browser test passed while only 200 tables were on the canvas (its text match was too loose); it now requires the exact count. **Limit:** more than 1000 tables in one schema still adds the first 1000 and says so.
+
+## 98. The path finder follows declared keys only and shows SQL it never runs
+
+**Decision:** routes are built from real foreign keys, in both directions; the join is text to copy (`INNER JOIN`, `SELECT *`, `LIMIT 100`, tables aliased t1, t2, ...). Equally short routes are all shown, up to five.
+
+**Why:** a join does not care which table holds the key, so both directions are followed, but the direction is kept because parent-to-child steps multiply rows. Aliases are numbered because a table called `user` or `order` would need quoting as an alias. No route means no declared chain: joinable columns without a constraint are not guessed (the same promise as the canvas). **Not covered:** `LEFT JOIN` variants, choosing which columns to select, non-shortest routes, routes through views, and joins through tables on a different connection.

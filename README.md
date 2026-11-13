@@ -12,6 +12,8 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 ![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
 
+![The paths tab: the shortest route between two tables and the generated join SQL](docs/images/paths.png)
+
 ![The health tab: findings grouped by check, with an explanation, a fix and SQL to copy](docs/images/health.png)
 
 ![The DataCanvas canvas showing a sample shop database: tables, relationships and the inspector panel](docs/images/canvas.png)
@@ -20,6 +22,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 - **Connect** to PostgreSQL with a connection string or separate fields. Passwords are kept in memory only.
 - **Get an overview** of the whole database: per schema, how many tables and views, how they connect to other schemas, the most connected tables, the largest tables and tables without relationships.
+- **Find a path** between two tables: the shortest chain of foreign keys, the columns joined at each step, and a ready-to-copy `SELECT … JOIN …` (text only; DataCanvas never runs SQL).
 - **Check the model**: tables without a primary key, foreign keys without a supporting index, duplicate and redundant indexes, optional (nullable) foreign keys and very wide tables, each with an explanation and SQL you can copy (DataCanvas never runs it).
 - **Explore** schemas, tables, columns, keys, indexes, constraints and row-count estimates.
 - **See relationships** drawn as edges with their cardinality (1:1, 1:N, N:1), including across schemas.

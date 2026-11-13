@@ -11,6 +11,7 @@
  * to copy. DataCanvas never runs them.
  */
 import type { IndexInfo, RelationshipInfo, TableDetailsEntry } from "@datacanvas/database-core";
+import { quoteIdent, quoteQualified } from "@/lib/sql-text";
 
 export type HealthCheckId =
   | "no_primary_key"
@@ -104,11 +105,6 @@ export interface HealthReport {
 
 // ---------------------------------------------------------------- helpers ---
 
-/** Quote an SQL identifier: "name", with any double quote inside doubled. Used only for suggestions shown as text. */
-export function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
 const QUOTED_NAME = /^"(?:[^"]|"")*"$/;
 
 /**
@@ -150,8 +146,7 @@ const signature = (index: IndexInfo): string =>
     hasIncludeColumns(index) ? index.definition : null,
   ]);
 
-const qualified = (schema: string, table: string): string =>
-  `${quoteIdent(schema)}.${quoteIdent(table)}`;
+const qualified = quoteQualified;
 
 // ---------------------------------------------------------------- checks ---
 

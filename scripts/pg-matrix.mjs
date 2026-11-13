@@ -87,6 +87,7 @@ async function runOne(version) {
         "run",
         "packages/postgres-adapter",
         "apps/web/lib/server/connection-service.integration",
+        "apps/web/features/paths",
       ],
       {
         cwd: root,

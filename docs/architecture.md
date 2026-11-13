@@ -724,3 +724,13 @@ A fourth tab, `features/health/`:
 - `health-view.tsx`: findings grouped by check with the reason, the fix, a button per table that shows it on the canvas, and SQL to copy. Warnings are open, notes are folded.
 
 Metadata only; suggested SQL is shown, never executed. 22 unit tests and an end-to-end test (`e2e/health.spec.ts`) that plants problems in a throwaway database and checks exactly those are reported.
+
+## Path finder
+
+A fifth tab, `features/paths/`:
+
+- `path-finder.ts`: `findPaths(relationships, from, to)` runs a breadth-first search over declared foreign keys in both directions (a self-reference leads nowhere and is skipped), keeps every shortest parent edge, and rebuilds up to five equally short routes in a stable order (several foreign keys between the same two tables count as different routes). Each step records its direction: from a child to its parent returns at most one row, from a parent to its children can return many, which the view says. `buildJoinSql(route)` writes `SELECT * FROM … AS t1 JOIN … AS t2 ON … LIMIT 100;` with every name quoted (`lib/sql-text.ts`) and composite keys joined on every column pair.
+- `load-path-data.ts`: every table (views have no keys) plus the foreign keys from the shared metadata cache.
+- `path-view.tsx`: two selects with a swap button, the route cards (chain, columns, SQL with Copy, Show on canvas) and the empty, same-table and no-route states.
+
+17 unit tests (including a graph with 6^8 equally short routes, which returns in under a second), an integration test that executes the generated SQL for every connected pair of tables in the sample shop and the awkward schema on a real PostgreSQL (56 routes), and an end-to-end test (`e2e/paths.spec.ts`).

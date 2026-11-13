@@ -4,12 +4,12 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection selected          -> tabs: Canvas | Overview | Health | Table details
+ *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Table details
  */
 "use client";
 
 import { useEffect } from "react";
-import { HeartPulse, LayoutDashboard, LayoutList, TableProperties } from "lucide-react";
+import { HeartPulse, LayoutDashboard, LayoutList, Route, TableProperties } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
 import { EmptyState } from "@/components/states/empty-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -18,6 +18,7 @@ import { CanvasView } from "@/features/canvas/canvas-view";
 import { ConnectDialog } from "@/features/connections/connect-dialog";
 import { WelcomePanel } from "@/features/connections/welcome-panel";
 import { HealthView } from "@/features/health/health-view";
+import { PathView } from "@/features/paths/path-view";
 import { SchemaOverviewView } from "@/features/overview/schema-overview-view";
 import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
@@ -30,6 +31,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashboard }> = [
   { view: "canvas", label: "Canvas", icon: LayoutDashboard },
   { view: "overview", label: "Overview", icon: LayoutList },
+  { view: "paths", label: "Paths", icon: Route },
   { view: "health", label: "Health", icon: HeartPulse },
   { view: "details", label: "Table details", icon: TableProperties },
 ];
@@ -109,6 +111,8 @@ export function Workspace() {
             <CanvasView key={connection.id} connectionId={connection.id} />
           ) : view === "overview" ? (
             <SchemaOverviewView key={connection.id} connectionId={connection.id} />
+          ) : view === "paths" ? (
+            <PathView key={connection.id} connectionId={connection.id} />
           ) : view === "health" ? (
             <HealthView key={connection.id} connectionId={connection.id} />
           ) : table ? (

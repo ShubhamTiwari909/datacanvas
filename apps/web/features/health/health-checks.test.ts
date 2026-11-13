@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import {
   WIDE_TABLE_COLUMNS,
   indexColumnName,
-  quoteIdent,
   runHealthChecks,
   type HealthCheckId,
 } from "./health-checks";
@@ -75,12 +74,6 @@ const of = (check: HealthCheckId, report: ReturnType<typeof runHealthChecks>) =>
   report.findings.filter((f) => f.check === check);
 
 describe("helpers", () => {
-  it("quotes identifiers and doubles embedded quotes", () => {
-    expect(quoteIdent("users")).toBe('"users"');
-    expect(quoteIdent('we"ird')).toBe('"we""ird"');
-    expect(quoteIdent("; DROP TABLE x; --")).toBe('"; DROP TABLE x; --"');
-  });
-
   it("strips the quoting PostgreSQL puts on index key names, but not on expressions", () => {
     expect(indexColumnName("id")).toBe("id");
     expect(indexColumnName('"select"')).toBe("select");

@@ -30,6 +30,13 @@ test("README screenshots", async ({ page, app, database }) => {
   await expect(page.getByRole("article", { name: "Schema public" })).toBeVisible();
   await page.waitForTimeout(500);
   await page.screenshot({ path: out("overview.png") });
+  await page.getByRole("tab", { name: "Paths" }).click();
+  await page.getByLabel("From table").selectOption({ label: "public.order_items" });
+  await page.getByLabel("To table").selectOption({ label: "public.users" });
+  await expect(page.getByText("Shortest route: 2 joins")).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: out("paths.png") });
+
   await page.getByRole("tab", { name: "Health" }).click();
   await expect(page.getByText(/Checked \d+ tables?/)).toBeVisible();
   await page.waitForTimeout(500);

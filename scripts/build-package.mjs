@@ -217,10 +217,20 @@ async function main() {
   });
   await chmod(cliOut, 0o755);
 
-  // 5. package.json for the published package.
+  // 5. package.json for the published package. Release metadata (license,
+  // repository, ...) comes from the ROOT package.json, where the maintainer
+  // sets it once; we never invent it. `npm run release:check` refuses to
+  // release while any of it is missing.
+  const rootPkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const releaseMetadata = Object.fromEntries(
+    ["license", "author", "repository", "homepage", "bugs"]
+      .filter((key) => rootPkg[key] !== undefined)
+      .map((key) => [key, rootPkg[key]]),
+  );
   const packageJson = {
     name: "datacanvas",
     version: cliPkg.version,
+    ...releaseMetadata,
     description:
       "A local-first visual PostgreSQL explorer. Runs on your machine; nothing leaves it.",
     keywords: ["postgresql", "postgres", "database", "schema", "visualizer", "erd", "local-first"],

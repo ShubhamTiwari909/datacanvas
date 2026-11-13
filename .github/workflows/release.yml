@@ -1,0 +1,45 @@
+# Publishing to npm. Runs ONLY when the maintainer pushes a version tag such as v1.0.0.
+#
+# It uses npm "trusted publishing" (OIDC): no long-lived npm token is stored in
+# GitHub. The maintainer must first configure the package on npmjs.com to trust
+# this repository and workflow (see docs/release-checklist.md). Nothing here can
+# publish until that is done, and a tag push is a deliberate human action.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write # lets npm verify this workflow's identity and record provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: testpass
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATACANVAS_TEST_PG_URL: postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm run package
+      - run: npm run verify:package
+      - run: npm run release:check
+      - name: The tag must match the package version
+        run: |
+          test "v$(node -p "require('./.package/package.json').version")" = "${GITHUB_REF_NAME}"
+      - run: npm publish ./.package --provenance --access public

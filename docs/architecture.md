@@ -682,3 +682,17 @@ Four layers, from fast to slow:
 ## Phase 12: what is not covered
 
 The CI file has never run on GitHub. Nothing was run on Windows or Linux, or in Firefox or WebKit. The end-to-end tests drive `.package/` (the assembled package), not a tarball install (`verify:package` covers that). No test runs the unsupported-Node message on a real old Node; only the version check is unit tested.
+
+## Phase 13: release preparation
+
+Everything that can be prepared without the maintainer's accounts is in place:
+
+- **User docs:** README (one-line install on the first screen, screenshots in `docs/images/` made by `npm run screenshots`), `docs/getting-started.md`, `SECURITY.md`, `CHANGELOG.md`, issue and pull-request templates.
+- **Release gate:** `npm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and lists every blocker: placeholder version, missing license, repository or security contact, missing changelog section. It reports, and never fills in, decisions that belong to the maintainer.
+- **Metadata:** `scripts/build-package.mjs` copies `license`, `author`, `repository`, `homepage` and `bugs` from the root `package.json` into the published package; it never invents them.
+- **Release workflow:** `.github/workflows/release.yml` runs on a pushed `v*` tag, repeats the whole check, requires `release:check` to pass and the tag to match the version, then publishes with npm provenance through trusted publishing (no stored token).
+- **Checklist:** `docs/release-checklist.md` lists the human decisions, accounts and steps.
+
+## Phase 13: what is not covered
+
+Nothing has been published or pushed. There is no LICENSE, no repository address and no security contact, so `release:check` fails on purpose. The release and CI workflows have never run. No demo GIF.

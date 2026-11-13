@@ -541,3 +541,28 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - Windows cannot be asked to stop gracefully by a script, so the clean-shutdown checks run on macOS and Linux only.
 - No tests on other PostgreSQL versions than the one used here (a PostgreSQL 17 service is configured for CI).
 - The TLS-mismatch test accepts either `ssl_error` or `unreachable`, because which one PostgreSQL's reply produces depends on the server.
+
+## 86. The release gate reports; it never decides
+
+**Decision:** `npm run release:check` fails while the version, license, repository or security contact are missing, and the package build copies such metadata from the root `package.json` instead of defaulting it.
+
+**Why:** a license and a repository address are legal and organizational decisions. A default would either be wrong or hide that a decision is pending. A failing gate makes the open items impossible to forget, and the release workflow runs it so a tag cannot publish around it.
+
+## 87. Trusted publishing, no stored npm token
+
+**Decision:** the release workflow uses GitHub's OIDC identity (`id-token: write`) and `npm publish --provenance`; no npm token is kept as a secret.
+
+**Why:** a stolen long-lived token can publish malicious versions. Provenance lets users verify which workflow built the package. **Trade-off:** the maintainer must configure the trust on npmjs.com first, and the very first publish of a new package may differ; the checklist says so.
+
+## 88. Screenshots are generated, not hand-made
+
+**Decision:** README images come from a Playwright spec against the sample database (`npm run screenshots`).
+
+**Why:** they stay accurate when the interface changes, contain no real schema, and anyone can regenerate them.
+
+## 89. Known limits of Phase 13
+
+- Nothing is published; no remote exists.
+- No demo GIF.
+- The README says "No license has been chosen yet" until the maintainer decides.
+- The CI and release workflows are untested on GitHub.

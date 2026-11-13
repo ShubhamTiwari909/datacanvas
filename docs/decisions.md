@@ -452,3 +452,41 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - "Add related" adds at most 60 tables per click.
 - Export is limited to a maximum image side length; very large diagrams are scaled down.
 - Layouts use table sizes at the moment of the request; they are not live.
+
+## 72. One guard module, two enforcement points
+
+**Decision:** the Host, Origin, `Sec-Fetch-Site` and token rules live in one pure module and are applied in `proxy.ts` AND inside every route through `handleRoute`.
+
+**Why:** a security control that exists in one place fails completely when that place is bypassed (a changed matcher, a framework upgrade). Sharing the code keeps the two from drifting; a rule test fails if a route skips the guard.
+
+## 73. Token in the first URL, cookie afterwards
+
+**Decision:** the CLI prints `http://127.0.0.1:<port>/?token=<random>`. The proxy trades it for an `HttpOnly`, `SameSite=Strict` cookie and redirects the token away. The cookie name includes the port.
+
+**Why:** a cookie cannot be read by page scripts or sent by other sites, and the token leaves the address bar (history, screenshots, Referer). Cookies are shared between ports, so two running instances need different names. **Trade-off:** the link in the terminal is a secret while the process runs.
+
+## 74. Missing Origin is allowed; wrong Origin is not
+
+**Decision:** a state-changing request with an `Origin` that is not ours is refused; one with no `Origin` is judged by the token alone.
+
+**Why:** browsers always send `Origin` on cross-site writes, so its absence means a non-browser client, which the token controls. Requiring `Origin` would break harmless tools without adding protection.
+
+## 75. Fail closed in production
+
+**Decision:** `NODE_ENV=production` with no configured token answers every request (except health) with 503.
+
+**Why:** the dangerous failure is a server that silently runs open because an environment variable was lost.
+
+## 76. Audit scope: shipped dependencies
+
+**Decision:** `shadcn` (a component generator used at build time) moved to `devDependencies`; CI runs `npm audit --omit=dev` and fails on moderate or higher.
+
+**Why:** the audit should describe what users actually receive. Before the move, six advisories came only from `shadcn`'s tool chain, none of which is in the published package (checked in `.package/node_modules`). Build-time tools are reviewed separately.
+
+## 77. Known limits of Phase 10
+
+- No full Content-Security-Policy (needs per-request nonces with Next.js).
+- A same-user attacker can read the token.
+- Other web apps on `127.0.0.1` receive the cookie (blocked from using it in a browser).
+- Passwords are in process memory while a connection is open.
+- No independent security review.

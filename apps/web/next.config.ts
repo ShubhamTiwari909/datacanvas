@@ -32,6 +32,31 @@ const nextConfig: NextConfig = {
 
   // Never advertise the framework in a response header.
   poweredByHeader: false,
+
+  // Browser-side hardening for every response.
+  //  - frame-ancestors / X-Frame-Options: no other page may embed DataCanvas
+  //    in a frame (clickjacking).
+  //  - nosniff: the browser must trust our Content-Type, never guess.
+  //  - Referrer-Policy: no Referer header is ever sent from DataCanvas pages.
+  //  - Cross-Origin-Resource-Policy / Opener-Policy: other sites cannot load
+  //    our responses as sub-resources or keep a handle on our window.
+  // A full Content-Security-Policy is not set yet: Next.js inlines scripts, so
+  // it needs per-request nonces (listed as a known limit in docs/threat-model.md).
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

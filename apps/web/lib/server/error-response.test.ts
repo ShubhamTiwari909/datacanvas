@@ -61,11 +61,53 @@ describe("toErrorResponse", () => {
   });
 
   it("handleRoute converts thrown errors and passes responses through", async () => {
-    const ok = await handleRoute(async () => Response.json({ fine: true }));
+    const ok = await handleRoute(new Request("http://127.0.0.1:4747/api/x"), async () =>
+      Response.json({ fine: true }),
+    );
     expect(ok.status).toBe(200);
-    const failed = await handleRoute(async () => {
+    const failed = await handleRoute(new Request("http://127.0.0.1:4747/api/x"), async () => {
       throw new DatabaseError("timeout");
     });
     expect(failed.status).toBe(504);
+  });
+
+  describe("handleRoute guard (defence in depth)", () => {
+    const url = "http://127.0.0.1:4747/api/x";
+    const work = async () => Response.json({ ran: true });
+
+    it("refuses a foreign Host before running any work", async () => {
+      let ran = false;
+      const response = await handleRoute(
+        new Request(url, { headers: { host: "evil.example" } }),
+        async () => {
+          ran = true;
+          return Response.json({});
+        },
+      );
+      expect(response.status).toBe(403);
+      expect(ran).toBe(false);
+    });
+
+    it("refuses a state-changing request from a foreign Origin", async () => {
+      const request = new Request(url, {
+        method: "POST",
+        headers: { origin: "http://evil.example" },
+      });
+      expect((await handleRoute(request, work)).status).toBe(403);
+    });
+
+    it("requires the session cookie when a token is configured", async () => {
+      vi.stubEnv("DATACANVAS_SESSION_TOKEN", "secret-token");
+      vi.stubEnv("PORT", "4747");
+      try {
+        expect((await handleRoute(new Request(url), work)).status).toBe(401);
+        const withCookie = new Request(url, {
+          headers: { cookie: "dc_session_4747=secret-token" },
+        });
+        expect((await handleRoute(withCookie, work)).status).toBe(200);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 });

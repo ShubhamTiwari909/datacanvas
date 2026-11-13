@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function POST(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const parsed = await parseJsonBody(request, tablesDetailsRequestSchema);
     if (!parsed.ok) return parsed.response;
 

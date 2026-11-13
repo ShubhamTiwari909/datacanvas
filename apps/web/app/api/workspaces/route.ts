@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function GET(request: Request): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const query = parseQuery(request, workspaceListQuerySchema);
     if (!query.ok) return query.response;
     const workspaces = await getServerContext().workspaces.list(query.data.profileId);

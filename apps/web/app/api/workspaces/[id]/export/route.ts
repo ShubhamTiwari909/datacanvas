@@ -13,8 +13,8 @@ import type { RouteParams } from "@/lib/server/route-support";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(_request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
-  return handleRoute(async () => {
+export function GET(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
+  return handleRoute(request, async () => {
     const { id } = await params;
     const { fileName, content } = await getServerContext().workspaces.exportFile(id);
     return new Response(`${JSON.stringify(content, null, 2)}\n`, {

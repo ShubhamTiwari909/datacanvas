@@ -7,6 +7,7 @@
  * failures. Raw driver errors can contain host names, user names and SQL.
  */
 import { isDatabaseError, type DatabaseErrorCode } from "@datacanvas/database-core";
+import { guardRequest } from "../security/request-guard";
 import { errorResponse } from "./api-response";
 import { ServiceError } from "./service-error";
 
@@ -73,8 +74,19 @@ export function toErrorResponse(error: unknown): Response {
   return errorResponse("unexpected", "An unexpected error occurred.", 500);
 }
 
-/** Run a handler body; any error becomes a standard error response. */
-export async function handleRoute(work: () => Promise<Response>): Promise<Response> {
+/**
+ * Run a handler body; any error becomes a standard error response.
+ *
+ * It first re-checks the request with the same rules as `proxy.ts` (Host,
+ * Origin, session token). That duplication is deliberate: if the proxy is ever
+ * bypassed or misconfigured, no route can run without passing the guard.
+ */
+export async function handleRoute(
+  request: Request,
+  work: () => Promise<Response>,
+): Promise<Response> {
+  const refused = guardRequest(request, errorResponse);
+  if (refused) return refused;
   try {
     return await work();
   } catch (error) {

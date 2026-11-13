@@ -7,6 +7,7 @@
  * cannot take the CLI down silently.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export interface WebServer {
@@ -16,19 +17,45 @@ export interface WebServer {
   exited: Promise<number | null>;
 }
 
-/** Launch `server.js` bound to loopback only, on the given port. */
-export function startWebServer(serverJsPath: string, port: number): WebServer {
+/** A fresh random secret for this run: 32 bytes (256 bits), URL-safe. Never reused, never stored. */
+export function generateSessionToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/**
+ * The environment the web server runs with. Exported so a test can pin down
+ * the security-relevant values (loopback only, token, no telemetry).
+ */
+export function buildServerEnv(
+  port: number,
+  sessionToken: string,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return {
+    ...base,
+    NODE_ENV: "production",
+    PORT: String(port),
+    // SECURITY: Next.js reads HOSTNAME to choose the interface to listen on.
+    // Without this it would listen on all interfaces (0.0.0.0) and expose
+    // the app to the local network. Never remove or loosen this.
+    HOSTNAME: "127.0.0.1",
+    // SECURITY: the per-run secret the server requires on every request.
+    DATACANVAS_SESSION_TOKEN: sessionToken,
+    // PRIVACY: nothing leaves the machine. Next.js would otherwise send
+    // anonymous usage data from a running server.
+    NEXT_TELEMETRY_DISABLED: "1",
+  };
+}
+
+/** Launch `server.js` bound to loopback only, on the given port, protected by `sessionToken`. */
+export function startWebServer(
+  serverJsPath: string,
+  port: number,
+  sessionToken: string,
+): WebServer {
   const child = spawn(process.execPath, [serverJsPath], {
     // Run with the same Node.js binary that runs the CLI.
-    env: {
-      ...process.env,
-      NODE_ENV: "production",
-      PORT: String(port),
-      // SECURITY: Next.js reads HOSTNAME to choose the interface to listen on.
-      // Without this it would listen on all interfaces (0.0.0.0) and expose
-      // the app to the local network. Never remove or loosen this.
-      HOSTNAME: "127.0.0.1",
-    },
+    env: buildServerEnv(port, sessionToken),
     stdio: ["ignore", "inherit", "inherit"],
   });
 

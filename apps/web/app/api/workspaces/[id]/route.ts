@@ -22,15 +22,15 @@ export const dynamic = "force-dynamic";
 /** A layout of a few hundred tables is far below this; the limit only stops abuse. */
 const MAX_BODY_BYTES = 1024 * 1024;
 
-export function GET(_request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
-  return handleRoute(async () => {
+export function GET(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
+  return handleRoute(request, async () => {
     const { id } = await params;
     return jsonResponse({ workspace: await getServerContext().workspaces.get(id) });
   });
 }
 
 export function PUT(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const { id } = await params;
     // Validate the id before anything else: it becomes part of a file name.
     if (!workspaceIdSchema.safeParse(id).success) {
@@ -44,10 +44,10 @@ export function PUT(request: Request, { params }: RouteParams<{ id: string }>): 
 }
 
 export function DELETE(
-  _request: Request,
+  request: Request,
   { params }: RouteParams<{ id: string }>,
 ): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const { id } = await params;
     await getServerContext().workspaces.remove(id);
     return jsonResponse({ ok: true });

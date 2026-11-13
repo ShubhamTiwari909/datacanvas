@@ -13,10 +13,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function DELETE(
-  _request: Request,
+  request: Request,
   { params }: RouteParams<{ id: string }>,
 ): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const { id } = await params;
     const context = getServerContext();
     await context.profiles.remove(id);

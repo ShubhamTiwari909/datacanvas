@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function GET(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const query = parseQuery(request, schemaQuerySchema);
     if (!query.ok) return query.response;
 

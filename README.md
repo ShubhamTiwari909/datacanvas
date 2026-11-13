@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 9).** You can connect to a PostgreSQL database, browse its structure, arrange tables on an interactive canvas, have layouts and connection details saved and restored across restarts (passwords are never saved), and explore large schemas with search, filters, focus mode, automatic layouts, an inspector panel and image export. It is not published to npm yet.
+> **Status: early development (Phase 10).** You can connect to a PostgreSQL database, browse its structure, arrange tables on an interactive canvas, have layouts and connection details saved and restored across restarts (passwords are never saved), and explore large schemas with search, filters, focus mode, automatic layouts, an inspector panel and image export. The local server is protected by Host, Origin and session-token checks (see [SECURITY.md](SECURITY.md)). It is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 

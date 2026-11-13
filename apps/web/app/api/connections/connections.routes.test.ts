@@ -103,7 +103,7 @@ describe("POST /api/connections", () => {
     );
     expect(status).toBe(400);
     expect(body.error.code).toBe("authentication_failed");
-    expect((await call(listConnections())).body.connections).toEqual([]);
+    expect((await call(listConnections(new Request(BASE)))).body.connections).toEqual([]);
   });
 
   it("answers 502 when the server cannot be reached", async () => {
@@ -148,7 +148,7 @@ describe("POST /api/connections/test", () => {
     const { status, body } = await call(testConnection(post(`${BASE}/test`, fieldsInput())));
     expect(status).toBe(200);
     expect(body).toEqual({ ok: true });
-    expect((await call(listConnections())).body.connections).toEqual([]);
+    expect((await call(listConnections(new Request(BASE)))).body.connections).toEqual([]);
   });
 
   it("reports why the details do not work", async () => {
@@ -170,7 +170,7 @@ describe("GET /api/connections", () => {
   it("lists the connections that were created", async () => {
     const a = await createOne({ name: "One" });
     const b = await createOne({ name: "Two" });
-    const { body } = await call(listConnections());
+    const { body } = await call(listConnections(new Request(BASE)));
     expect(body.connections.map((c: { id: string }) => c.id)).toEqual([a, b]);
   });
 });
@@ -364,7 +364,7 @@ describe("DELETE /api/connections/:id", () => {
     );
     expect(status).toBe(200);
     expect(body).toEqual({ ok: true });
-    expect((await call(listConnections())).body.connections).toEqual([]);
+    expect((await call(listConnections(new Request(BASE)))).body.connections).toEqual([]);
     expect(
       (await call(getSchemas(new Request(`${BASE}/${id}/schemas`), params({ id })))).status,
     ).toBe(404);
@@ -377,7 +377,7 @@ describe("secrecy", () => {
     const id = await createOne({ password: SECRET });
     await call(createConnection(post(BASE, fieldsInput({ password: SECRET, name: "" }))));
     await call(testConnection(post(`${BASE}/test`, fieldsInput({ password: SECRET }))));
-    await call(listConnections());
+    await call(listConnections(new Request(BASE)));
     await call(getSchemas(new Request(`${BASE}/${id}/schemas`), params({ id })));
     await call(getTables(new Request(`${BASE}/${id}/tables?schema=public`), params({ id })));
     await call(

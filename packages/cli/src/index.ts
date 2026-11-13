@@ -20,7 +20,12 @@ import { DEFAULT_PORT } from "@datacanvas/shared-types";
 import { openBrowser } from "./browser.js";
 import { findFreePort, isPortFree } from "./port.js";
 import { VERSION } from "./version.js";
-import { startWebServer, stopWebServer, waitUntilHealthy } from "./web-server.js";
+import {
+  generateSessionToken,
+  startWebServer,
+  stopWebServer,
+  waitUntilHealthy,
+} from "./web-server.js";
 
 const MIN_NODE_MAJOR = 20;
 const MIN_NODE_MINOR = 9; // matches "engines" (>=20.9.0), the floor Next.js requires
@@ -108,7 +113,9 @@ async function main(): Promise<void> {
   }
 
   console.log(`DataCanvas ${VERSION}: starting…`);
-  const server = startWebServer(serverJs, port);
+  // A new secret for every run. Only this process and the server it starts know it.
+  const sessionToken = generateSessionToken();
+  const server = startWebServer(serverJs, port, sessionToken);
 
   // Shutdown handling. `shuttingDown` stops a second Ctrl+C from racing the first.
   let shuttingDown = false;
@@ -138,9 +145,13 @@ async function main(): Promise<void> {
     fail("The server did not become ready in time.");
   }
 
-  const url = `http://127.0.0.1:${port}`;
-  console.log(`DataCanvas is running at ${url}`);
-  console.log("Press Ctrl+C to stop.");
+  // The first page load carries the token; the app swaps it for an HttpOnly
+  // cookie and removes it from the address bar. Anyone without this link (other
+  // programs, other websites) is refused. Treat the link like a password for
+  // as long as DataCanvas is running.
+  const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
+  console.log(`DataCanvas is running. Open this link in your browser:\n  ${url}`);
+  console.log("The link is private to this run. Press Ctrl+C to stop.");
   if (!values["no-open"]) openBrowser(url);
 }
 

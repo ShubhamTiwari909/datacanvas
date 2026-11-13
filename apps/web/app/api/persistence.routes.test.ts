@@ -78,12 +78,16 @@ async function connectAndRemember(): Promise<{ connectionId: string; profileId: 
 
 describe("profiles", () => {
   it("lists nothing at first", async () => {
-    expect((await call(listProfiles())).body).toEqual({ profiles: [] });
+    expect(
+      (await call(listProfiles(new Request("http://127.0.0.1:4747/api/profiles")))).body,
+    ).toEqual({ profiles: [] });
   });
 
   it("remember on connect saves a profile that the API lists, without a password", async () => {
     const { profileId } = await connectAndRemember();
-    const { status, body } = await call(listProfiles());
+    const { status, body } = await call(
+      listProfiles(new Request("http://127.0.0.1:4747/api/profiles")),
+    );
     expect(status).toBe(200);
     expect(body.profiles).toHaveLength(1);
     expect(body.profiles[0]).toMatchObject({
@@ -110,7 +114,9 @@ describe("profiles", () => {
 
     expect(saved.status).toBe(200);
     expect(saved.body.connection.profileId).toBeTruthy();
-    expect((await call(listProfiles())).body.profiles).toHaveLength(1);
+    expect(
+      (await call(listProfiles(new Request("http://127.0.0.1:4747/api/profiles")))).body.profiles,
+    ).toHaveLength(1);
   });
 
   it("answers 404 for an unknown connection or profile", async () => {
@@ -141,7 +147,9 @@ describe("profiles", () => {
     );
 
     expect(status).toBe(200);
-    expect((await call(listProfiles())).body.profiles).toEqual([]);
+    expect(
+      (await call(listProfiles(new Request("http://127.0.0.1:4747/api/profiles")))).body.profiles,
+    ).toEqual([]);
     expect((await call(listWorkspaces(new Request(`${BASE}/workspaces`)))).body.workspaces).toEqual(
       [],
     );

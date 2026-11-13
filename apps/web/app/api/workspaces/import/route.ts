@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 1024 * 1024;
 
 export function POST(request: Request): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const query = parseQuery(request, workspaceListQuerySchema);
     if (!query.ok) return query.response;
     // Any JSON is accepted here: it is checked properly (and upgraded) by the service.

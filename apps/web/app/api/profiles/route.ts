@@ -6,8 +6,8 @@ import { jsonResponse } from "@/lib/server/route-support";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET(): Promise<Response> {
-  return handleRoute(async () =>
+export function GET(request: Request): Promise<Response> {
+  return handleRoute(request, async () =>
     jsonResponse({ profiles: await getServerContext().profiles.list() }),
   );
 }

@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function POST(request: Request): Promise<Response> {
-  return handleRoute(async () => {
+  return handleRoute(request, async () => {
     const parsed = await parseJsonBody(request, postgresConnectionInputSchema);
     if (!parsed.ok) return parsed.response;
 

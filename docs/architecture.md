@@ -631,3 +631,20 @@ Phase 9 adds the tools that keep a big schema usable: search, filters, focus mod
 ## Phase 9: what is not covered
 
 Verified in the in-app browser against PostgreSQL only; no other browsers or PostgreSQL versions. SVG export shares the PNG code path but was not exercised separately.
+
+## Phase 10: security hardening
+
+The local server is protected in layers. All rules live in one pure module, `apps/web/lib/security/request-guard.ts`, so the same code runs in two places:
+
+1. **`apps/web/proxy.ts`** (the Next.js 16 name for middleware) runs before every page and route. It also performs the one-time token exchange: the first URL printed by the CLI is `/?token=...`; if the token matches, the proxy sets an `HttpOnly`, `SameSite=Strict` cookie named `dc_session_<port>` and redirects to the same URL without the token.
+2. **`handleRoute(request, work)`** repeats the checks inside every API route (`/api/health` calls `guardRequest` directly). If the proxy were bypassed or misconfigured, no route could still run unguarded. `tests/security.test.ts` fails if a route forgets this.
+
+Rules, in order: Host must be `127.0.0.1:<port>` or `localhost:<port>`; for `/api/*` the browser's `Sec-Fetch-Site` must be `same-origin` or `none`; state-changing requests that carry an `Origin` must come from our own origin; the session cookie must match the per-run token (constant-time comparison). `/api/health` is the only path without the token (the CLI polls it). In production a missing token means **refuse everything** (503), never "run open".
+
+The CLI (`packages/cli/src/web-server.ts`) creates a fresh 32-byte token each run, passes it to the server through the environment, switches framework telemetry off, and prints the tokenized link. `next.config.ts` adds response headers: no framing, no sniffing, no referrer, same-origin resource and opener policies. No CORS headers are sent anywhere.
+
+Documents: `SECURITY.md` (for users), `docs/threat-model.md` (assets, attackers, residual risks). CI (`.github/workflows/ci.yml`) runs the full check and `npm audit --omit=dev`.
+
+## Phase 10: what is not covered
+
+Verified in one browser on one machine. No independent review. No full Content-Security-Policy. No defence against a program running as the same user.

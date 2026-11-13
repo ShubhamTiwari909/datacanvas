@@ -9,6 +9,8 @@
  * method on this URL. It receives a Request and returns a Response.
  */
 import { APP_NAME, type HealthResponse } from "@datacanvas/shared-types";
+import { guardRequest } from "@/lib/security/request-guard";
+import { errorResponse } from "@/lib/server/api-response";
 
 // Run on the Node.js runtime (not Edge). Every database route needs Node APIs
 // such as TCP sockets, so all handlers declare this explicitly.
@@ -18,7 +20,11 @@ export const runtime = "nodejs";
 // each request, otherwise a stale "ok" could be served forever.
 export const dynamic = "force-dynamic";
 
-export function GET(): Response {
+export function GET(request: Request): Response {
+  // Needs no session token (the CLI polls it before the browser has a cookie),
+  // but the Host/Origin rules still apply.
+  const refused = guardRequest(request, errorResponse);
+  if (refused) return refused;
   const body: HealthResponse = { status: "ok", application: APP_NAME };
   return Response.json(body, { headers: { "Cache-Control": "no-store" } });
 }

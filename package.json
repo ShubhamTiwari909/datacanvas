@@ -30,7 +30,8 @@
     "test:e2e": "npx playwright test",
     "screenshots": "SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts",
     "release:check": "node scripts/release-check.mjs",
-    "notices": "node scripts/generate-notices.mjs"
+    "notices": "node scripts/generate-notices.mjs",
+    "test:pg-matrix": "node scripts/pg-matrix.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

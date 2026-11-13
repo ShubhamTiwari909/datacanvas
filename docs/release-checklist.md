@@ -30,6 +30,7 @@ Everything here needs a person with the right accounts and authority. The code i
 
 ## Not done yet
 
+- Managed PostgreSQL services (RDS, Supabase, Neon, Azure): SSL modes, poolers and restricted catalog access are untested. Self-hosted PostgreSQL 12 to 18 passes (`npm run test:pg-matrix`).
 - A short demo GIF for the README (screenshots exist; a recording needs a screen-capture tool).
 - Verification on Windows and Linux (CI is configured but has not run).
 - An independent security review.

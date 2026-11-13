@@ -53,6 +53,18 @@ const fixtureSql = (): string =>
   );
 
 /**
+ * Disconnect everyone, then drop the database. (`DROP DATABASE ... WITH (FORCE)`
+ * only exists from PostgreSQL 13, so this works on every version we test.)
+ */
+async function dropDatabase(admin: pg.Client, dbName: string): Promise<void> {
+  await admin.query(
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+    [dbName],
+  );
+  await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(dbName)}`);
+}
+
+/**
  * Create the database and load the sample shop into it, plus three rows in
  * `users` (analysed, so row-count estimates are non-trivial).
  */
@@ -83,7 +95,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
       await setup.end();
     }
   } catch (error) {
-    await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(dbName)} WITH (FORCE)`).catch(() => {});
+    await dropDatabase(admin, dbName).catch(() => {});
     await admin.end().catch(() => {});
     throw error;
   }
@@ -94,7 +106,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
     dbName,
     admin,
     async dispose() {
-      await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(dbName)} WITH (FORCE)`);
+      await dropDatabase(admin, dbName);
       await admin.end();
     },
   };

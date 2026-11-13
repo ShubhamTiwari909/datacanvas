@@ -586,3 +586,17 @@ Follow-up decisions are 91 and 92.
 **Decision:** the repository will live under the organization's GitHub, so `NOTICE` names **AnywhereWorks** as the copyright holder (an assumption taken from the organization, easy to change). No CLA or DCO: contributions rely on Apache-2.0 section 5 (`CONTRIBUTING.md` says so).
 
 **Why:** the maintainer stated that organization ownership is not an issue and that no contributor agreement is wanted. **Revisit** if outside contributions grow or the license changes.
+
+## 93. Foreign tables are not listed (known gap)
+
+**Decision:** for now `pg_class` entries with `relkind = 'f'` (foreign tables, such as `postgres_fdw` or Supabase wrapper tables) stay hidden. A test (`postgres.adapter.odd-schema.test.ts`) pins this down so changing it is deliberate.
+
+**Why:** showing them needs a new relation kind through the model, the shared schemas and the interface (icon, label, inspector), and their columns and comments are read the same way as a table's. That is a feature, not a fix, so it was not folded into the robustness work. **Impact:** a user whose data lives behind foreign tables will not see them. **Next:** add `foreign_table` to `RelationKind` and `LISTED_RELKINDS`, update the UI, extend the contract tests.
+
+## 94. PostgreSQL 12 to 18 matrix
+
+**Decision:** the database-facing tests run against PostgreSQL 12 through 18, locally through Docker (`npm run test:pg-matrix`, alpine images) and in CI as a job matrix.
+
+**Why:** catalog layouts and defaults change between versions (`reltuples` is -1 for never-analysed tables from 14, partition behaviour, generated columns from 12). 12 is the floor because the fixtures use generated columns. Older versions are not tested and not promised.
+
+**Status (verified locally, macOS, Docker, 2026-11-13):** the adapter, odd-schema, performance and service tests all pass on 12.22, 13.23, 14.25, 15.20, 16.16, 17.12 and 18.7 (177 tests each). The first run found one problem, in the TEST helper not the adapter: `DROP DATABASE ... WITH (FORCE)` needs PostgreSQL 13, so teardown failed on 12. It now terminates connections and drops, which works everywhere. Managed services (RDS, Supabase, Neon) are still untested.

@@ -20,6 +20,7 @@ Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; the
 | `npm run format`         | Prettier: rewrite files                                                      |
 | `npm run format:check`   | Prettier: fail if any file is not formatted                                  |
 | `npm run check`          | format check, lint and typecheck together                                    |
+| `npm run test:pg-matrix` | Run the PostgreSQL tests on versions 12 to 18 with Docker (downloads images) |
 | `npm run clean`          | Remove build output of the TypeScript projects                               |
 
 Run `npm run check` before every commit.

@@ -696,3 +696,11 @@ Everything that can be prepared without the maintainer's accounts is in place:
 ## Phase 13: what is not covered
 
 Nothing has been published or pushed. There is no LICENSE, no repository address and no security contact, so `release:check` fails on purpose. The release and CI workflows have never run. No demo GIF.
+
+## Robustness: awkward schemas and PostgreSQL versions
+
+`examples/odd-schema.sql` is a deliberately awkward database: names with spaces, capitals, accents, quotes, dots, emoji and SQL-looking text; the 63-byte name limit; the same table name in two schemas; enums, domains, composite types, arrays, ranges and generated columns; tables with no columns, no key, or 301 columns; composite, self-referencing, circular, deferrable and cross-schema foreign keys; inheritance; nested list/range/hash partitions with a foreign key to a partitioned parent; views of views and materialized views; expression, partial, covering, GIN and BRIN indexes; temporary and unlogged tables.
+
+`postgres.adapter.odd-schema.test.ts` loads it into a throwaway database and pins down what the adapter returns for each case (31 tests). `scripts/pg-matrix.mjs` (`npm run test:pg-matrix`) runs all PostgreSQL-facing tests against PostgreSQL 12 to 18, one Docker container per version; CI does the same with a job matrix.
+
+**Result on PostgreSQL 17:** no adapter bug was found in any of these cases. One gap was confirmed: **foreign tables** (for example `postgres_fdw`) are not listed (decision 93).

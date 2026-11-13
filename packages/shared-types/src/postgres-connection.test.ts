@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SOCKET_HOST_MESSAGE,
   defaultSslMode,
   parsePostgresConnectionString,
   postgresConnectionInputSchema,
@@ -273,5 +274,158 @@ describe("resolve and summarize", () => {
     expect(summary.hasPassword).toBe(true);
     expect(Object.keys(summary)).not.toContain("password");
     expect(JSON.stringify(summary)).not.toContain(SECRET);
+  });
+});
+
+describe("host in the query (libpq / Cloud SQL style)", () => {
+  const parse = (raw: string) => parsePostgresConnectionString(raw);
+  const message = (raw: string): string => {
+    const result = parse(raw);
+    if (result.ok) throw new Error("expected a failure");
+    return result.message;
+  };
+
+  describe("Unix socket paths", () => {
+    const CLOUD_SQL =
+      "postgresql://app_user:hunter2-secret@/appdb?host=/cloudsql/my-project:us-central1:my-instance&schema=public";
+
+    it("refuses the Cloud Run style string with an explanation of what to do instead", () => {
+      expect(message(CLOUD_SQL)).toBe(SOCKET_HOST_MESSAGE);
+      expect(SOCKET_HOST_MESSAGE).toContain("Cloud SQL Auth Proxy");
+      expect(SOCKET_HOST_MESSAGE).toContain("127.0.0.1");
+    });
+
+    it("refuses Prisma style (a real-looking host plus a socket path in the query)", () => {
+      expect(
+        message(
+          "postgresql://u:pw@localhost/appdb?host=/cloudsql/my-project:us-central1:my-instance",
+        ),
+      ).toBe(SOCKET_HOST_MESSAGE);
+    });
+
+    it("refuses a percent-encoded socket path, and a socket directory used as the host", () => {
+      expect(message("postgresql://u:pw@/appdb?host=%2Fcloudsql%2Fp%3Ar%3Ai")).toBe(
+        SOCKET_HOST_MESSAGE,
+      );
+      expect(message("postgresql://u:pw@/appdb?host=/var/run/postgresql")).toBe(
+        SOCKET_HOST_MESSAGE,
+      );
+    });
+
+    it("never repeats the password, user, database or instance name", () => {
+      const text = message(CLOUD_SQL);
+      for (const secret of ["hunter2-secret", "app_user", "appdb", "my-project", "my-instance"]) {
+        expect(text).not.toContain(secret);
+      }
+    });
+
+    it("explains the same thing when a socket path is typed into the Host field", () => {
+      const result = postgresConnectionInputSchema.safeParse({
+        mode: "fields",
+        name: "x",
+        host: "/cloudsql/p:r:i",
+        database: "db",
+        username: "u",
+        password: "pw",
+      });
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain("Unix socket");
+    });
+  });
+
+  describe("host and port given as query parameters", () => {
+    it("uses ?host= when the address has none", () => {
+      expect(parse("postgresql://u:pw@/appdb?host=10.1.2.3")).toEqual({
+        ok: true,
+        value: {
+          host: "10.1.2.3",
+          port: 5432,
+          database: "appdb",
+          username: "u",
+          password: "pw",
+          sslMode: "verify-full",
+        },
+      });
+    });
+
+    it("also works without credentials in the address and with ?port=", () => {
+      const result = parse("postgres://u:pw@/appdb?host=db.example.com&port=6543");
+      expect(result).toMatchObject({ ok: true, value: { host: "db.example.com", port: 6543 } });
+    });
+
+    it("decodes an encoded host and keeps an encoded password with an @ in it", () => {
+      const result = parse("postgresql://u:p%40ss@/appdb?host=db%2Eexample%2Ecom");
+      expect(result).toMatchObject({
+        ok: true,
+        value: { host: "db.example.com", password: "p@ss" },
+      });
+    });
+
+    it("applies the host-aware SSL default to the host from the query", () => {
+      expect(parse("postgresql://u:pw@/db?host=localhost")).toMatchObject({
+        value: { sslMode: "disable" },
+      });
+      expect(parse("postgresql://u:pw@/db?host=10.0.0.1")).toMatchObject({
+        value: { sslMode: "verify-full" },
+      });
+      expect(parse("postgresql://u:pw@/db?host=10.0.0.1&sslmode=require")).toMatchObject({
+        value: { sslMode: "require" },
+      });
+    });
+
+    it("accepts a repeated host or port when it agrees with the address", () => {
+      expect(
+        parse("postgresql://u:pw@db.example.com:6543/d?host=db.example.com&port=6543").ok,
+      ).toBe(true);
+    });
+
+    it("refuses a host or port that disagrees with the address instead of picking one", () => {
+      expect(message("postgresql://u:pw@a.example.com/d?host=b.example.com")).toContain(
+        "two different hosts",
+      );
+      expect(message("postgresql://u:pw@a.example.com:5432/d?port=6543")).toContain(
+        "two different ports",
+      );
+    });
+
+    it("refuses several hosts, and an invalid port", () => {
+      expect(message("postgresql://u:pw@/d?host=a.example.com,b.example.com")).toContain(
+        "Several hosts",
+      );
+      expect(message("postgresql://u:pw@/d?host=a.example.com&port=abc")).toContain("port");
+      expect(message("postgresql://u:pw@/d?host=a.example.com&port=99999")).toContain("port");
+    });
+  });
+
+  describe("no host at all", () => {
+    it("says the host is missing, not that the URL needs encoding", () => {
+      for (const raw of [
+        "postgresql://u:pw@/appdb",
+        "postgresql://u:pw@/appdb?sslmode=require",
+        "postgresql:///appdb",
+        "postgresql://u:pw@/appdb?host=",
+      ]) {
+        const text = message(raw);
+        expect(text, raw).toContain("no host");
+        expect(text, raw).not.toContain("URL-encoded");
+      }
+    });
+  });
+
+  it("leaves ordinary strings exactly as they were", () => {
+    expect(
+      parse("postgresql://alice:pw@db.example.com:6543/shop?sslmode=require&schema=public"),
+    ).toEqual({
+      ok: true,
+      value: {
+        host: "db.example.com",
+        port: 6543,
+        database: "shop",
+        username: "alice",
+        password: "pw",
+        sslMode: "require",
+      },
+    });
+    expect(message("not a url")).toContain("does not look like a valid connection string");
   });
 });

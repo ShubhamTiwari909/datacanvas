@@ -107,3 +107,52 @@ test("a taken --port stops with a clear message instead of starting", async () =
     blocker.close();
   }
 });
+
+test.describe("connection strings written the libpq / Cloud SQL way", () => {
+  async function openStringForm(
+    page: Page,
+    app: { link: string },
+    name: string,
+    connectionString: string,
+  ) {
+    await page.goto(app.link);
+    await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+    await page.getByLabel("Connection name").fill(name);
+    await page.getByRole("tab", { name: /connection string/i }).click();
+    await page.getByRole("textbox", { name: "Connection string" }).fill(connectionString);
+    await page.getByRole("button", { name: /^Connect$/ }).click();
+  }
+
+  test("a Cloud SQL socket string is explained, without repeating the secret", async ({
+    page,
+    app,
+  }) => {
+    const secret = "hunter2-not-a-real-password";
+    await openStringForm(
+      page,
+      app,
+      "Socket",
+      `postgresql://app_user:${secret}@/appdb?host=/cloudsql/my-project:us-central1:my-instance&schema=public`,
+    );
+    const text = page.locator("body");
+    await expect(text).toContainText("Unix socket");
+    await expect(text).toContainText("Cloud SQL Auth Proxy");
+    await expect(text).not.toContainText(secret);
+    await expect(text).not.toContainText("URL-encoded");
+    await expect(page.getByRole("button", { name: "Disconnect Socket" })).toHaveCount(0);
+  });
+
+  test("a string with the host in ?host= connects to a real database", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await openStringForm(
+      page,
+      app,
+      "Query host",
+      `postgresql://${database.user}:${database.password}@/${database.name}?host=${database.host}&port=${database.port}&sslmode=disable`,
+    );
+    await expect(page.getByRole("button", { name: "Disconnect Query host" })).toBeVisible();
+  });
+});

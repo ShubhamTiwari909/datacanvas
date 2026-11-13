@@ -636,3 +636,9 @@ Follow-up decisions are 91 and 92.
 **Decision:** light, dark and system are a `dark` class on `<html>`; the saved choice lives in `localStorage` (`datacanvas-theme`) and is applied by a small inline script before the first paint; "system" follows `prefers-color-scheme` live. Version 1.0.1.
 
 **Why:** a class matches the existing shadcn palette and Tailwind's `dark:` variant; without the inline script a dark-mode user would see a white flash on every load. The script is a fixed constant with no user input; it is the one inline script in the app (the Content-Security-Policy that was listed as a known gap would need a nonce or hash for it). Nothing about the theme is sent to the server or saved in a workspace file. **Not covered:** a high-contrast theme, per-workspace themes, and a color picker.
+
+## 101. Accept ?host= and ?port=; explain sockets instead of supporting them
+
+**Decision:** `?host=` and `?port=` are read when the address has none; a socket path is refused with an explanation; two different hosts or ports are an error. Version 1.0.2.
+
+**Why:** a Cloud SQL string pasted from a Cloud Run configuration failed with a message about URL-encoding that was wrong. Unix sockets cannot be supported usefully: they exist only on the machine running the database or its proxy, and DataCanvas connects over the network, so the message points at the two ways that do work (the instance's address, or the Cloud SQL Auth Proxy on 127.0.0.1). Silent preference between two conflicting hosts could connect to the wrong server, so it is an error. **Not covered:** a CA file for providers with their own certificate authority, tunnels, and fetching IAM tokens.

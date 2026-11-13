@@ -41,14 +41,34 @@ Good practice:
 - **Layout** arranges tables (hierarchical, grouped by connected tables, compact, or a plain grid).
 - **Explore** can focus on the selected table and the tables within 1 to 5 relationships of it, dimming or hiding the rest. **Filters** hides schemas, views or relationship types.
 
-## Dark mode
-
-The sun or moon button in the top bar chooses **Light**, **Dark** or **System** (follow your operating system, live). The choice is saved in your browser only.
-
 ## 4. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.
 - **Export** saves a PNG or SVG. These images show table and column names, so share them only with people who should see your schema.
+
+## Dark mode
+
+The sun or moon button in the top bar chooses **Light**, **Dark** or **System** (follow your operating system, live). The choice is saved in your browser only.
+
+## Cloud databases
+
+DataCanvas connects over the network (TCP) to a host name or IP address. Paste the provider's connection string, or fill in the fields. Accepted shapes:
+
+```text
+postgresql://user:password@host:5432/database
+postgresql://user:password@/database?host=host.example.com&port=5432   (host in the query, as libpq writes it)
+```
+
+Add `?sslmode=require` or `?sslmode=verify-full` to choose the encryption (a remote host defaults to the strictest, `verify-full`). Other parameters in the string (such as Prisma's `schema=`) are ignored on purpose.
+
+**Google Cloud SQL.** A string with `?host=/cloudsql/PROJECT:REGION:INSTANCE` is the form used _inside_ Google Cloud (Cloud Run, App Engine) and cannot work from your computer: `/cloudsql/...` is a Unix socket that only exists there. DataCanvas says so. Two ways in from your computer:
+
+1. **Cloud SQL Auth Proxy** (recommended). Run it with the instance name (the part after `/cloudsql/`) and a local port, following Google's current instructions, then connect DataCanvas to `postgresql://user:password@127.0.0.1:<that port>/database`. A local address defaults to no extra SSL, which is right because the proxy encrypts.
+2. **Public IP.** Enable a public IP on the instance, authorise your current IP in its networks, and use `postgresql://user:password@PUBLIC_IP:5432/database?sslmode=require`.
+
+**Certificates.** `verify-full` checks the server's certificate against the authorities your Node.js trusts. Providers that sign with their own authority (Amazon RDS, Google Cloud SQL, Supabase direct connections) will fail that check, and DataCanvas cannot yet be given a CA file. `sslmode=require` still encrypts but does not verify who answers, so it is weaker on an untrusted network.
+
+**Other things to know.** A database that is reachable only inside a private network needs a VPN or a tunnel first (DataCanvas has no built-in tunnel). Serverless databases that sleep can take longer than the 10 second connect timeout on the first try; try again. Short-lived IAM tokens work only if you paste a fresh one as the password. Poolers such as PgBouncer are supported by design (each operation is one short read-only transaction), but none of these services has been tested against a real account. Use a read-only user.
 
 ## When something goes wrong
 
@@ -58,6 +78,7 @@ The sun or moon button in the top bar chooses **Light**, **Dark** or **System** 
 | "Port ... is already in use"               | Omit `--port` (a free one is chosen) or pick another.                                        |
 | "Open DataCanvas with the link printed..." | You opened the address without the token. Use the link the command printed.                  |
 | Authentication failed                      | Check the user name and password.                                                            |
+| "The host is a Unix socket path"           | The string points at a socket (`/cloudsql/...`). See Cloud databases above.                  |
 | Could not reach the database               | Check host and port, and that the server accepts connections from your computer.             |
 | Encryption (SSL) error                     | The server may not offer TLS. Choose the matching encryption option.                         |
 | Connecting from a container                | `localhost` inside a container is the container. Use the host's address or the service name. |

@@ -59,7 +59,12 @@ const hostSchema = z
   .trim()
   .min(1, "Host is required.")
   .max(255)
-  .regex(/^[^\s/@?#]+$/, "Host must not contain spaces or any of / @ ? #");
+  .superRefine((value, ctx) => {
+    if (value.startsWith("/")) ctx.addIssue({ code: "custom", message: SOCKET_HOST_MESSAGE });
+    else if (!/^[^\s/@?#]+$/.test(value)) {
+      ctx.addIssue({ code: "custom", message: "Host must not contain spaces or any of / @ ? #" });
+    }
+  });
 const portSchema = z.number().int().min(1).max(65535);
 // PostgreSQL identifiers (database and role names) are at most 63 bytes long.
 const databaseSchema = z.string().trim().min(1, "Database name is required.").max(63);
@@ -86,7 +91,33 @@ const FORMAT_HELP =
   "Expected postgresql://user:password@host:5432/database. " +
   "Special characters in the user name or password (such as @ / # ? %) must be URL-encoded.";
 
+/**
+ * Said when the host is a file path (a Unix socket such as /cloudsql/PROJECT:REGION:INSTANCE
+ * or /var/run/postgresql). A socket exists only on the machine where the
+ * database or a proxy for it runs, and DataCanvas connects over the network, so
+ * the useful answer is where to point it instead. It never repeats the input.
+ */
+export const SOCKET_HOST_MESSAGE =
+  "The host is a Unix socket path (such as /cloudsql/..., used inside Google Cloud), which only exists " +
+  "on the machine where the database or its proxy runs. DataCanvas connects over the network: use the " +
+  "database's host name or IP address, or, for Google Cloud SQL, run the Cloud SQL Auth Proxy and " +
+  "connect to 127.0.0.1 and the port it listens on.";
+
+const NO_HOST_MESSAGE =
+  "The connection string has no host. Put it after the @ (postgresql://user:password@host:5432/database), " +
+  "or add ?host=host.example.com.";
+
 const failure = (message: string): { ok: false; message: string } => ({ ok: false, message });
+
+/**
+ * Stand-in for an empty host. A URL such as `postgresql://user:pw@/db?host=...`
+ * (credentials but no host, the way libpq and Cloud SQL write it) is rejected by
+ * the standard URL parser, so an empty host is replaced by this reserved
+ * (`.invalid` never resolves) name before parsing and turned back into "no
+ * host" afterwards.
+ */
+const EMPTY_HOST_STAND_IN = "datacanvas-empty-host.invalid";
+const EMPTY_HOST_AFTER_CREDENTIALS = /^(postgres(?:ql)?:\/\/[^/?#]*@)(?=[/?#]|$)/i;
 
 /** `decodeURIComponent` throws on malformed input such as "%zz"; turn that into a null. */
 function decode(value: string): string | null {
@@ -100,16 +131,21 @@ function decode(value: string): string | null {
 /**
  * Parse a PostgreSQL connection URL into its parts.
  *
- * Only the `sslmode` query parameter is understood. Other parameters (for
- * example `options` or `application_name`) are intentionally ignored so a
- * pasted string can never change session behaviour behind the user's back.
+ * Understood query parameters: `sslmode`, and `host` / `port` (the libpq way
+ * of writing them, used when the address has no host, as in
+ * `postgresql://user:pw@/db?host=10.1.2.3`). Other parameters (for example
+ * `options`, `application_name` or Prisma's `schema`) are intentionally
+ * ignored so a pasted string can never change session behaviour behind the
+ * user's back. A host that is a file path (Unix socket) is refused with an
+ * explanation, because DataCanvas connects over the network only.
  *
  * Messages never include the input (it contains the password).
  */
 export function parsePostgresConnectionString(raw: string): ParseResult<ParsedConnectionString> {
   let url: URL;
   try {
-    url = new URL(raw.trim());
+    // An empty host after the credentials is legal for libpq but not for URL: see EMPTY_HOST_STAND_IN.
+    url = new URL(raw.trim().replace(EMPTY_HOST_AFTER_CREDENTIALS, `$1${EMPTY_HOST_STAND_IN}`));
   } catch {
     return failure(`This does not look like a valid connection string. ${FORMAT_HELP}`);
   }
@@ -119,10 +155,40 @@ export function parsePostgresConnectionString(raw: string): ParseResult<ParsedCo
   }
 
   // IPv6 hosts come back in brackets ("[::1]"); the driver wants them without.
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (host === "") return failure("The connection string has no host.");
+  let host = url.hostname.replace(/^\[|\]$/g, "");
+  if (host === EMPTY_HOST_STAND_IN) host = "";
 
-  const port = url.port === "" ? DEFAULT_POSTGRES_PORT : Number(url.port);
+  // libpq also allows the host (and port) as query parameters: ?host=db.example.com&port=5432.
+  const queryHost = url.searchParams.get("host");
+  const queryPort = url.searchParams.get("port");
+  if (queryHost !== null && queryHost.includes(",")) {
+    return failure("Several hosts in one connection string are not supported. Use one host.");
+  }
+  // A socket path in ?host= wins in libpq whatever the URL's own host says (Prisma writes
+  // postgresql://user:pw@localhost/db?host=/cloudsql/...), so it is refused in either place.
+  if (queryHost !== null && queryHost.startsWith("/")) return failure(SOCKET_HOST_MESSAGE);
+  if (host.startsWith("/")) return failure(SOCKET_HOST_MESSAGE);
+
+  if (host === "") {
+    if (queryHost === null || queryHost.trim() === "") return failure(NO_HOST_MESSAGE);
+    host = queryHost.trim();
+  } else if (queryHost !== null && queryHost.trim() !== "" && queryHost.trim() !== host) {
+    // Never pick one silently: connecting to the wrong server is worse than an error.
+    return failure(
+      "The connection string names two different hosts (in the address and in ?host=).",
+    );
+  }
+
+  let port = url.port === "" ? DEFAULT_POSTGRES_PORT : Number(url.port);
+  if (queryPort !== null && queryPort !== "") {
+    const parsedPort = /^\d{1,5}$/.test(queryPort) ? Number(queryPort) : Number.NaN;
+    if (url.port === "") port = parsedPort;
+    else if (parsedPort !== port) {
+      return failure(
+        "The connection string names two different ports (in the address and in ?port=).",
+      );
+    }
+  }
 
   // The path is "/databasename". Reject extra path segments instead of guessing.
   const database = decode(url.pathname.replace(/^\//, ""));

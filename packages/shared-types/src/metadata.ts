@@ -69,4 +69,12 @@ export const relationshipInfoSchema = z.object({
   onUpdate: referentialActionSchema,
 });
 
+/** One table with everything known about it (see TableDetailsEntry in database-core). */
+export const tableDetailsEntrySchema = z.object({
+  table: tableInfoSchema,
+  columns: z.array(columnInfoSchema),
+  constraints: z.array(constraintInfoSchema),
+  indexes: z.array(indexInfoSchema),
+});
+
 // Inferred types are intentionally NOT exported: use the database-core types.

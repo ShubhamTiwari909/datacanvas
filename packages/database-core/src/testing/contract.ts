@@ -27,6 +27,7 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
   ["getColumns", (a) => a.getColumns("public", "users")],
   ["getConstraints", (a) => a.getConstraints("public", "users")],
   ["getIndexes", (a) => a.getIndexes("public", "users")],
+  ["getTablesDetails", (a) => a.getTablesDetails([{ schema: "public", name: "users" }])],
   ["getRelationships", (a) => a.getRelationships()],
 ];
 
@@ -203,6 +204,58 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
         }
       });
 
+      describe("getTablesDetails (bulk)", () => {
+        const refs = [
+          { schema: "public", name: "orders" },
+          { schema: "public", name: "users" },
+          { schema: "public", name: "active_users" }, // a view
+        ];
+
+        it("returns exactly what the per-table methods return", async () => {
+          const bulk = await adapter.getTablesDetails(refs);
+          expect(bulk).toHaveLength(3);
+          const listed = await adapter.getTables("public");
+          for (const entry of bulk) {
+            const { schema, name } = entry.table;
+            expect(entry.table).toEqual(listed.find((t) => t.name === name));
+            expect(entry.columns).toEqual(await adapter.getColumns(schema, name));
+            expect(entry.constraints).toEqual(await adapter.getConstraints(schema, name));
+            expect(entry.indexes).toEqual(await adapter.getIndexes(schema, name));
+          }
+        });
+
+        it("follows the requested order and collapses duplicates", async () => {
+          const bulk = await adapter.getTablesDetails([refs[1]!, refs[0]!, refs[1]!]);
+          expect(bulk.map((e) => e.table.name)).toEqual(["users", "orders"]);
+        });
+
+        it("returns an empty array for no tables", async () => {
+          await expect(adapter.getTablesDetails([])).resolves.toEqual([]);
+        });
+
+        it("fails as a whole with not_found if any table does not exist", async () => {
+          await expectCode(
+            adapter.getTablesDetails([refs[0]!, { schema: "public", name: "no_such_table" }]),
+            "not_found",
+          );
+          await expectCode(
+            adapter.getTablesDetails([{ schema: "nope", name: "users" }]),
+            "not_found",
+          );
+        });
+
+        it("handles tables from several schemas in one call", async () => {
+          const bulk = await adapter.getTablesDetails([
+            refs[0]!,
+            { schema: "analytics", name: "daily_sales" },
+          ]);
+          expect(bulk.map((e) => `${e.table.schema}.${e.table.name}`)).toEqual([
+            "public.orders",
+            "analytics.daily_sales",
+          ]);
+        });
+      });
+
       it("rejects an unknown schema or table with not_found", async () => {
         await expectCode(adapter.getTables("no_such_schema"), "not_found");
         await expectCode(adapter.getColumns("public", "no_such_table"), "not_found");
@@ -219,6 +272,7 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
           await adapter.getConstraints("public", "orders"),
           await adapter.getIndexes("public", "orders"),
           await adapter.getRelationships(),
+          await adapter.getTablesDetails([{ schema: "public", name: "orders" }]),
         ];
         for (const result of results) {
           expect(JSON.parse(JSON.stringify(result))).toEqual(result);

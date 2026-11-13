@@ -295,3 +295,54 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - **Small screens:** the sidebar is hidden below the `md` breakpoint, so on a phone there is no way to pick a table. The canvas in Phase 7 is desktop-oriented anyway.
 - **Large schemas:** the tree is not virtualised; thousands of tables in one schema will be slow to render.
 - **No request authentication yet:** any local process or web page that can reach 127.0.0.1 can call the API. Phase 10 adds Host/Origin checks and a session token.
+
+## 47. A bulk adapter method, `getTablesDetails` (resolves decision 24)
+
+**Decision:** `DatabaseAdapter.getTablesDetails(tables)` returns the description, columns, constraints and indexes of many tables in one call, in request order, with duplicates collapsed, all-or-nothing (`not_found` if any table is missing). The PostgreSQL implementation always uses four queries. The existing per-table queries were rewritten as the bulk query with a list of one, so each query exists once.
+
+**Why:** decision 24 said to measure first. Per table the old path cost about five round trips in three transactions, which is fine locally but would take tens of seconds for a hundred tables on a remote database. **Trade-off:** the interface grew by one method, which the mock and the contract suite had to implement and test.
+
+**API:** `POST /api/connections/:id/table-details` with 1 to 500 tables. It is a POST although it only reads, because the table list does not fit comfortably in a URL.
+
+## 48. `canvas-engine` holds the canvas logic; React Flow stays in the web app
+
+**Decision:** node sizing, layout, edge building, ids and search live in `packages/canvas-engine` with no React and no canvas library; an architecture test enforces that.
+
+**Why:** the geometry is where the bugs are (overlaps, which handle an edge attaches to), and pure functions are easy to test exhaustively, including with seeded random inputs. It also keeps the option to reuse the logic for exports or another renderer.
+
+## 49. Canvas layout and database metadata are separate stores; edges are derived
+
+**Decision:** the canvas store keeps only what the user arranged; the metadata store caches database structure; edges are computed from both and never stored.
+
+**Why:** a saved workspace (Phase 8) should contain layout, not a copy of the schema that may be out of date; and derived edges cannot get out of sync. The metadata cache is not refreshed automatically: reconnecting shows a changed database.
+
+## 50. Node and handle identifiers
+
+**Decision:** a node id is `tableRefKey` (a JSON array of schema and name). Handle ids are `source:column:<name>` / `target:column:<name>` for rows and `source:table` / `target:table` for the header.
+
+**Why:** joining schema and table with a dot would make `a.b` + `c` collide with `a` + `b.c`. A column literally named "table" cannot clash with the header handle (a test covers it).
+
+## 51. Layout: a grid, then the next free slot
+
+**Decision:** the first tables on an empty canvas are laid out in a `ceil(sqrt(n))` grid (rows as tall as their tallest table); later additions take the first free slot; "Reset layout" re-grids everything in reading order. Layout uses estimated heights.
+
+**Why:** simple, predictable and overlap-free (tests use seeded random heights). Relationship-aware layout and grouping are Phase 9 (ELK.js).
+
+## 52. Wide tables are collapsed to 12 columns, with a header fallback for edges
+
+**Decision:** a collapsed table shows its first 12 columns and a "+ N more columns" footer. An edge whose key column is hidden attaches to the table header instead of being dropped (React Flow would not draw an edge to a missing handle).
+
+## 53. Keyboard, deletion and user-drawn links
+
+- Delete or Backspace removes the selected tables from the canvas only; the database is never touched.
+- Tables cannot be connected by hand (`nodesConnectable={false}`): relationships come from the database. User-defined links (the plan's "confirmed versus user-defined" distinction) are not built yet.
+- Resizing nodes was skipped: fixed width keeps layout estimates reliable.
+- The React Flow attribution is kept visible.
+
+## 54. Known limits of Phase 7
+
+- **No persistence:** the canvas and viewport are lost on reload (Phase 8).
+- **Expanding a table does not push its neighbours:** it can overlap the table below until dragged or "Reset layout".
+- **Edges are plain curves** that can pass behind other tables; better routing and layouts come in Phase 9.
+- **Accessibility:** buttons and inputs are labelled, but dragging and edge navigation are mouse-oriented.
+- **Measured performance** (packed app, 120 tables and 136 foreign keys, all visible): adding the whole schema took well under 2 s including the request; a zoom sweep averaged 18.6 ms per frame (p95 43 ms, worst 79 ms) in the in-app browser. Real hardware and larger schemas were not measured.

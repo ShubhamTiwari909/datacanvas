@@ -5,6 +5,7 @@ import {
   relationshipsResponseSchema,
   schemasResponseSchema,
   tableDetailsResponseSchema,
+  tablesDetailsResponseSchema,
   tablesResponseSchema,
 } from "@datacanvas/shared-types";
 import type {
@@ -13,7 +14,9 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  TableDetailsEntry,
   TableInfo,
+  TableRef,
 } from "@datacanvas/database-core";
 import { apiRequest, type ApiResult } from "@/lib/api-client";
 
@@ -66,4 +69,20 @@ export async function getRelationships(
     relationshipsResponseSchema,
   );
   return unwrap(result, (d) => d.relationships);
+}
+
+/** Many tables in one request (used by the canvas). Results follow the order of `tables`. */
+export async function getTablesDetails(
+  connectionId: string,
+  tables: TableRef[],
+): Promise<ApiResult<TableDetailsEntry[]>> {
+  const result = await apiRequest(
+    `${base(connectionId)}/table-details`,
+    tablesDetailsResponseSchema,
+    {
+      method: "POST",
+      body: { tables },
+    },
+  );
+  return unwrap(result, (d) => d.tables);
 }

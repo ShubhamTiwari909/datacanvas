@@ -12,6 +12,11 @@
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { create } from "zustand";
 import { deleteConnection, listConnections } from "@/features/connections/api";
+import { useCanvasStore } from "./canvas-store";
+import { useMetadataStore } from "./metadata-store";
+
+/** What the main area shows for the selected connection. */
+export type WorkspaceView = "canvas" | "details";
 
 export interface SelectedTable {
   schema: string;
@@ -28,6 +33,7 @@ interface WorkspaceState {
 
   selectedConnectionId: string | null;
   selectedTable: SelectedTable | null;
+  view: WorkspaceView;
   connectDialogOpen: boolean;
 
   loadConnections: () => Promise<void>;
@@ -35,6 +41,7 @@ interface WorkspaceState {
   removeConnection: (id: string) => Promise<void>;
   selectConnection: (id: string) => void;
   selectTable: (table: SelectedTable | null) => void;
+  setView: (view: WorkspaceView) => void;
   openConnectDialog: () => void;
   closeConnectDialog: () => void;
 }
@@ -46,6 +53,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   actionError: null,
   selectedConnectionId: null,
   selectedTable: null,
+  view: "canvas",
   connectDialogOpen: false,
 
   async loadConnections() {
@@ -83,6 +91,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ actionError: result.error.message });
       return;
     }
+    // Forget everything derived from this connection: its canvas and cached structure.
+    useCanvasStore.getState().dropConnection(id);
+    useMetadataStore.getState().forgetConnection(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;
@@ -104,6 +115,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   selectTable(table) {
     set({ selectedTable: table });
+  },
+
+  setView(view) {
+    set({ view });
   },
 
   openConnectDialog() {

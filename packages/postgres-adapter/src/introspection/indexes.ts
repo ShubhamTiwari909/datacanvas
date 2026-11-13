@@ -1,5 +1,6 @@
-import type { IndexInfo } from "@datacanvas/database-core";
+import { tableRefKey, type IndexInfo, type TableRef } from "@datacanvas/database-core";
 import type { Queryable } from "./types.js";
+import { WANTED_CTE, groupByTable, wantedParams } from "./wanted.js";
 
 /**
  * pg_index describes indexes; the index itself is also a row in pg_class
@@ -14,10 +15,15 @@ import type { Queryable } from "./types.js";
  *   index such as lower(email). That is why the model says columns can hold
  *   expressions.
  * - The unqualified pg_get_indexdef(index) is the full CREATE INDEX statement.
- * - The primary key's index is listed first.
+ * - Per table, the primary key's index is listed first.
+ * - The JOIN against `wanted` (see wanted.ts) restricts the query to the
+ *   requested tables.
  */
 const INDEXES_SQL = `
+  ${WANTED_CTE}
   SELECT
+    n.nspname::text AS schema,
+    t.relname::text AS "table",
     i.relname::text AS name,
     ARRAY(
       SELECT pg_catalog.pg_get_indexdef(ix.indexrelid, k.n::int, true)
@@ -31,14 +37,15 @@ const INDEXES_SQL = `
   FROM pg_catalog.pg_index ix
   JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+  JOIN wanted w ON w.schema_name = n.nspname AND w.relation_name = t.relname
   JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
   JOIN pg_catalog.pg_am am ON am.oid = i.relam
-  WHERE n.nspname = $1
-    AND t.relname = $2
-  ORDER BY ix.indisprimary DESC, i.relname
+  ORDER BY n.nspname, t.relname, ix.indisprimary DESC, i.relname
 `;
 
 interface IndexRow {
+  schema: string;
+  table: string;
   name: string;
   columns: string[];
   unique: boolean;
@@ -47,13 +54,14 @@ interface IndexRow {
   definition: string | null;
 }
 
-export async function listIndexes(
+export async function listIndexesFor(
   db: Queryable,
-  schema: string,
-  table: string,
-): Promise<IndexInfo[]> {
-  const { rows } = await db.query<IndexRow>(INDEXES_SQL, [schema, table]);
-  return rows.map((row) => ({
+  tables: readonly TableRef[],
+): Promise<Map<string, IndexInfo[]>> {
+  const { refs, params } = wantedParams(tables);
+  if (refs.length === 0) return new Map();
+  const { rows } = await db.query<IndexRow>(INDEXES_SQL, params);
+  return groupByTable(rows, (row) => ({
     name: row.name,
     columns: row.columns,
     unique: row.unique,
@@ -61,4 +69,13 @@ export async function listIndexes(
     method: row.method,
     definition: row.definition,
   }));
+}
+
+export async function listIndexes(
+  db: Queryable,
+  schema: string,
+  table: string,
+): Promise<IndexInfo[]> {
+  const ref = { schema, name: table };
+  return (await listIndexesFor(db, [ref])).get(tableRefKey(ref)) ?? [];
 }

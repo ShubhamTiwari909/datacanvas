@@ -2,7 +2,7 @@
 
 A local-first visual database explorer. Connect a PostgreSQL database, explore its structure, and see tables and relationships on an interactive canvas.
 
-> **Status: early development (Phase 6).** You can connect to a PostgreSQL database and browse its schemas, tables, columns, constraints, indexes and relationships. There is no canvas yet and it is not published to npm yet.
+> **Status: early development (Phase 7).** You can connect to a PostgreSQL database, browse its structure, and arrange tables on an interactive canvas with foreign-key edges. Layouts are not saved yet and it is not published to npm yet.
 
 **Your database. Your machine. Your control.**
 
@@ -42,6 +42,7 @@ packages/
   shared-types/    Constants and Zod schemas (API contracts) shared across workspaces
   database-core/   Database-agnostic models, adapter interface, errors, registry, mock adapter
   postgres-adapter/ PostgreSQL implementation: connection handling and catalog introspection
+  canvas-engine/   Pure canvas logic: node sizing, layout, edge building, search
   cli/             The `datacanvas` command: starts the bundled server and opens the browser
 scripts/           Build scripts (assembles the npm package)
 tests/             Cross-package tests (architecture rules)

@@ -11,6 +11,7 @@ import {
   indexInfoSchema,
   relationshipInfoSchema,
   schemaInfoSchema,
+  tableDetailsEntrySchema,
   tableInfoSchema,
 } from "./metadata.js";
 import { postgresConnectionSummarySchema } from "./postgres-connection.js";
@@ -23,6 +24,17 @@ export const identifierSchema = z.string().min(1).max(255);
 
 /** Query string of the endpoints that need a schema (`?schema=public`). */
 export const schemaQuerySchema = z.object({ schema: identifierSchema });
+
+/** One table named in a request. Strict: unknown keys are rejected. */
+export const tableRefSchema = z.strictObject({ schema: identifierSchema, name: identifierSchema });
+
+/** The most tables one bulk request may ask for. Bounds the work and the size of the answer. */
+export const MAX_TABLES_PER_DETAILS_REQUEST = 500;
+
+/** Body of `POST /api/connections/:id/table-details`. */
+export const tablesDetailsRequestSchema = z.strictObject({
+  tables: z.array(tableRefSchema).min(1).max(MAX_TABLES_PER_DETAILS_REQUEST),
+});
 
 /** A saved connection as the browser sees it: everything except the password. */
 export const connectionSummarySchema = postgresConnectionSummarySchema.extend({
@@ -53,6 +65,9 @@ export const tableDetailsResponseSchema = z.object({
   constraints: z.array(constraintInfoSchema),
   indexes: z.array(indexInfoSchema),
 });
+
+/** Answer to a bulk request: one entry per requested table, in request order. */
+export const tablesDetailsResponseSchema = z.object({ tables: z.array(tableDetailsEntrySchema) });
 
 export const relationshipsResponseSchema = z.object({
   relationships: z.array(relationshipInfoSchema),

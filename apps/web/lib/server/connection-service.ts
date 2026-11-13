@@ -16,7 +16,9 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  TableDetailsEntry,
   TableInfo,
+  TableRef,
 } from "@datacanvas/database-core";
 import {
   resolvePostgresConnection,
@@ -106,6 +108,11 @@ export class ConnectionService {
       ]);
       return { columns, constraints, indexes };
     });
+  }
+
+  /** Many tables in one go (used by the canvas). One call to the database, however many tables. */
+  getTablesDetails(id: string, tables: TableRef[]): Promise<TableDetailsEntry[]> {
+    return this.connections.use(id, (adapter) => adapter.getTablesDetails(tables));
   }
 
   getRelationships(id: string): Promise<RelationshipInfo[]> {

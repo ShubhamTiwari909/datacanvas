@@ -454,3 +454,79 @@ Refreshing the page keeps the connections: the browser asks `GET /api/connection
 ### Packaging fix found during this phase
 
 Turbopack refers to `pg` by a hashed alias (`pg-587764f78a6c7a9c`) provided as a symlink in `.next/node_modules`. `npm pack` drops symlinks, so the packed app could not load `pg`. `scripts/build-package.mjs` now replaces each such symlink with a real shim package that re-exports the real one.
+
+## Phase 7: the interactive canvas
+
+Tables become draggable cards on an infinite, zoomable plane; foreign keys are drawn as edges between them.
+
+### The pieces
+
+```text
+packages/canvas-engine/        pure logic: no React, no canvas library (enforced by tests/architecture.test.ts)
+├── constants.ts               node width 280, header 40, row 26, footer 30, gaps, collapse limit 12
+├── ids.ts                     node ids (= tableRefKey) and handle ids
+├── columns.ts                 visibleColumns, hiddenColumnCount, estimateNodeHeight
+├── layout.ts                  gridLayout (square-ish grid), nextFreePosition (one new node)
+├── edges.ts                   buildEdges(relationships, tablesOnCanvas) -> edge descriptors
+└── search.ts                  searchTables (ranks table-name matches first)
+
+apps/web/
+├── stores/metadata-store.ts   CACHE of database structure per connection (tables, columns, relationships)
+├── stores/canvas-store.ts     LAYOUT per connection: which tables, where, expanded, selected
+├── features/canvas/
+│   ├── add-tables.ts          workflow: fetch structure (bulk), then create nodes
+│   ├── canvas-view.tsx        React Flow canvas: viewport, minimap, grid, toolbar, fit/focus effects
+│   ├── table-node.tsx         the custom node that draws one table
+│   ├── use-canvas-edges.ts    derives edges from relationships + tables present
+│   └── canvas-toolbar.tsx     search, reset layout, grid, select all, remove
+└── features/explorer/         sidebar tree: click adds a table; grid button adds a whole schema
+```
+
+### How the state is organised
+
+|          | Metadata store                     | Canvas store                                                                |
+| -------- | ---------------------------------- | --------------------------------------------------------------------------- |
+| Holds    | what the DATABASE looks like       | what the USER arranged                                                      |
+| Per node | full columns, constraints, indexes | `{ id, position, data: { schema, name, expanded, columnCount }, selected }` |
+| Source   | server (re-fetchable)              | the user (what a saved workspace will contain in Phase 8)                   |
+
+A **node** is a React Flow `Node` object: an `id`, a `position` in canvas space, a `type` ("table") and `data`. Its `id` is `tableRefKey({schema, name})`, the same key the metadata store uses, so a node finds its columns with one lookup. The node holds only identity; **columns are read from the metadata store**, so there is one copy.
+
+**Edges are never stored.** `buildEdges` is a pure function of (relationships, tables present): add or remove a table and the right edges appear or vanish with nothing to synchronise. An edge references nodes by id (`source` and `target`) and attaches to a **handle** on each: the column's row (`source:column:user_id`, `target:column:id`) or, if that row is hidden by collapsing, the table header (`source:table`). Handles are the small connection points inside each node.
+
+### Coordinates, zoom and pan
+
+Every node's `position` is in **canvas space**: a large plane that does not move when you pan or zoom. The viewport is a window onto that plane:
+
+```text
+screen = canvas * zoom + pan          (the React Flow viewport is { x: panX, y: panY, zoom })
+```
+
+Panning changes `pan`; zooming changes `zoom` (around the cursor); neither changes any node. Dragging a node changes its canvas position by `mouseMovement / zoom`, so a node follows the cursor at any zoom level. React Flow keeps the viewport internally and reports node changes as `NodeChange` objects (`position`, `select`, `dimensions`, `remove`); `applyNodeChanges` folds them into the node list in our store. The viewport is not stored yet (Phase 8).
+
+### From a click to a card on the canvas
+
+```text
+click "orders" in the tree (canvas view)
+  -> addTablesToCanvas(connectionId, [orders], { focus: true })
+       1. metadataStore.ensureTables   -> POST /api/connections/:id/table-details (one request, only missing tables)
+          metadataStore.ensureRelationships -> GET .../relationships (once per connection)
+       2. canvasStore.addTables([{ ref, columnCount }]) -> position chosen, node created
+       3. canvasStore.requestFocus(node)
+  -> canvas view re-renders: nodes changed -> edges re-derived -> React Flow draws the node
+  -> once the node is MEASURED (useNodesInitialized) the view pans and zooms to it
+```
+
+Layout runs before a node has ever been drawn, so it uses **estimated** heights from `canvas-engine/constants` (header + rows + footer). `table-node.tsx` uses the same numbers. If they drift apart, nodes overlap or leave gaps.
+
+### Bulk structure loading
+
+The canvas needs many tables at once, so `DatabaseAdapter.getTablesDetails(tables)` returns description, columns, constraints and indexes for any number of tables with **four queries** (descriptions, columns, constraints, indexes). The wanted tables are passed as two text arrays and turned into a small table with `unnest($1::text[], $2::text[])`, then joined: still fully parameterised, one pass over the catalogs. The per-table methods (`getColumns` and friends) now call the same queries with a list of one, so there is one implementation of each query. A unit test proves the query count is 4 for 1 table and for 200.
+
+### Performance measures
+
+- `onlyRenderVisibleElements`: only nodes and edges on screen are drawn (6 nodes at start zoom out of 120).
+- Table nodes are `memo`ised and read their own slice of the metadata store.
+- While dragging, edges are NOT recomputed: `useCanvasEdges` selects small string arrays with `useShallow`, so their identity only changes when tables are added, removed or expanded.
+- Collapsed tables show at most 12 columns.
+- Adding a whole schema is capped at 200 tables.

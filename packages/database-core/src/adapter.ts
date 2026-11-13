@@ -22,7 +22,9 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  TableDetailsEntry,
   TableInfo,
+  TableRef,
 } from "./models.js";
 
 export interface DatabaseAdapter {
@@ -71,6 +73,22 @@ export interface DatabaseAdapter {
    * @throws DatabaseError `not_found` if the table does not exist.
    */
   getIndexes(schema: string, table: string): Promise<IndexInfo[]>;
+
+  /**
+   * Description, columns, constraints and indexes of MANY tables in one call.
+   *
+   * Equivalent to calling `getTables`, `getColumns`, `getConstraints` and
+   * `getIndexes` for each table, but a good implementation needs a fixed number
+   * of queries however many tables are asked for. The canvas relies on this: a
+   * hundred tables must not mean hundreds of round trips to a remote database.
+   *
+   * - Results follow the order of `tables`; a table listed twice appears once.
+   * - An empty list returns an empty array.
+   * - All or nothing: if any table does not exist the whole call fails.
+   *
+   * @throws DatabaseError `not_found` if any listed table does not exist.
+   */
+  getTablesDetails(tables: TableRef[]): Promise<TableDetailsEntry[]>;
 
   /**
    * Every confirmed foreign-key relationship in the database, across schemas.

@@ -116,3 +116,21 @@ export interface RelationshipInfo {
   onDelete: ReferentialAction;
   onUpdate: ReferentialAction;
 }
+
+/** Identifies one table, view or materialized view. */
+export interface TableRef {
+  schema: string;
+  name: string;
+}
+
+/**
+ * Everything known about ONE table, fetched together: its description plus its
+ * columns, constraints and indexes. Used when many tables are needed at once
+ * (the canvas), so they cost one round trip instead of several per table.
+ */
+export interface TableDetailsEntry {
+  table: TableInfo;
+  columns: ColumnInfo[];
+  constraints: ConstraintInfo[];
+  indexes: IndexInfo[];
+}

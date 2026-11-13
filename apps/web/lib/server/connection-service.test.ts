@@ -81,6 +81,22 @@ describe("ConnectionService", () => {
     expect(await connections.getRelationships(id)).toHaveLength(3);
   });
 
+  it("loads many tables at once, in request order", async () => {
+    const { connections } = createTestContext();
+    const { id } = await connections.createConnection(input());
+    const entries = await connections.getTablesDetails(id, [
+      { schema: "public", name: "users" },
+      { schema: "public", name: "orders" },
+    ]);
+    expect(entries.map((e) => e.table.name)).toEqual(["users", "orders"]);
+    await expect(
+      connections.getTablesDetails(id, [
+        { schema: "public", name: "users" },
+        { schema: "public", name: "nope" },
+      ]),
+    ).rejects.toMatchObject({ code: "not_found" });
+  });
+
   it("reports not_found for a missing table or schema", async () => {
     const { connections } = createTestContext();
     const { id } = await connections.createConnection(input());
@@ -99,6 +115,7 @@ describe("ConnectionService", () => {
       unknown,
     );
     await expect(connections.getRelationships("nope")).rejects.toMatchObject(unknown);
+    await expect(connections.getTablesDetails("nope", [])).rejects.toMatchObject(unknown);
     await expect(connections.deleteConnection("nope")).rejects.toMatchObject(unknown);
   });
 

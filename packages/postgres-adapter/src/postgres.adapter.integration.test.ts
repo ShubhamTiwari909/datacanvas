@@ -159,6 +159,48 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter against a real PostgreSQL",
       expect(matches[0]?.source.table).toBe("events");
     });
 
+    it("returns a partition when it is asked for by name, even though listings hide it", async () => {
+      const [entry] = await a.getTablesDetails([{ schema: "public", name: "events_2026" }]);
+      expect(entry?.table.name).toBe("events_2026");
+      expect(entry?.columns.map((c) => c.name)).toEqual(["id", "user_id", "at"]);
+    });
+
+    it("loads 150 tables in one call", async () => {
+      const setup = new pg.Client({
+        host: base.host,
+        port: base.port,
+        user: base.username,
+        password: base.password,
+        database: dbName,
+        ssl: false,
+      });
+      await setup.connect();
+      try {
+        await setup.query(
+          Array.from(
+            { length: 150 },
+            (_v, i) => `CREATE TABLE bulk_${i} (id serial PRIMARY KEY, name text, ref integer);`,
+          ).join("\n"),
+        );
+      } finally {
+        await setup.end();
+      }
+
+      const refs = Array.from({ length: 150 }, (_v, i) => ({
+        schema: "public",
+        name: `bulk_${i}`,
+      }));
+      const entries = await a.getTablesDetails(refs);
+
+      expect(entries).toHaveLength(150);
+      expect(entries.map((e) => e.table.name)).toEqual(refs.map((r) => r.name)); // request order
+      for (const entry of entries) {
+        expect(entry.columns.map((c) => c.name)).toEqual(["id", "name", "ref"]);
+        expect(entry.constraints.map((c) => c.kind)).toEqual(["primary_key"]);
+        expect(entry.indexes).toHaveLength(1);
+      }
+    });
+
     it("never invents relationships from column names", async () => {
       // addresses.region_code and regions.region_code share a name but only the
       // declared composite key is reported; no other table pair is related.

@@ -13,6 +13,7 @@ import { GET as getRelationships } from "./[id]/relationships/route";
 import { GET as getSchemas } from "./[id]/schemas/route";
 import { GET as getTableDetails } from "./[id]/tables/[table]/route";
 import { GET as getTables } from "./[id]/tables/route";
+import { POST as postTableDetails } from "./[id]/table-details/route";
 import { GET as listConnections, POST as createConnection } from "./route";
 import { POST as testConnection } from "./test/route";
 
@@ -233,6 +234,50 @@ describe("exploring a connection", () => {
     expect(status).toBe(404);
   });
 
+  it("POST table-details loads many tables in one request", async () => {
+    const { status, body } = await call(
+      postTableDetails(
+        post(`${BASE}/${id}/table-details`, {
+          tables: [
+            { schema: "public", name: "orders" },
+            { schema: "analytics", name: "daily_sales" },
+          ],
+        }),
+        params({ id }),
+      ),
+    );
+    expect(status).toBe(200);
+    expect(body.tables.map((t: { table: { name: string } }) => t.table.name)).toEqual([
+      "orders",
+      "daily_sales",
+    ]);
+    expect(body.tables[0].columns).toHaveLength(4);
+  });
+
+  it("POST table-details answers 404 for a missing table and 400 for a bad request", async () => {
+    const missing = await call(
+      postTableDetails(
+        post(`${BASE}/${id}/table-details`, { tables: [{ schema: "public", name: "nope" }] }),
+        params({ id }),
+      ),
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("not_found");
+
+    for (const bad of [
+      { tables: [] },
+      { tables: "users" },
+      {},
+      { tables: [{ schema: "public" }] },
+    ]) {
+      const result = await call(
+        postTableDetails(post(`${BASE}/${id}/table-details`, bad), params({ id })),
+      );
+      expect(result.status).toBe(400);
+      expect(result.body.error.code).toBe("validation_error");
+    }
+  });
+
   it("GET relationships", async () => {
     const { status, body } = await call(
       getRelationships(new Request(`${BASE}/${id}/relationships`), params({ id })),
@@ -247,6 +292,10 @@ describe("exploring a connection", () => {
       getSchemas(new Request(`${BASE}/x/schemas`), unknown),
       getTables(new Request(`${BASE}/x/tables?schema=public`), unknown),
       getRelationships(new Request(`${BASE}/x/relationships`), unknown),
+      postTableDetails(
+        post(`${BASE}/x/table-details`, { tables: [{ schema: "public", name: "users" }] }),
+        unknown,
+      ),
       getTableDetails(
         new Request(`${BASE}/x/tables/t?schema=public`),
         params({ id: "does-not-exist-123456", table: "t" }),

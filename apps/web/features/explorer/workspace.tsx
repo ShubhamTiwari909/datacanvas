@@ -4,23 +4,52 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection, no table chosen  -> prompt to pick one
- *   connection and table chosen  -> the table's details
+ *   connection selected          -> tabs: Canvas | Table details
  */
 "use client";
 
 import { useEffect } from "react";
-import { TableProperties } from "lucide-react";
+import { LayoutDashboard, TableProperties } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
 import { EmptyState } from "@/components/states/empty-state";
 import { LoadingState } from "@/components/states/loading-state";
+import { Button } from "@/components/ui/button";
+import { CanvasView } from "@/features/canvas/canvas-view";
 import { ConnectDialog } from "@/features/connections/connect-dialog";
 import { WelcomePanel } from "@/features/connections/welcome-panel";
-import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-full items-center justify-center">{children}</div>;
+}
+
+const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashboard }> = [
+  { view: "canvas", label: "Canvas", icon: LayoutDashboard },
+  { view: "details", label: "Table details", icon: TableProperties },
+];
+
+function ViewTabs() {
+  const view = useWorkspaceStore((s) => s.view);
+  const setView = useWorkspaceStore((s) => s.setView);
+  return (
+    <div role="tablist" aria-label="View" className="flex gap-1 border-b px-3 py-1.5">
+      {TABS.map(({ view: value, label, icon: Icon }) => (
+        <Button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={view === value}
+          variant={view === value ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setView(value)}
+        >
+          <Icon aria-hidden="true" />
+          {label}
+        </Button>
+      ))}
+    </div>
+  );
 }
 
 export function Workspace() {
@@ -29,6 +58,7 @@ export function Workspace() {
   const connections = useWorkspaceStore((s) => s.connections);
   const selectedId = useWorkspaceStore((s) => s.selectedConnectionId);
   const table = useWorkspaceStore((s) => s.selectedTable);
+  const view = useWorkspaceStore((s) => s.view);
   const loadConnections = useWorkspaceStore((s) => s.loadConnections);
 
   // Ask the server which connections exist (they survive a page reload).
@@ -61,25 +91,32 @@ export function Workspace() {
         <WelcomePanel />
       </Centered>
     );
-  } else if (!table) {
-    content = (
-      <Centered>
-        <EmptyState
-          icon={TableProperties}
-          title="Pick a table"
-          description={`Connected to ${connection.database} on ${connection.host}. Choose a table or view in the sidebar to see its columns, constraints, indexes and relationships.`}
-        />
-      </Centered>
-    );
   } else {
-    // `key` makes the panel start fresh when the connection or table changes.
     content = (
-      <TableDetails
-        key={`${connection.id}/${table.schema}/${table.name}`}
-        connectionId={connection.id}
-        schema={table.schema}
-        table={table.name}
-      />
+      <div className="flex h-full flex-col">
+        <ViewTabs />
+        <div className="min-h-0 flex-1 overflow-auto">
+          {view === "canvas" ? (
+            // `key` gives each connection its own canvas instance (and viewport).
+            <CanvasView key={connection.id} connectionId={connection.id} />
+          ) : table ? (
+            <TableDetails
+              key={`${connection.id}/${table.schema}/${table.name}`}
+              connectionId={connection.id}
+              schema={table.schema}
+              table={table.name}
+            />
+          ) : (
+            <Centered>
+              <EmptyState
+                icon={TableProperties}
+                title="Pick a table"
+                description={`Connected to ${connection.database} on ${connection.host}. Choose a table or view in the sidebar to see its columns, constraints, indexes and relationships.`}
+              />
+            </Centered>
+          )}
+        </div>
+      </div>
     );
   }
 

@@ -1,5 +1,7 @@
-import type { RelationKind, TableInfo } from "@datacanvas/database-core";
+import type { RelationKind, TableInfo, TableRef } from "@datacanvas/database-core";
 import type { Queryable } from "./types.js";
+import { excludeSystemSchemas } from "./system-schemas.js";
+import { WANTED_CTE, wantedParams } from "./wanted.js";
 
 /**
  * pg_class holds every "relation": tables, views, indexes, sequences...
@@ -67,16 +69,54 @@ export function estimatedRowCount(kind: RelationKind, reltuples: number): number
   return Math.round(reltuples);
 }
 
+function toTableInfo(row: TableRow): TableInfo {
+  const kind = relationKindFromRelkind(row.relkind);
+  return {
+    schema: row.schema,
+    name: row.name,
+    kind,
+    comment: row.comment,
+    estimatedRowCount: estimatedRowCount(kind, row.reltuples),
+  };
+}
+
 export async function listTables(db: Queryable, schema: string): Promise<TableInfo[]> {
   const { rows } = await db.query<TableRow>(TABLES_SQL, [schema, LISTED_RELKINDS]);
-  return rows.map((row) => {
-    const kind = relationKindFromRelkind(row.relkind);
-    return {
-      schema: row.schema,
-      name: row.name,
-      kind,
-      comment: row.comment,
-      estimatedRowCount: estimatedRowCount(kind, row.reltuples),
-    };
-  });
+  return rows.map(toTableInfo);
+}
+
+/**
+ * Same description as `listTables`, but for specific tables chosen by name
+ * (see wanted.ts). Differences: it does NOT hide partitions, because someone
+ * who asks for a partition by name should get it; and tables that do not
+ * exist are simply absent from the result, which is how callers detect
+ * "not found". System schemas stay hidden, as everywhere.
+ */
+const TABLES_BY_REF_SQL = `
+  ${WANTED_CTE}
+  SELECT
+    n.nspname AS schema,
+    c.relname AS name,
+    c.relkind::text AS relkind,
+    d.description AS comment,
+    c.reltuples::float8 AS reltuples
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  JOIN wanted w ON w.schema_name = n.nspname AND w.relation_name = c.relname
+  LEFT JOIN pg_catalog.pg_description d
+    ON d.objoid = c.oid
+   AND d.classoid = 'pg_catalog.pg_class'::regclass
+   AND d.objsubid = 0
+  WHERE c.relkind = ANY ($3::"char"[])
+    AND ${excludeSystemSchemas("n.nspname")}
+`;
+
+export async function listTablesByRef(
+  db: Queryable,
+  tables: readonly TableRef[],
+): Promise<TableInfo[]> {
+  const { refs, params } = wantedParams(tables);
+  if (refs.length === 0) return [];
+  const { rows } = await db.query<TableRow>(TABLES_BY_REF_SQL, [...params, LISTED_RELKINDS]);
+  return rows.map(toTableInfo);
 }

@@ -18,7 +18,9 @@ import {
   type IndexInfo,
   type RelationshipInfo,
   type SchemaInfo,
+  type TableDetailsEntry,
   type TableInfo,
+  type TableRef,
 } from "@datacanvas/database-core";
 import type { ResolvedPostgresConnection } from "@datacanvas/shared-types";
 import pg from "pg";
@@ -31,6 +33,7 @@ import {
 import { mapPgError } from "./connection/errors.js";
 import { withReadOnlyTransaction, type Queryable } from "./connection/read-only.js";
 import { listColumns } from "./introspection/columns.js";
+import { loadTablesDetails } from "./introspection/details.js";
 import { listConstraints } from "./introspection/constraints.js";
 import { assertRelationExists, assertSchemaExists } from "./introspection/existence.js";
 import { listIndexes } from "./introspection/indexes.js";
@@ -132,6 +135,10 @@ export class PostgresAdapter implements DatabaseAdapter {
       await assertRelationExists(db, schema, table);
       return listIndexes(db, schema, table);
     });
+  }
+
+  getTablesDetails(tables: TableRef[]): Promise<TableDetailsEntry[]> {
+    return this.read((db) => loadTablesDetails(db, tables));
   }
 
   getRelationships(): Promise<RelationshipInfo[]> {

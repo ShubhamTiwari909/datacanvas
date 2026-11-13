@@ -12,19 +12,28 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  TableDetailsEntry,
   TableInfo,
 } from "@datacanvas/database-core";
-import { createEcommerceData } from "@datacanvas/database-core/testing";
+import { MockDatabaseAdapter, createEcommerceData } from "@datacanvas/database-core/testing";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { API_ERROR_CODES, type ApiErrorCode } from "./api-error.js";
 import {
   connectionSummarySchema,
+  MAX_TABLES_PER_DETAILS_REQUEST,
   relationshipsResponseSchema,
   tableDetailsResponseSchema,
+  tablesDetailsRequestSchema,
+  tablesDetailsResponseSchema,
   tablesResponseSchema,
 } from "./connections.js";
-import type { constraintInfoSchema, indexInfoSchema, relationshipInfoSchema } from "./metadata.js";
+import type {
+  constraintInfoSchema,
+  indexInfoSchema,
+  relationshipInfoSchema,
+  tableDetailsEntrySchema,
+} from "./metadata.js";
 import { columnInfoSchema, schemaInfoSchema, tableInfoSchema } from "./metadata.js";
 
 /** True only when A and B are mutually assignable (the same shape). */
@@ -38,6 +47,7 @@ assertType<Same<z.infer<typeof columnInfoSchema>, ColumnInfo>>();
 assertType<Same<z.infer<typeof constraintInfoSchema>, ConstraintInfo>>();
 assertType<Same<z.infer<typeof indexInfoSchema>, IndexInfo>>();
 assertType<Same<z.infer<typeof relationshipInfoSchema>, RelationshipInfo>>();
+assertType<Same<z.infer<typeof tableDetailsEntrySchema>, TableDetailsEntry>>();
 // Every database error code must be a valid API error code.
 assertType<[DatabaseErrorCode] extends [ApiErrorCode] ? true : false>();
 
@@ -58,6 +68,16 @@ describe("metadata schemas accept real adapter output", () => {
       };
       expect(tableDetailsResponseSchema.parse(details)).toEqual(details);
     }
+  });
+
+  it("validates bulk entries built from the sample data", async () => {
+    const adapter = new MockDatabaseAdapter();
+    await adapter.connect();
+    const entries = await adapter.getTablesDetails([
+      { schema: "public", name: "orders" },
+      { schema: "analytics", name: "daily_sales" },
+    ]);
+    expect(tablesDetailsResponseSchema.parse({ tables: entries }).tables).toEqual(entries);
   });
 
   it("rejects malformed metadata", () => {
@@ -100,5 +120,32 @@ describe("connectionSummarySchema", () => {
       false,
     );
     expect(connectionSummarySchema.safeParse({ ...summary, id: "short" }).success).toBe(false);
+  });
+});
+
+describe("tablesDetailsRequestSchema", () => {
+  const ref = (name: string) => ({ schema: "public", name });
+
+  it("accepts a list of tables", () => {
+    expect(tablesDetailsRequestSchema.safeParse({ tables: [ref("a"), ref("b")] }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects an empty list, an oversized list, unknown keys and empty names", () => {
+    expect(tablesDetailsRequestSchema.safeParse({ tables: [] }).success).toBe(false);
+    const tooMany = Array.from({ length: MAX_TABLES_PER_DETAILS_REQUEST + 1 }, (_v, i) =>
+      ref(`t${i}`),
+    );
+    expect(tablesDetailsRequestSchema.safeParse({ tables: tooMany }).success).toBe(false);
+    expect(tablesDetailsRequestSchema.safeParse({ tables: [ref("a")], extra: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      tablesDetailsRequestSchema.safeParse({ tables: [{ schema: "public", name: "" }] }).success,
+    ).toBe(false);
+    expect(
+      tablesDetailsRequestSchema.safeParse({ tables: [{ ...ref("a"), extra: 1 }] }).success,
+    ).toBe(false);
   });
 });

@@ -1,5 +1,11 @@
-import type { ConstraintInfo, ConstraintKind } from "@datacanvas/database-core";
+import {
+  tableRefKey,
+  type ConstraintInfo,
+  type ConstraintKind,
+  type TableRef,
+} from "@datacanvas/database-core";
 import type { Queryable } from "./types.js";
+import { WANTED_CTE, groupByTable, wantedParams } from "./wanted.js";
 
 /**
  * pg_constraint has one row per constraint. `contype` is the kind:
@@ -17,10 +23,16 @@ import type { Queryable } from "./types.js";
  * - conparentid = 0: a constraint on a partitioned table is copied onto every
  *   partition (the copies point at the original via conparentid). We only
  *   want the original.
- * - The ORDER BY lists the primary key first, then unique, foreign key, check.
+ * - The ORDER BY lists, per table, the primary key first, then unique,
+ *   foreign key, check.
+ * - The JOIN against `wanted` (see wanted.ts) restricts the query to the
+ *   requested tables.
  */
 const CONSTRAINTS_SQL = `
+  ${WANTED_CTE}
   SELECT
+    n.nspname::text AS schema,
+    c.relname::text AS "table",
     con.conname::text AS name,
     con.contype::text AS contype,
     ARRAY(
@@ -33,14 +45,16 @@ const CONSTRAINTS_SQL = `
   FROM pg_catalog.pg_constraint con
   JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = $1
-    AND c.relname = $2
-    AND con.contype IN ('p', 'u', 'f', 'c')
+  JOIN wanted w ON w.schema_name = n.nspname AND w.relation_name = c.relname
+  WHERE con.contype IN ('p', 'u', 'f', 'c')
     AND con.conparentid = 0
-  ORDER BY array_position(ARRAY['p', 'u', 'f', 'c'], con.contype::text), con.conname
+  ORDER BY n.nspname, c.relname,
+           array_position(ARRAY['p', 'u', 'f', 'c'], con.contype::text), con.conname
 `;
 
 interface ConstraintRow {
+  schema: string;
+  table: string;
   name: string;
   contype: string;
   columns: string[];
@@ -54,17 +68,31 @@ const KINDS: Record<string, ConstraintKind> = {
   c: "check",
 };
 
+export async function listConstraintsFor(
+  db: Queryable,
+  tables: readonly TableRef[],
+): Promise<Map<string, ConstraintInfo[]>> {
+  const { refs, params } = wantedParams(tables);
+  if (refs.length === 0) return new Map();
+  const { rows } = await db.query<ConstraintRow>(CONSTRAINTS_SQL, params);
+  // The WHERE clause only lets known kinds through, so unknown kinds cannot occur;
+  // dropping them here is a safety net, not an expected path.
+  return groupByTable(
+    rows.filter((row) => KINDS[row.contype] !== undefined),
+    (row) => ({
+      name: row.name,
+      kind: KINDS[row.contype] as ConstraintKind,
+      columns: row.columns,
+      definition: row.definition,
+    }),
+  );
+}
+
 export async function listConstraints(
   db: Queryable,
   schema: string,
   table: string,
 ): Promise<ConstraintInfo[]> {
-  const { rows } = await db.query<ConstraintRow>(CONSTRAINTS_SQL, [schema, table]);
-  return rows.flatMap((row) => {
-    const kind = KINDS[row.contype];
-    // The WHERE clause only lets known kinds through, so this is a safety net.
-    return kind === undefined
-      ? []
-      : [{ name: row.name, kind, columns: row.columns, definition: row.definition }];
-  });
+  const ref = { schema, name: table };
+  return (await listConstraintsFor(db, [ref])).get(tableRefKey(ref)) ?? [];
 }

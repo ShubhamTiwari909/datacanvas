@@ -16,8 +16,11 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  TableDetailsEntry,
   TableInfo,
+  TableRef,
 } from "../models.js";
+import { uniqueTableRefs } from "../table-refs.js";
 import { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";
 
 export interface MockAdapterOptions {
@@ -80,6 +83,21 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
 
   async getIndexes(schema: string, table: string): Promise<IndexInfo[]> {
     return copy(this.lookup(this.data.indexes, schema, table));
+  }
+
+  async getTablesDetails(tables: TableRef[]): Promise<TableDetailsEntry[]> {
+    this.requireConnection();
+    // Resolve every table first, so the call is all-or-nothing like the real adapter.
+    return uniqueTableRefs(tables).map((ref) => {
+      const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
+      if (!table) throw new DatabaseError("not_found");
+      return copy({
+        table,
+        columns: this.lookup(this.data.columns, ref.schema, ref.name),
+        constraints: this.lookup(this.data.constraints, ref.schema, ref.name),
+        indexes: this.lookup(this.data.indexes, ref.schema, ref.name),
+      });
+    });
   }
 
   async getRelationships(): Promise<RelationshipInfo[]> {

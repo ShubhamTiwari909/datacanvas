@@ -53,3 +53,30 @@ describe("database-core stays independent", () => {
     }
   });
 });
+
+describe("canvas-engine stays framework-free", () => {
+  const engineDir = path.join(root, "packages/canvas-engine");
+
+  it("depends only on database-core", () => {
+    const pkg = JSON.parse(readFileSync(path.join(engineDir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(Object.keys(pkg.dependencies ?? {})).toEqual(["@datacanvas/database-core"]);
+  });
+
+  it("imports only relative modules, database-core, and vitest in tests (no React, no canvas library)", () => {
+    const files = sourceFiles(path.join(engineDir, "src"));
+    expect(files.length).toBeGreaterThan(5);
+
+    for (const file of files) {
+      const isTest = file.endsWith(".test.ts");
+      for (const specifier of importSpecifiers(readFileSync(file, "utf8"))) {
+        const allowed =
+          specifier.startsWith(".") ||
+          specifier === "@datacanvas/database-core" ||
+          (isTest && specifier === "vitest");
+        expect(allowed, `${path.relative(root, file)} imports "${specifier}"`).toBe(true);
+      }
+    }
+  });
+});

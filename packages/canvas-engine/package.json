@@ -1,0 +1,22 @@
+{
+  "name": "@datacanvas/canvas-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Framework-free canvas logic: node sizing, layout, edge building and table search. No React, no React Flow, no browser APIs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@datacanvas/database-core": "*"
+  }
+}

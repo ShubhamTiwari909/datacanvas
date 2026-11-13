@@ -77,4 +77,12 @@ export const tableDetailsEntrySchema = z.object({
   indexes: z.array(indexInfoSchema),
 });
 
+export const searchHitSchema = z.object({
+  kind: z.enum(["table", "view", "materialized_view", "column"]),
+  schema: z.string(),
+  table: z.string(),
+  column: z.string().nullable(),
+  dataType: z.string().nullable(),
+});
+
 // Inferred types are intentionally NOT exported: use the database-core types.

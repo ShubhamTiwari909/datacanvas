@@ -4,6 +4,7 @@
 import {
   relationshipsResponseSchema,
   schemasResponseSchema,
+  searchResponseSchema,
   tableDetailsResponseSchema,
   tablesDetailsResponseSchema,
   tablesResponseSchema,
@@ -14,6 +15,7 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  SearchHit,
   TableDetailsEntry,
   TableInfo,
   TableRef,
@@ -85,4 +87,17 @@ export async function getTablesDetails(
     },
   );
   return unwrap(result, (d) => d.tables);
+}
+
+/** Search table, view and column names across the whole database. */
+export async function searchObjects(
+  connectionId: string,
+  query: string,
+  limit = 8,
+): Promise<ApiResult<SearchHit[]>> {
+  const result = await apiRequest(
+    `${base(connectionId)}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    searchResponseSchema,
+  );
+  return unwrap(result, (d) => d.hits);
 }

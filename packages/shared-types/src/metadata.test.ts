@@ -12,6 +12,7 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  SearchHit,
   TableDetailsEntry,
   TableInfo,
 } from "@datacanvas/database-core";
@@ -32,6 +33,7 @@ import type {
   constraintInfoSchema,
   indexInfoSchema,
   relationshipInfoSchema,
+  searchHitSchema,
   tableDetailsEntrySchema,
 } from "./metadata.js";
 import { columnInfoSchema, schemaInfoSchema, tableInfoSchema } from "./metadata.js";
@@ -48,6 +50,7 @@ assertType<Same<z.infer<typeof constraintInfoSchema>, ConstraintInfo>>();
 assertType<Same<z.infer<typeof indexInfoSchema>, IndexInfo>>();
 assertType<Same<z.infer<typeof relationshipInfoSchema>, RelationshipInfo>>();
 assertType<Same<z.infer<typeof tableDetailsEntrySchema>, TableDetailsEntry>>();
+assertType<Same<z.infer<typeof searchHitSchema>, SearchHit>>();
 // Every database error code must be a valid API error code.
 assertType<[DatabaseErrorCode] extends [ApiErrorCode] ? true : false>();
 

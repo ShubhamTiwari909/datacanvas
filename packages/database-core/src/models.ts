@@ -134,3 +134,19 @@ export interface TableDetailsEntry {
   constraints: ConstraintInfo[];
   indexes: IndexInfo[];
 }
+
+/** What a search hit is: a table-like object, or a column of one. */
+export type SearchHitKind = RelationKind | "column";
+
+/**
+ * One result of a database-wide name search. For a table, view or materialized
+ * view `column` and `dataType` are null; for a column hit they describe it and
+ * `schema` / `table` say where it lives.
+ */
+export interface SearchHit {
+  kind: SearchHitKind;
+  schema: string;
+  table: string;
+  column: string | null;
+  dataType: string | null;
+}

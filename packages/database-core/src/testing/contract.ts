@@ -28,6 +28,7 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
   ["getConstraints", (a) => a.getConstraints("public", "users")],
   ["getIndexes", (a) => a.getIndexes("public", "users")],
   ["getTablesDetails", (a) => a.getTablesDetails([{ schema: "public", name: "users" }])],
+  ["searchObjects", (a) => a.searchObjects("user", 5)],
   ["getRelationships", (a) => a.getRelationships()],
 ];
 
@@ -256,6 +257,89 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
         });
       });
 
+      describe("searchObjects", () => {
+        const names = (hits: Awaited<ReturnType<DatabaseAdapter["searchObjects"]>>, kind: string) =>
+          hits
+            .filter((h) => h.kind === kind)
+            .map((h) => `${h.schema}.${h.table}${h.column ? `.${h.column}` : ""}`);
+
+        it("finds tables by part of their name, case-insensitively, with the right kind", async () => {
+          const hits = await adapter.searchObjects("ORD", 20);
+          expect(names(hits, "table")).toEqual(
+            expect.arrayContaining(["public.orders", "public.order_items"]),
+          );
+          for (const hit of hits.filter((h) => h.kind !== "column")) {
+            expect(hit.column).toBeNull();
+            expect(hit.dataType).toBeNull();
+          }
+        });
+
+        it("finds views and materialized views", async () => {
+          expect(names(await adapter.searchObjects("active_users", 5), "view")).toEqual([
+            "public.active_users",
+          ]);
+          expect(names(await adapter.searchObjects("daily_sales", 5), "materialized_view")).toEqual(
+            ["analytics.daily_sales"],
+          );
+        });
+
+        it("finds columns, with their type and the table they belong to", async () => {
+          const hits = await adapter.searchObjects("email", 20);
+          expect(hits).toEqual(
+            expect.arrayContaining([
+              {
+                kind: "column",
+                schema: "public",
+                table: "users",
+                column: "email",
+                dataType: "text",
+              },
+            ]),
+          );
+        });
+
+        it("ranks an exact name before names that merely contain it", async () => {
+          const tableHits = (await adapter.searchObjects("users", 20)).filter(
+            (h) => h.kind !== "column",
+          );
+          expect(tableHits[0]).toMatchObject({ schema: "public", table: "users" });
+          expect(tableHits.length).toBeGreaterThan(1); // active_users etc. follow
+        });
+
+        it("lists table hits before column hits", async () => {
+          const kinds = (await adapter.searchObjects("user", 20)).map((h) => h.kind === "column");
+          expect(kinds).toEqual([...kinds].sort((a, b) => Number(a) - Number(b)));
+        });
+
+        it("returns at most `limit` table hits and `limit` column hits", async () => {
+          const hits = await adapter.searchObjects("e", 3);
+          expect(hits.filter((h) => h.kind === "column").length).toBeLessThanOrEqual(3);
+          expect(hits.filter((h) => h.kind !== "column").length).toBeLessThanOrEqual(3);
+          expect(hits.length).toBeGreaterThan(0);
+        });
+
+        it("returns nothing for a blank query or a name that does not exist", async () => {
+          await expect(adapter.searchObjects("", 10)).resolves.toEqual([]);
+          await expect(adapter.searchObjects("   ", 10)).resolves.toEqual([]);
+          await expect(adapter.searchObjects("zzz_no_such_name_zzz", 10)).resolves.toEqual([]);
+        });
+
+        it("treats % and _ as ordinary characters, never as wildcards", async () => {
+          await expect(adapter.searchObjects("%", 50)).resolves.toEqual([]);
+          const underscore = await adapter.searchObjects("_", 50);
+          expect(underscore.length).toBeGreaterThan(0);
+          for (const hit of underscore) expect(hit.column ?? hit.table).toContain("_");
+        });
+
+        it("never returns system schemas", async () => {
+          const hits = await adapter.searchObjects("pg_", 50);
+          for (const hit of hits) {
+            expect(hit.schema.startsWith("pg_")).toBe(false);
+            expect(hit.schema).not.toBe("information_schema");
+          }
+        });
+      });
+
       it("rejects an unknown schema or table with not_found", async () => {
         await expectCode(adapter.getTables("no_such_schema"), "not_found");
         await expectCode(adapter.getColumns("public", "no_such_table"), "not_found");
@@ -273,6 +357,7 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
           await adapter.getIndexes("public", "orders"),
           await adapter.getRelationships(),
           await adapter.getTablesDetails([{ schema: "public", name: "orders" }]),
+          await adapter.searchObjects("order", 10),
         ];
         for (const result of results) {
           expect(JSON.parse(JSON.stringify(result))).toEqual(result);

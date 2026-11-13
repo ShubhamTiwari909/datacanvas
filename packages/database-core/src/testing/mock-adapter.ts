@@ -16,6 +16,7 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  SearchHit,
   TableDetailsEntry,
   TableInfo,
   TableRef,
@@ -98,6 +99,59 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         indexes: this.lookup(this.data.indexes, ref.schema, ref.name),
       });
     });
+  }
+
+  async searchObjects(query: string, limit: number): Promise<SearchHit[]> {
+    this.requireConnection();
+    const needle = query.trim().toLowerCase();
+    if (needle === "") return [];
+
+    // Lower is better: exact name, then prefix, then anywhere.
+    const rank = (name: string): number => {
+      const lower = name.toLowerCase();
+      return lower === needle ? 0 : lower.startsWith(needle) ? 1 : 2;
+    };
+    const matches = (name: string): boolean => name.toLowerCase().includes(needle);
+    const byRank = <T extends { name: string; schema: string; table: string }>(
+      a: T,
+      b: T,
+    ): number =>
+      rank(a.name) - rank(b.name) ||
+      a.schema.localeCompare(b.schema) ||
+      a.table.localeCompare(b.table) ||
+      a.name.localeCompare(b.name);
+
+    const tables = this.data.tables
+      .filter((t) => matches(t.name))
+      .map((t) => ({ name: t.name, schema: t.schema, table: t.name, kind: t.kind }))
+      .sort(byRank)
+      .slice(0, limit)
+      .map((t): SearchHit => ({
+        kind: t.kind,
+        schema: t.schema,
+        table: t.table,
+        column: null,
+        dataType: null,
+      }));
+
+    const columns = Object.entries(this.data.columns)
+      .flatMap(([key, list]) => {
+        const [schema = "", table = ""] = key.split(".");
+        return list
+          .filter((c) => matches(c.name))
+          .map((c) => ({ name: c.name, schema, table, dataType: c.dataType }));
+      })
+      .sort(byRank)
+      .slice(0, limit)
+      .map((c): SearchHit => ({
+        kind: "column",
+        schema: c.schema,
+        table: c.table,
+        column: c.name,
+        dataType: c.dataType,
+      }));
+
+    return copy([...tables, ...columns]);
   }
 
   async getRelationships(): Promise<RelationshipInfo[]> {

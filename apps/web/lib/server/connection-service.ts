@@ -16,6 +16,7 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  SearchHit,
   TableDetailsEntry,
   TableInfo,
   TableRef,
@@ -163,6 +164,11 @@ export class ConnectionService {
   /** Many tables in one go (used by the canvas). One call to the database, however many tables. */
   getTablesDetails(id: string, tables: TableRef[]): Promise<TableDetailsEntry[]> {
     return this.connections.use(id, (adapter) => adapter.getTablesDetails(tables));
+  }
+
+  /** Search table, view and column names across the whole database. */
+  search(id: string, query: string, limit: number): Promise<SearchHit[]> {
+    return this.connections.use(id, (adapter) => adapter.searchObjects(query, limit));
   }
 
   getRelationships(id: string): Promise<RelationshipInfo[]> {

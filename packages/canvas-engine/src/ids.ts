@@ -26,3 +26,21 @@ export function columnHandleId(side: HandleSide, column: string): string {
 export function tableHandleId(side: HandleSide): string {
   return `${side}:table`;
 }
+
+/** The table a node id stands for, or null if the text is not a node id. The inverse of `nodeIdFor`. */
+export function parseNodeId(id: string): TableRef | null {
+  try {
+    const parsed: unknown = JSON.parse(id);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === "string" &&
+      typeof parsed[1] === "string"
+    ) {
+      return { schema: parsed[0], name: parsed[1] };
+    }
+  } catch {
+    // not JSON: not one of our ids
+  }
+  return null;
+}

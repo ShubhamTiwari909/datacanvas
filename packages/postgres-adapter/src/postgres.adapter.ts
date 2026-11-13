@@ -18,6 +18,7 @@ import {
   type IndexInfo,
   type RelationshipInfo,
   type SchemaInfo,
+  type SearchHit,
   type TableDetailsEntry,
   type TableInfo,
   type TableRef,
@@ -39,6 +40,7 @@ import { assertRelationExists, assertSchemaExists } from "./introspection/existe
 import { listIndexes } from "./introspection/indexes.js";
 import { listRelationships } from "./introspection/relationships.js";
 import { listSchemas } from "./introspection/schemas.js";
+import { searchObjects } from "./introspection/search.js";
 import { listTables } from "./introspection/tables.js";
 
 export class PostgresAdapter implements DatabaseAdapter {
@@ -139,6 +141,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   getTablesDetails(tables: TableRef[]): Promise<TableDetailsEntry[]> {
     return this.read((db) => loadTablesDetails(db, tables));
+  }
+
+  searchObjects(query: string, limit: number): Promise<SearchHit[]> {
+    return this.read((db) => searchObjects(db, query, limit));
   }
 
   getRelationships(): Promise<RelationshipInfo[]> {

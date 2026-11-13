@@ -11,6 +11,7 @@ import { createTestContext, fieldsInput } from "@/lib/server/test-support";
 import { DELETE as deleteConnection } from "./[id]/route";
 import { GET as getRelationships } from "./[id]/relationships/route";
 import { GET as getSchemas } from "./[id]/schemas/route";
+import { GET as searchRoute } from "./[id]/search/route";
 import { GET as getTableDetails } from "./[id]/tables/[table]/route";
 import { GET as getTables } from "./[id]/tables/route";
 import { POST as postTableDetails } from "./[id]/table-details/route";
@@ -276,6 +277,51 @@ describe("exploring a connection", () => {
       expect(result.status).toBe(400);
       expect(result.body.error.code).toBe("validation_error");
     }
+  });
+
+  describe("GET search", () => {
+    const search = (query: string) =>
+      call(searchRoute(new Request(`${BASE}/${id}/search${query}`), params({ id })));
+
+    it("finds tables and columns by name", async () => {
+      const { status, body } = await search("?q=user");
+      expect(status).toBe(200);
+      const labels = body.hits.map(
+        (h: { table: string; column: string | null }) =>
+          `${h.table}${h.column ? `.${h.column}` : ""}`,
+      );
+      expect(labels).toEqual(expect.arrayContaining(["users", "orders.user_id"]));
+    });
+
+    it("applies the limit", async () => {
+      const { body } = await search("?q=e&limit=2");
+      expect(
+        body.hits.filter((h: { kind: string }) => h.kind !== "column").length,
+      ).toBeLessThanOrEqual(2);
+    });
+
+    it("rejects a missing, blank or oversized query and a bad limit", async () => {
+      for (const bad of [
+        "",
+        "?q=",
+        "?q=%20%20",
+        `?q=${"x".repeat(101)}`,
+        "?q=a&limit=0",
+        "?q=a&limit=51",
+        "?q=a&limit=abc",
+      ]) {
+        const result = await search(bad);
+        expect(result.status, bad).toBe(400);
+        expect(result.body.error.code).toBe("validation_error");
+      }
+    });
+
+    it("answers 404 for an unknown connection", async () => {
+      const result = await call(
+        searchRoute(new Request(`${BASE}/x/search?q=a`), params({ id: "does-not-exist-123456" })),
+      );
+      expect(result.status).toBe(404);
+    });
   });
 
   it("GET relationships", async () => {

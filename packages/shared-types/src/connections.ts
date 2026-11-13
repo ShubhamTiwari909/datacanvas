@@ -11,6 +11,7 @@ import {
   indexInfoSchema,
   relationshipInfoSchema,
   schemaInfoSchema,
+  searchHitSchema,
   tableDetailsEntrySchema,
   tableInfoSchema,
 } from "./metadata.js";
@@ -75,3 +76,12 @@ export const tablesDetailsResponseSchema = z.object({ tables: z.array(tableDetai
 export const relationshipsResponseSchema = z.object({
   relationships: z.array(relationshipInfoSchema),
 });
+
+/** Query string of `GET /api/connections/:id/search`. `limit` arrives as text in a URL, so it is converted here. */
+export const MAX_SEARCH_RESULTS = 50;
+export const searchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(100),
+  limit: z.coerce.number().int().min(1).max(MAX_SEARCH_RESULTS).default(20),
+});
+
+export const searchResponseSchema = z.object({ hits: z.array(searchHitSchema) });

@@ -415,3 +415,40 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - The browser decides where an exported file is saved.
 - There is no setting for a custom data folder in the UI (use `DATACANVAS_HOME`).
 - Reconnecting a saved connection after a restart always needs the password.
+
+## 66. A small graph module with breadth-first search
+
+**Decision:** relationship questions (what is within N hops, shortest path, clusters) are answered by one pure module, `canvas-engine/src/graph.ts`, using breadth-first search.
+
+**Why:** focus mode, "add related tables" and grouped layout all need the same traversal. Breadth-first search finds the nearest tables first, so a hop limit is exact, and the code is easy to test without a browser.
+
+## 67. Focus and filter state is not saved
+
+**Decision:** filters and focus settings live in `canvas-view-store` per connection and are not written to workspace files.
+
+**Why:** they are temporary ways of looking at the diagram, not part of the arrangement. Saving them would change the file format (and its migrations) for little benefit.
+
+## 68. Server-side search is an adapter method with hard limits
+
+**Decision:** `searchObjects(query, limit)` is on the adapter interface. Queries are 1-100 characters, results are capped at 50 tables plus 50 columns, matching is case-insensitive substring, wildcards are literal, and ranking is exact, prefix, then other.
+
+**Why:** large schemas cannot be searched by loading everything into the browser. Parameterized queries and the caps keep a hostile or careless query cheap and safe; the contract tests make every adapter behave the same.
+
+## 69. ELK for automatic layout, and a license to confirm
+
+**Decision:** use `elkjs` (pure JavaScript, no native code), loaded only when a layout is requested.
+
+**Why:** it gives good layered and packed layouts with no installation steps. **Flag:** its license is EPL-2.0 OR GPL-3.0-or-later; confirm with the relevant internal team before publishing the package. The repository also has no LICENSE file yet.
+
+## 70. Export privacy notice
+
+**Decision:** the export dialog always states that the image contains table and column names, no row data, and is created locally.
+
+**Why:** a diagram of a schema can reveal how a system works; the user should decide consciously who receives it.
+
+## 71. Known limits of Phase 9
+
+- Focus and filters reset when DataCanvas restarts.
+- "Add related" adds at most 60 tables per click.
+- Export is limited to a maximum image side length; very large diagrams are scaled down.
+- Layouts use table sizes at the moment of the request; they are not live.

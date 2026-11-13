@@ -201,6 +201,26 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter against a real PostgreSQL",
       }
     });
 
+    it("search skips partitions, and a hostile query is just text", async () => {
+      const events = (await a.searchObjects("events", 20)).filter((h) => h.kind !== "column");
+      expect(events.map((h) => h.table)).toEqual(["events"]); // events_2026 is a partition: hidden
+      await expect(a.searchObjects("x'; DROP TABLE users; --", 10)).resolves.toEqual([]);
+      expect((await a.getTables("public")).some((t) => t.name === "users")).toBe(true); // still there
+    });
+
+    it("search finds expression-free column names across schemas", async () => {
+      const hits = await a.searchObjects("total_cents", 10);
+      expect(hits).toEqual([
+        {
+          kind: "column",
+          schema: "analytics",
+          table: "daily_sales",
+          column: "total_cents",
+          dataType: "bigint",
+        },
+      ]);
+    });
+
     it("never invents relationships from column names", async () => {
       // addresses.region_code and regions.region_code share a name but only the
       // declared composite key is reported; no other table pair is related.

@@ -608,3 +608,26 @@ A saved layout names tables, but the database may have changed. Restoring lists 
 - Damaged files: a workspace file is skipped when listing (never deleted); `connections.json` is moved aside and a fresh one started; a file from a newer release is refused untouched.
 - Error messages never include paths, file content or the system's message (a test checks the path is absent).
 - Limits: 2000 nodes per workspace, 1 MB per request, 500 workspaces, 100 profiles, coordinates within +-10 million, zoom 0.01 to 10.
+
+## Phase 9: exploring large schemas
+
+Phase 9 adds the tools that keep a big schema usable: search, filters, focus mode, automatic layouts, an inspector panel and image export.
+
+**Pure logic lives in `canvas-engine`** (no React, no I/O, easy to test):
+
+- `graph.ts` builds the relationship graph from edges and answers questions on it: `reachableWithin` (breadth-first search, N hops, direction-aware), `shortestPath`, `connectedComponents`.
+- `filters.ts` decides which nodes and edges are visible (schemas, views, relationship types).
+- `pack.ts` (`shelfPack`) places several groups of tables side by side without overlap.
+- `ids.ts` gained `parseNodeId`, the inverse of `nodeIdFor`.
+
+**Search is split in two.** Tables already on the canvas are matched instantly in the browser. Everything else is asked of the server: `DatabaseAdapter.searchObjects(query, limit)` is part of the adapter interface (and the shared contract tests), the PostgreSQL version runs two parameterized catalog queries (tables, columns), and `GET /api/connections/:id/search?q=&limit=` exposes it (query 1-100 characters, at most 50 results). `%` and `_` are matched literally.
+
+**View state is separate from layout state.** `canvas-view-store` keeps filters, focus mode (off, dim, hide), hop count, direction and inspector visibility per connection. It is not saved with a workspace. `features/canvas/display.ts` (`computeDisplay`) turns nodes, edges, selection and view state into hidden ids, dimmed ids and dimmed edges. `useCanvasDisplay` subscribes with shallow selectors so dragging a node does not recompute edges.
+
+**Automatic layouts** (`elk-layout.ts`) load ELK on demand (dynamic import, so it is not in the first page load): hierarchical (layered), compact (rectpacking) and grouped (a layered layout per connected component, then `shelfPack`).
+
+**Inspector and export.** `inspector-panel.tsx` reads the selected table from the metadata cache (no extra request). `export-image.ts` renders the canvas with html-to-image to PNG or SVG; the dialog warns that the image shows table and column names.
+
+## Phase 9: what is not covered
+
+Verified in the in-app browser against PostgreSQL only; no other browsers or PostgreSQL versions. SVG export shares the PNG code path but was not exercised separately.

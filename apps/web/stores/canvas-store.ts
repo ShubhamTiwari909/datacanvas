@@ -81,11 +81,18 @@ interface CanvasStore {
   addTables: (connectionId: string, tables: NewTable[]) => void;
   applyChanges: (connectionId: string, changes: NodeChange<TableFlowNode>[]) => void;
   toggleExpanded: (connectionId: string, nodeId: string) => void;
-  selectAll: (connectionId: string) => void;
+  /** Select every table except `hiddenIds` (tables a filter hides must not be selected by accident). */
+  selectAll: (connectionId: string, hiddenIds?: ReadonlySet<string>) => void;
   selectOnly: (connectionId: string, nodeId: string) => void;
-  removeSelected: (connectionId: string) => void;
+  /** Remove the selected tables from the canvas, except `hiddenIds` (never delete what the user cannot see). */
+  removeSelected: (connectionId: string, hiddenIds?: ReadonlySet<string>) => void;
   resetLayout: (connectionId: string) => void;
   setViewport: (connectionId: string, viewport: SavedViewport) => void;
+  /** Move tables to computed positions (an automatic layout) and ask the view to fit them all. */
+  setPositions: (
+    connectionId: string,
+    positions: ReadonlyMap<string, { x: number; y: number }>,
+  ) => void;
   /** Replace the whole canvas with a saved layout. */
   restore: (connectionId: string, nodes: RestoredNode[], viewport: SavedViewport | null) => void;
   /** Remove every table from the canvas. */
@@ -189,10 +196,10 @@ export const useCanvasStore = create<CanvasStore>((set) => {
       }));
     },
 
-    selectAll(connectionId) {
+    selectAll(connectionId, hiddenIds) {
       update(connectionId, (canvas) => ({
         ...canvas,
-        nodes: canvas.nodes.map((n) => ({ ...n, selected: true })),
+        nodes: canvas.nodes.map((n) => ({ ...n, selected: !hiddenIds?.has(n.id) })),
       }));
     },
 
@@ -203,10 +210,10 @@ export const useCanvasStore = create<CanvasStore>((set) => {
       }));
     },
 
-    removeSelected(connectionId) {
+    removeSelected(connectionId, hiddenIds) {
       update(connectionId, (canvas) => ({
         ...canvas,
-        nodes: canvas.nodes.filter((n) => !n.selected),
+        nodes: canvas.nodes.filter((n) => !n.selected || hiddenIds?.has(n.id)),
       }));
     },
 
@@ -229,6 +236,17 @@ export const useCanvasStore = create<CanvasStore>((set) => {
           layoutVersion: canvas.layoutVersion + 1,
         };
       });
+    },
+
+    setPositions(connectionId, positions) {
+      update(connectionId, (canvas) => ({
+        ...canvas,
+        nodes: canvas.nodes.map((n) => {
+          const next = positions.get(n.id);
+          return next ? { ...n, position: { x: next.x, y: next.y } } : n;
+        }),
+        layoutVersion: canvas.layoutVersion + 1,
+      }));
     },
 
     setViewport(connectionId, viewport) {

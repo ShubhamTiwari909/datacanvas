@@ -22,6 +22,7 @@ import type {
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
+  SearchHit,
   TableDetailsEntry,
   TableInfo,
   TableRef,
@@ -89,6 +90,21 @@ export interface DatabaseAdapter {
    * @throws DatabaseError `not_found` if any listed table does not exist.
    */
   getTablesDetails(tables: TableRef[]): Promise<TableDetailsEntry[]>;
+
+  /**
+   * Find tables, views and columns whose NAME contains `query`, anywhere in the
+   * database (every user schema). Used by the canvas search box, which must find
+   * things that are not on the canvas yet.
+   *
+   * - Case-insensitive substring match. Characters such as `%` and `_` are
+   *   ordinary characters, never wildcards.
+   * - Results are ranked: an exact name first, then names that start with the
+   *   query, then the rest, then by schema and name.
+   * - At most `limit` table hits AND at most `limit` column hits are returned
+   *   (tables first), so a short query on a huge database stays cheap.
+   * - A blank query returns an empty array. Only names are searched, never data.
+   */
+  searchObjects(query: string, limit: number): Promise<SearchHit[]>;
 
   /**
    * Every confirmed foreign-key relationship in the database, across schemas.

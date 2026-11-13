@@ -9,7 +9,7 @@ npm install     # once
 npm run app     # builds the app and starts it
 ```
 
-(If the package is ever published to npm, `npx --yes datacanvas` will do the same without cloning anything; the options below work the same way.) Pass options after `--`, for example `npm run app -- --port 4900 --no-open`.
+(If the package is ever published to npm, `npx --yes @shubhamtiwari909/datacanvas` will do the same without cloning anything; the options below work the same way.) Pass options after `--`, for example `npm run app -- --port 4900 --no-open`.
 
 You need Node.js 20.9 or newer (`node --version`). Building takes about a minute the first time. After that, `npm run start` starts the already built app in under a second (run `npm run app` again after changing the code).
 

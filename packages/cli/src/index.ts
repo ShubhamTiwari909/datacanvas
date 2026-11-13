@@ -1,7 +1,7 @@
 /**
  * DataCanvas command-line launcher.
  *
- * What it does when the user runs `npx datacanvas`:
+ * What it does when the user runs `npx @shubhamtiwari909/datacanvas`:
  *   1. checks the Node.js version,
  *   2. picks a port (4747, or the next free one),
  *   3. starts the bundled web server on 127.0.0.1,

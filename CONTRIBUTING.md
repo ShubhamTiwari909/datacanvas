@@ -7,7 +7,7 @@ npm install
 npm run check
 ```
 
-Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; they will use `npx datacanvas`.
+Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; they will use `npx @shubhamtiwari909/datacanvas`.
 
 ## Scripts (run from the repo root)
 
@@ -66,7 +66,7 @@ The real product is the packed npm package, not the monorepo. After changing any
 npm run package
 cd .package && npm pack --pack-destination /some/scratch/folder
 cd /some/other/fresh/folder
-npm install --offline /some/scratch/folder/datacanvas-0.0.0.tgz   # offline: proves nothing is downloaded
+npm install --offline /some/scratch/folder/shubhamtiwari909-datacanvas-<version>.tgz   # offline: proves nothing is downloaded
 ./node_modules/.bin/datacanvas --no-open
 ```
 

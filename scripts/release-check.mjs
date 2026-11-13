@@ -31,8 +31,10 @@ async function main() {
     process.exit(1);
   }
 
-  if (pkg.name !== "datacanvas")
-    blockers.push(`package name is "${pkg.name}", expected "datacanvas"`);
+  if (!/^(@[a-z0-9-]+\/)?datacanvas$/.test(pkg.name))
+    blockers.push(
+      `package name is "${pkg.name}", expected "datacanvas" or "@<your-scope>/datacanvas"`,
+    );
   if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(pkg.version) || pkg.version === "0.0.0") {
     blockers.push(
       `version is ${pkg.version}; set a real version (for example 1.0.0-rc.1 or 1.0.0)`,

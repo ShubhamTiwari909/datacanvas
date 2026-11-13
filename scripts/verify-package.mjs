@@ -114,11 +114,11 @@ async function main() {
     cwd: project,
     stdio: "pipe",
   });
-  const bin = path.join(project, "node_modules/datacanvas/bin/datacanvas.mjs");
+  const bin = path.join(project, "node_modules", ...manifest.name.split("/"), "bin/datacanvas.mjs");
   const installed = await readdir(path.join(project, "node_modules"));
   check(
     "installed with its dependencies bundled (nothing else downloaded)",
-    installed.includes("datacanvas"),
+    installed.includes(manifest.name.split("/")[0]),
     `${installed.length} top-level entries`,
   );
 

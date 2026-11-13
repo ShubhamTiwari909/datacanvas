@@ -651,7 +651,7 @@ Verified in one browser on one machine. No independent review. No full Content-S
 
 ## Phase 11: the command line and the one-command install
 
-`npx --yes datacanvas` runs `bin/datacanvas.mjs` (the CLI, bundled by esbuild into one file). In order:
+`npx --yes @shubhamtiwari909/datacanvas` runs `bin/datacanvas.mjs` (the CLI, bundled by esbuild into one file). In order:
 
 1. **Node check** (20.9+) with an actionable message; flags via `util.parseArgs` (`--port`, `--no-open`, `--version`, `--help`, nothing else).
 2. **Data folder** (`~/.datacanvas`, or `DATACANVAS_HOME`): created owner-only (mode 0700) on first run, with a one-line welcome. `cli/src/data-dir.ts` repeats the web app's resolver on purpose (the CLI is bundled alone); `tests/data-dir.test.ts` fails if they disagree.

@@ -1,5 +1,5 @@
 /**
- * Remembering the running DataCanvas, so a second `npx datacanvas` opens the
+ * Remembering the running DataCanvas, so a second `npx @shubhamtiwari909/datacanvas` opens the
  * first one instead of starting another server.
  *
  * Because every run has a private session token (Phase 10), a second launch

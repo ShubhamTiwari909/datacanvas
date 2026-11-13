@@ -13,7 +13,7 @@ labels: bug
 
 **Environment**
 
-- DataCanvas version (`npx datacanvas --version`):
+- DataCanvas version (`npx --yes @shubhamtiwari909/datacanvas --version`):
 - Node.js version (`node --version`):
 - Operating system:
 - PostgreSQL version:

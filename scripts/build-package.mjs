@@ -228,7 +228,10 @@ async function main() {
       .map((key) => [key, rootPkg[key]]),
   );
   const packageJson = {
-    name: "datacanvas",
+    // Scoped to the publisher's npm account: npm refused the plain name "datacanvas"
+    // as too similar to an existing package ("data-canvas"). The command users run
+    // is still `datacanvas` (see "bin" below).
+    name: "@shubhamtiwari909/datacanvas",
     version: cliPkg.version,
     ...releaseMetadata,
     description:

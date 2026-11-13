@@ -13,7 +13,7 @@ npm run app
 
 `npm run app` builds the app (about a minute the first time) and starts it. It prints a private link: open it in your browser. Press Ctrl+C to stop. There is no `.env` file, no account and nothing to configure.
 
-> **Status:** used from this repository; it is **not published to npm**. If it is published later, the whole installation will be `npx --yes datacanvas` (nothing to clone or build). See [docs/release-checklist.md](docs/release-checklist.md).
+> **Status:** used from this repository; it is **not published to npm**. If it is published later, the whole installation will be `npx --yes @shubhamtiwari909/datacanvas` (nothing to clone or build). See [docs/release-checklist.md](docs/release-checklist.md).
 
 ![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
 

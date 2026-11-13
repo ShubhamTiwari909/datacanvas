@@ -10,7 +10,7 @@ First release candidate (pre-release, published under the `next` tag).
 
 ### Added
 
-- One-command start: `npx --yes datacanvas` (Node.js 20.9+, no native modules, no install scripts).
+- One-command start: `npx --yes @shubhamtiwari909/datacanvas` (Node.js 20.9+, no native modules, no install scripts).
 - PostgreSQL connections by connection string or fields; passwords kept in memory only; clear error codes for authentication, TLS, reachability and timeouts.
 - Schema explorer: schemas, tables, views, materialized views, columns, keys, indexes, constraints, partitions, row-count estimates.
 - Relationship detection with cardinality, including cross-schema relationships.

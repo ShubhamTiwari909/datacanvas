@@ -1,6 +1,6 @@
 # Release checklist (Phase 13)
 
-> **Publishing from your machine** (`npm run publish:npm`): it rebuilds, tests the packed tarball, runs the release gate, refuses a version that already exists, and rehearses with `--dry-run` unless you add `--publish`. It publishes only when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`, currently `shubhamtiwari909`). A pre-release version such as `1.0.0-rc.1` goes to the `next` tag, so `npx datacanvas` still means the last stable version; install a pre-release with `npx --yes datacanvas@next`. Steps: `npm login` (with two-factor authentication), `npm run publish:npm` (rehearsal), `npm run publish:npm -- --publish`, then `git tag v<version> && git push origin v<version>`. For a stable release, change the version in `packages/cli/package.json`, add its section to `CHANGELOG.md`, and repeat. Local publishing cannot attach provenance; the tag-driven workflow can once trusted publishing is configured on npmjs.com.
+> **Publishing from your machine** (`npm run publish:npm`): it rebuilds, tests the packed tarball, runs the release gate, refuses a version that already exists, and rehearses with `--dry-run` unless you add `--publish`. It publishes only when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`, currently `shubhamtiwari909`). A pre-release version such as `1.0.0-rc.1` goes to the `next` tag, so `npx @shubhamtiwari909/datacanvas` still means the last stable version; install a pre-release with `npx --yes @shubhamtiwari909/datacanvas@next`. Steps: `npm login` (with two-factor authentication), `npm run publish:npm` (rehearsal), `npm run publish:npm -- --publish`, then `git tag v<version> && git push origin v<version>`. For a stable release, change the version in `packages/cli/package.json`, add its section to `CHANGELOG.md`, and repeat. Local publishing cannot attach provenance; the tag-driven workflow can once trusted publishing is configured on npmjs.com.
 >
 > **Earlier plan: repository only.** The code is used from the GitHub repository and is not published to npm for now, so the npm items below (version, trusted publishing, tag) can wait. What the repository itself needs: set `"repository"`, `"homepage"` and `"bugs"` in the root `package.json` once the address exists; in the repository's settings turn on **private vulnerability reporting** (SECURITY.md points to it); protect `main` so CI must pass; and watch the first CI run (it has never run).
 
@@ -28,9 +28,9 @@ Everything here needs a person with the right accounts and authority. The code i
 4. `npm run test:e2e` and `npm run screenshots` if the interface changed.
 5. Run CI on all three operating systems; fix whatever the first run shows (it has never run).
 6. Check the tarball contents with `npm pack --dry-run` in `.package/` (only `bin/`, `web/`, `node_modules/`, README, `package.json`, LICENSE).
-7. On a clean machine with only Node installed: `npx --yes datacanvas`, connect a real (read-only) database, add tables, save, restart, restore.
+7. On a clean machine with only Node installed: `npx --yes @shubhamtiwari909/datacanvas`, connect a real (read-only) database, add tables, save, restart, restore.
 8. Tag and push: `git tag v1.0.0 && git push origin v1.0.0`. The release workflow checks, packs and publishes with provenance.
-9. Verify: `npx --yes datacanvas@1.0.0 --version` from a fresh folder; create the GitHub release from the changelog text.
+9. Verify: `npx --yes @shubhamtiwari909/datacanvas@1.0.0 --version` from a fresh folder; create the GitHub release from the changelog text.
 
 ## Not done yet
 

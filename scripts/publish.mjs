@@ -15,7 +15,7 @@
  *   4. with --publish: refuses unless you are logged in to npm as the expected
  *      account (EXPECTED_NPM_USER below);
  *   5. runs `npm publish` from `.package/` (public). A pre-release version such
- *      as 1.0.0-rc.1 goes to the `next` tag, so `npx datacanvas` keeps
+ *      as 1.0.0-rc.1 goes to the `next` tag, so `npx <package>` keeps
  *      resolving to the last stable version; a normal version goes to `latest`.
  *      Without --publish it adds --dry-run, which lists what would be uploaded.
  *

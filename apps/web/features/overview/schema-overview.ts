@@ -18,6 +18,8 @@ export interface SchemaOverview {
   tableCount: number;
   viewCount: number;
   materializedViewCount: number;
+  /** Tables whose rows live elsewhere (for example postgres_fdw). */
+  foreignTableCount: number;
   /** Sum of the planner's row estimates; null when no table has one (never analysed). */
   estimatedRows: number | null;
   /** Foreign keys with both ends inside this schema. */
@@ -41,6 +43,7 @@ export interface DatabaseOverview {
   tableCount: number;
   viewCount: number;
   materializedViewCount: number;
+  foreignTableCount: number;
   relationshipCount: number;
   /** Foreign keys that cross from one schema to another. */
   crossSchemaRelationships: number;
@@ -92,6 +95,7 @@ export function computeSchemaOverview(
     tableCount: tables.filter((t) => t.kind === "table").length,
     viewCount: tables.filter((t) => t.kind === "view").length,
     materializedViewCount: tables.filter((t) => t.kind === "materialized_view").length,
+    foreignTableCount: tables.filter((t) => t.kind === "foreign_table").length,
     estimatedRows: known.length === 0 ? null : known.reduce((a, b) => a + b, 0),
     relationshipsInside,
     relationshipsOut,
@@ -142,6 +146,7 @@ export function computeDatabaseOverview(
     tableCount: sum((s) => s.tableCount),
     viewCount: sum((s) => s.viewCount),
     materializedViewCount: sum((s) => s.materializedViewCount),
+    foreignTableCount: sum((s) => s.foreignTableCount),
     relationshipCount: relationships.length,
     crossSchemaRelationships: relationships.filter((r) => r.source.schema !== r.target.schema)
       .length,

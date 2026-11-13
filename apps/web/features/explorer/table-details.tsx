@@ -17,14 +17,10 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { useAsyncData } from "@/lib/use-async-data";
+import { KIND_LABEL } from "@/components/relation-kind";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { getRelationships, getTableDetails, getTables } from "./api";
 
-const KIND_LABEL = {
-  table: "Table",
-  view: "View",
-  materialized_view: "Materialized view",
-} as const;
 const ACTION_LABEL = {
   no_action: "no action",
   restrict: "restrict",

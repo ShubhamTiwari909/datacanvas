@@ -10,7 +10,8 @@
 
 import { nodeIdFor } from "@datacanvas/canvas-engine";
 import type { RelationshipInfo, TableDetailsEntry } from "@datacanvas/database-core";
-import { Eye, KeyRound, Layers, Link2, PanelRightClose, Plus, Table2 } from "lucide-react";
+import { KeyRound, Link2, PanelRightClose, Plus } from "lucide-react";
+import { KIND_ICON, KIND_LABEL } from "@/components/relation-kind";
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,12 +20,6 @@ import { useCanvasViewStore, viewOf } from "@/stores/canvas-view-store";
 import { useMetadataStore } from "@/stores/metadata-store";
 import { addTablesToCanvas } from "./add-tables";
 
-const KIND_LABEL = {
-  table: "Table",
-  view: "View",
-  materialized_view: "Materialized view",
-} as const;
-const KIND_ICON = { table: Table2, view: Eye, materialized_view: Layers } as const;
 const NO_RELATIONSHIPS: RelationshipInfo[] = [];
 
 function Section({

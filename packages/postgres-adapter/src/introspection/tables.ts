@@ -6,10 +6,11 @@ import { WANTED_CTE, wantedParams } from "./wanted.js";
 /**
  * pg_class holds every "relation": tables, views, indexes, sequences...
  * `relkind` says which: r = ordinary table, p = partitioned table (the parent),
- * v = view, m = materialized view. (Others, such as i = index or S = sequence,
- * are not tables; f = foreign table is not shown yet.)
+ * v = view, m = materialized view, f = foreign table (rows live elsewhere, for
+ * example behind postgres_fdw). Others, such as i = index or S = sequence, are
+ * not tables and are not listed.
  */
-export const LISTED_RELKINDS = ["r", "p", "v", "m"];
+export const LISTED_RELKINDS = ["r", "p", "v", "m", "f"];
 
 /**
  * - JOIN pg_namespace: translate the numeric schema id into a name and filter by it.
@@ -55,6 +56,8 @@ export function relationKindFromRelkind(relkind: string): RelationKind {
       return "view";
     case "m":
       return "materialized_view";
+    case "f":
+      return "foreign_table";
     default:
       return "table"; // "r" and "p"
   }
@@ -62,10 +65,14 @@ export function relationKindFromRelkind(relkind: string): RelationKind {
 
 /**
  * Turn the planner's estimate into our model. -1 (PostgreSQL 14+) means "never
- * analysed", and views have no rows of their own, so both become null.
+ * analysed", and views have no rows of their own, so both become null. A
+ * foreign table that was never analysed reports 0 (or -1), and 0 cannot be told
+ * from "really empty" without reading the remote side, so for foreign tables a
+ * zero also means unknown.
  */
 export function estimatedRowCount(kind: RelationKind, reltuples: number): number | null {
   if (kind === "view" || reltuples < 0) return null;
+  if (kind === "foreign_table" && reltuples === 0) return null;
   return Math.round(reltuples);
 }
 

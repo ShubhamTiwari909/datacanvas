@@ -10,8 +10,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Eye, LayoutGrid, Layers, Table2 } from "lucide-react";
-import { tableRefKey, type RelationKind, type TableInfo } from "@datacanvas/database-core";
+import { ChevronDown, ChevronRight, LayoutGrid } from "lucide-react";
+import { KIND_ICON, KIND_LABEL } from "@/components/relation-kind";
+import { tableRefKey, type TableInfo } from "@datacanvas/database-core";
 import { LoadingState } from "@/components/states/loading-state";
 import { ErrorState } from "@/components/states/error-state";
 import { Button } from "@/components/ui/button";
@@ -21,17 +22,6 @@ import { useAsyncData } from "@/lib/use-async-data";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { getSchemas, getTables } from "./api";
-
-const KIND_ICON: Record<RelationKind, typeof Table2> = {
-  table: Table2,
-  view: Eye,
-  materialized_view: Layers,
-};
-const KIND_LABEL: Record<RelationKind, string> = {
-  table: "Table",
-  view: "View",
-  materialized_view: "Materialized view",
-};
 
 function TableRow({ connectionId, table }: { connectionId: string; table: TableInfo }) {
   const Icon = KIND_ICON[table.kind];

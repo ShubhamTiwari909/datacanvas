@@ -10,9 +10,10 @@ First public release (not yet published).
 
 - One-command start: `npx --yes datacanvas` (Node.js 20.9+, no native modules, no install scripts).
 - PostgreSQL connections by connection string or fields; passwords kept in memory only; clear error codes for authentication, TLS, reachability and timeouts.
-- Schema explorer: schemas, tables, views, columns, keys, indexes, constraints, partitions, row-count estimates.
+- Schema explorer: schemas, tables, views, materialized views, columns, keys, indexes, constraints, partitions, row-count estimates.
 - Relationship detection with cardinality, including cross-schema relationships.
 - Interactive canvas: drag, zoom, minimap, grid, multi-select, search (on the canvas and in the database), filters, focus mode, inspector panel.
+- Foreign tables (for example `postgres_fdw`) are listed, labelled and drawn like tables; they were hidden before.
 - Schema overview tab: per-schema counts, cross-schema connections, most connected tables, largest tables and tables without relationships.
 - Paths tab: shortest chains of foreign keys between two tables, with the join SQL to copy.
 - Health tab: model checks (no primary key, foreign key without index, duplicate and redundant indexes, nullable foreign keys, wide tables) with explanations and copyable SQL.

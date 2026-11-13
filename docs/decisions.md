@@ -587,11 +587,11 @@ Follow-up decisions are 91 and 92.
 
 **Why:** the maintainer stated that organization ownership is not an issue and that no contributor agreement is wanted. **Revisit** if outside contributions grow or the license changes.
 
-## 93. Foreign tables are not listed (known gap)
+## 93. Foreign tables are listed as their own kind (was a known gap)
 
-**Decision:** for now `pg_class` entries with `relkind = 'f'` (foreign tables, such as `postgres_fdw` or Supabase wrapper tables) stay hidden. A test (`postgres.adapter.odd-schema.test.ts`) pins this down so changing it is deliberate.
+**Decision:** `pg_class` entries with `relkind = 'f'` (foreign tables, such as `postgres_fdw` or Supabase wrapper tables) are listed with kind `foreign_table`. They are read like tables (columns, comments, details), shown with their own icon and the label "Foreign table", counted separately in the overview, and left out of the health checks and the path finder (their keys and indexes live on the remote side, and PostgreSQL does not allow foreign keys on them).
 
-**Why:** showing them needs a new relation kind through the model, the shared schemas and the interface (icon, label, inspector), and their columns and comments are read the same way as a table's. That is a feature, not a fix, so it was not folded into the robustness work. **Impact:** a user whose data lives behind foreign tables will not see them. **Next:** add `foreign_table` to `RelationKind` and `LISTED_RELKINDS`, update the UI, extend the contract tests.
+**Why:** the first robustness round (`odd-schema` tests) confirmed that these tables were silently hidden, which is wrong for anyone whose data sits behind a foreign data wrapper. **Row estimates:** a foreign table that was never analysed reports 0 (or -1), which cannot be told from "really empty", so a zero estimate for a foreign table is shown as unknown. **History:** this entry first recorded the gap; the odd-schema test that pinned the old behaviour now pins the new one. **Not covered:** nothing is read from the remote side (no rows, no remote catalogs), and foreign tables defined through wrappers other than `postgres_fdw` were not tried.
 
 ## 94. PostgreSQL 12 to 18 matrix
 

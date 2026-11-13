@@ -21,14 +21,13 @@ import {
   COLLAPSED_COLUMN_LIMIT,
 } from "@datacanvas/canvas-engine";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { AlertTriangle, Eye, KeyRound, Layers, Link2, Table2 } from "lucide-react";
+import { AlertTriangle, KeyRound, Link2 } from "lucide-react";
+import { KIND_ICON } from "@/components/relation-kind";
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type TableFlowNode } from "@/stores/canvas-store";
 import { useMetadataStore } from "@/stores/metadata-store";
 import { useCanvasConnection } from "./canvas-context";
-
-const KIND_ICON = { table: Table2, view: Eye, materialized_view: Layers } as const;
 
 /** Small connection points. Always attached to the row, but only visible when hovering the node. */
 const handleClass =

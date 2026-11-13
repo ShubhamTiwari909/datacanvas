@@ -8,7 +8,8 @@
 
 import { nodeIdFor, searchTables } from "@datacanvas/canvas-engine";
 import type { SearchHit } from "@datacanvas/database-core";
-import { Eye, Layers, Loader2, Search, Table2, Type } from "lucide-react";
+import { Loader2, Search, Type, type LucideIcon } from "lucide-react";
+import { KIND_ICON } from "@/components/relation-kind";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { searchObjects } from "@/features/explorer/api";
@@ -23,12 +24,12 @@ interface Result {
   key: string;
   label: string;
   detail: string;
-  icon: typeof Table2;
+  icon: LucideIcon;
   onCanvas: boolean;
   open: () => void;
 }
 
-const KIND_ICON = { table: Table2, view: Eye, materialized_view: Layers, column: Type } as const;
+const HIT_ICON = { ...KIND_ICON, column: Type } as const;
 
 export function CanvasSearch({ connectionId }: { connectionId: string }) {
   const nodes = useCanvasStore((s) => s.canvases[connectionId]?.nodes);
@@ -65,7 +66,7 @@ export function CanvasSearch({ connectionId }: { connectionId: string }) {
       key: `canvas:${m.id}`,
       label: m.label,
       detail: "on the canvas",
-      icon: Table2,
+      icon: KIND_ICON.table,
       onCanvas: true,
       open: () => jump(m.id),
     }));
@@ -85,7 +86,7 @@ export function CanvasSearch({ connectionId }: { connectionId: string }) {
           detail: hit.column
             ? `column, ${hit.dataType}${onCanvas.has(id) ? ", table on canvas" : ""}`
             : `${hit.kind.replace("_", " ")}, add to canvas`,
-          icon: KIND_ICON[hit.kind],
+          icon: HIT_ICON[hit.kind],
           onCanvas: onCanvas.has(id),
           open: () => {
             setQuery("");

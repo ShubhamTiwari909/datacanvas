@@ -79,7 +79,7 @@ function SchemaCard({
 }) {
   const setView = useWorkspaceStore((s) => s.setView);
   const o = overview;
-  const objects = o.tableCount + o.viewCount + o.materializedViewCount;
+  const objects = o.tableCount + o.viewCount + o.materializedViewCount + o.foreignTableCount;
 
   return (
     <article
@@ -96,6 +96,7 @@ function SchemaCard({
               o.materializedViewCount > 0
                 ? plural(o.materializedViewCount, "materialized view")
                 : null,
+              o.foreignTableCount > 0 ? plural(o.foreignTableCount, "foreign table") : null,
             ]
               .filter(Boolean)
               .join(", ")}
@@ -207,6 +208,9 @@ function Summary({ overview }: { overview: DatabaseOverview }) {
         <Stat label={o.schemaCount === 1 ? "schema" : "schemas"} value={String(o.schemaCount)} />
         <Stat label="tables" value={String(o.tableCount)} />
         <Stat label="views" value={String(o.viewCount + o.materializedViewCount)} />
+        {o.foreignTableCount > 0 ? (
+          <Stat label="foreign tables" value={String(o.foreignTableCount)} />
+        ) : null}
         <Stat label="relationships" value={String(o.relationshipCount)} />
         <Stat label="across schemas" value={String(o.crossSchemaRelationships)} />
       </div>

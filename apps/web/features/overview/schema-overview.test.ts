@@ -33,6 +33,7 @@ const publicTables = [
   table("public", "lonely", "table", 5),
   table("public", "active_users", "view"),
   table("public", "daily", "materialized_view", 10),
+  table("public", "remote_orders", "foreign_table", 700),
 ];
 
 const relationships = [
@@ -60,11 +61,13 @@ describe("computeSchemaOverview", () => {
   const o = computeSchemaOverview("public", publicTables, relationships);
 
   it("counts tables, views and materialized views separately", () => {
-    expect([o.tableCount, o.viewCount, o.materializedViewCount]).toEqual([4, 1, 1]);
+    expect([o.tableCount, o.viewCount, o.materializedViewCount, o.foreignTableCount]).toEqual([
+      4, 1, 1, 1,
+    ]);
   });
 
   it("sums the known row estimates", () => {
-    expect(o.estimatedRows).toBe(251_015);
+    expect(o.estimatedRows).toBe(251_715);
   });
 
   it("reports null when no table has an estimate", () => {
@@ -91,12 +94,18 @@ describe("computeSchemaOverview", () => {
     ]);
   });
 
-  it("finds orphans among ordinary tables only (views never have foreign keys)", () => {
+  it("finds orphans among ordinary tables only (views and foreign tables never have foreign keys)", () => {
     expect(o.orphans).toEqual(["lonely"]);
   });
 
   it("ranks the largest tables by estimate", () => {
-    expect(o.largest.map((t) => t.name)).toEqual(["items", "orders", "users", "daily", "lonely"]);
+    expect(o.largest.map((t) => t.name)).toEqual([
+      "items",
+      "orders",
+      "users",
+      "remote_orders",
+      "daily",
+    ]);
   });
 
   it("ignores zero estimates in the largest list", () => {

@@ -24,7 +24,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 - **Get an overview** of the whole database: per schema, how many tables and views, how they connect to other schemas, the most connected tables, the largest tables and tables without relationships.
 - **Find a path** between two tables: the shortest chain of foreign keys, the columns joined at each step, and a ready-to-copy `SELECT … JOIN …` (text only; DataCanvas never runs SQL).
 - **Check the model**: tables without a primary key, foreign keys without a supporting index, duplicate and redundant indexes, optional (nullable) foreign keys and very wide tables, each with an explanation and SQL you can copy (DataCanvas never runs it).
-- **Explore** schemas, tables, columns, keys, indexes, constraints and row-count estimates.
+- **Explore** schemas, tables, views, materialized views and foreign tables, with columns, keys, indexes, constraints and row-count estimates.
 - **See relationships** drawn as edges with their cardinality (1:1, 1:N, N:1), including across schemas.
 - **Arrange** tables on an infinite canvas: drag, zoom, auto-layout (hierarchical, grouped, compact), search, filters, and focus on one table and its neighbours.
 - **Save** layouts per connection; they are restored the next time you connect.

@@ -332,18 +332,38 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter against an awkward schema",
       }
     });
 
-    it("does not break listing, relationships or search when a foreign table exists", async (context) => {
+    it("lists a foreign table as its own kind, alongside ordinary tables", async (context) => {
       if (!available) context.skip();
-      expect(await adapter.getSchemas()).not.toHaveLength(0);
-      expect(await adapter.getRelationships()).toBeInstanceOf(Array);
-      expect(await adapter.searchObjects("remote", 5)).toBeInstanceOf(Array);
-      const names = await tableNames("public");
-      expect(names).toContain("users");
+      const tables = await adapter.getTables("public");
+      expect(tables.find((t) => t.name === "remote_users")?.kind).toBe("foreign_table");
+      expect(tables.find((t) => t.name === "users")?.kind).toBe("table");
     });
 
-    it("currently does not list foreign tables (a known gap, see docs/decisions.md)", async (context) => {
+    it("reports an unknown row estimate for a foreign table that was never analysed", async (context) => {
       if (!available) context.skip();
-      expect(await tableNames("public")).not.toContain("remote_users");
+      const table = (await adapter.getTables("public")).find((t) => t.name === "remote_users");
+      expect(table?.estimatedRowCount).toBeNull();
+    });
+
+    it("reads a foreign table's columns and details like a table's, with no keys or indexes", async (context) => {
+      if (!available) context.skip();
+      const columns = await adapter.getColumns("public", "remote_users");
+      expect(columns.map((c) => c.name)).toEqual(["id", "email"]);
+      const [entry] = await adapter.getTablesDetails([{ schema: "public", name: "remote_users" }]);
+      expect(entry?.table.kind).toBe("foreign_table");
+      expect(entry?.columns).toHaveLength(2);
+      expect(entry?.indexes).toEqual([]);
+      expect(entry?.constraints.filter((c) => c.kind === "primary_key")).toEqual([]);
+    });
+
+    it("finds a foreign table by search and keeps relationships and schemas working", async (context) => {
+      if (!available) context.skip();
+      const hits = await adapter.searchObjects("remote", 5);
+      expect(hits.find((h) => h.table === "remote_users" && h.column === null)?.kind).toBe(
+        "foreign_table",
+      );
+      expect(await adapter.getSchemas()).not.toHaveLength(0);
+      expect(await adapter.getRelationships()).toBeInstanceOf(Array);
     });
   });
 

@@ -21,9 +21,12 @@ export interface SchemaInfo {
 
 /**
  * What kind of relation a `TableInfo` describes. Views and materialized views
- * have columns like tables do, but no constraints of their own.
+ * have columns like tables do, but no constraints of their own. A foreign
+ * table is a table whose rows live in another database or file (for example
+ * through `postgres_fdw`): its structure is read like a table's, but it has no
+ * keys or indexes here and its row estimate is often unknown.
  */
-export type RelationKind = "table" | "view" | "materialized_view";
+export type RelationKind = "table" | "view" | "materialized_view" | "foreign_table";
 
 /** A table or view, without its columns (those are fetched on demand). */
 export interface TableInfo {

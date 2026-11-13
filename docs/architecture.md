@@ -703,7 +703,7 @@ Nothing has been published or pushed. There is no LICENSE, no repository address
 
 `postgres.adapter.odd-schema.test.ts` loads it into a throwaway database and pins down what the adapter returns for each case (31 tests). `scripts/pg-matrix.mjs` (`npm run test:pg-matrix`) runs all PostgreSQL-facing tests against PostgreSQL 12 to 18, one Docker container per version; CI does the same with a job matrix.
 
-**Result on PostgreSQL 17:** no adapter bug was found in any of these cases. One gap was confirmed: **foreign tables** (for example `postgres_fdw`) are not listed (decision 93).
+**Result on PostgreSQL 17:** no adapter bug was found in these cases. One gap was confirmed, foreign tables (for example `postgres_fdw`) being hidden; it is now fixed (decision 93).
 
 ## Schema overview
 
@@ -734,3 +734,7 @@ A fifth tab, `features/paths/`:
 - `path-view.tsx`: two selects with a swap button, the route cards (chain, columns, SQL with Copy, Show on canvas) and the empty, same-table and no-route states.
 
 17 unit tests (including a graph with 6^8 equally short routes, which returns in under a second), an integration test that executes the generated SQL for every connected pair of tables in the sample shop and the awkward schema on a real PostgreSQL (56 routes), and an end-to-end test (`e2e/paths.spec.ts`).
+
+## Foreign tables
+
+`RelationKind` has a fourth value, `foreign_table` (model, shared Zod schemas, `LISTED_RELKINDS` with `relkind = 'f'`). Because tables, search and the existence check all use that one list, adding the kind there made foreign tables appear everywhere in the adapter. In the app, `components/relation-kind.ts` is the single place that names and draws each kind (`Record<RelationKind, ...>` maps, so a missing kind is a compile error); the schema tree, canvas node, inspector, search and table details all import it. The overview counts foreign tables separately. Health checks and the path finder look only at ordinary tables, which is correct: a foreign table has no keys or indexes here. Tested by adapter integration tests against a real `postgres_fdw` table (listing, kind, unknown estimate, columns and details, search) and an end-to-end test (`e2e/foreign-tables.spec.ts`).

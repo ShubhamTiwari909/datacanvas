@@ -40,7 +40,7 @@ describe("searchObjects (unit)", () => {
   it("trims the query and clamps the limit to a sane range", async () => {
     const { db, calls } = recorder();
     await searchObjects(db, "  order  ", 100000);
-    expect(calls[0]?.values).toEqual(["order", ["r", "p", "v", "m"], MAX_SEARCH_LIMIT]);
+    expect(calls[0]?.values).toEqual(["order", ["r", "p", "v", "m", "f"], MAX_SEARCH_LIMIT]);
     await searchObjects(db, "order", 0);
     expect(calls[2]?.values?.[2]).toBe(1);
   });

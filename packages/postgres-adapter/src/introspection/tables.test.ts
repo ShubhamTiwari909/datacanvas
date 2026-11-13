@@ -7,6 +7,7 @@ describe("relationKindFromRelkind", () => {
     ["p", "table"],
     ["v", "view"],
     ["m", "materialized_view"],
+    ["f", "foreign_table"],
   ] as const)("maps %s to %s", (relkind, kind) => {
     expect(relationKindFromRelkind(relkind)).toBe(kind);
   });
@@ -23,6 +24,12 @@ describe("estimatedRowCount", () => {
 
   it("is null for views, which hold no rows of their own", () => {
     expect(estimatedRowCount("view", 0)).toBeNull();
+  });
+
+  it("treats a zero estimate for a foreign table as unknown, but keeps real estimates", () => {
+    expect(estimatedRowCount("foreign_table", 0)).toBeNull();
+    expect(estimatedRowCount("foreign_table", -1)).toBeNull();
+    expect(estimatedRowCount("foreign_table", 1234)).toBe(1234);
   });
 
   it("keeps a real zero for an analysed empty table", () => {

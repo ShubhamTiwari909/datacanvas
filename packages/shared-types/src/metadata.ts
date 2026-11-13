@@ -11,7 +11,7 @@ import { z } from "zod";
 
 export const schemaInfoSchema = z.object({ name: z.string() });
 
-export const relationKindSchema = z.enum(["table", "view", "materialized_view"]);
+export const relationKindSchema = z.enum(["table", "view", "materialized_view", "foreign_table"]);
 
 export const tableInfoSchema = z.object({
   schema: z.string(),
@@ -78,7 +78,7 @@ export const tableDetailsEntrySchema = z.object({
 });
 
 export const searchHitSchema = z.object({
-  kind: z.enum(["table", "view", "materialized_view", "column"]),
+  kind: z.enum(["table", "view", "materialized_view", "foreign_table", "column"]),
   schema: z.string(),
   table: z.string(),
   column: z.string().nullable(),

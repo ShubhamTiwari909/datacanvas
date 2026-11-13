@@ -18,6 +18,13 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { DEFAULT_PORT } from "@datacanvas/shared-types";
 import { openBrowser } from "./browser.js";
+import { ensureDataDir, resolveDataDir } from "./data-dir.js";
+import {
+  findRunningInstance,
+  isDataCanvasHealthy,
+  removeInstance,
+  writeInstance,
+} from "./instance.js";
 import { findFreePort, isPortFree } from "./port.js";
 import { VERSION } from "./version.js";
 import {
@@ -94,6 +101,25 @@ async function main(): Promise<void> {
     );
   }
 
+  // First run: create the data folder and say hello. The folder is owner-only.
+  const dataDir = resolveDataDir();
+  const firstRun = await ensureDataDir(dataDir).catch(() => false);
+  if (firstRun) {
+    console.log(
+      `Welcome to DataCanvas! Your data stays in ${dataDir} (nothing leaves your computer).`,
+    );
+  }
+
+  // Already running? Open that one instead of starting a second server. An
+  // explicit --port that differs means "I want a new one on that port".
+  const running = await findRunningInstance(dataDir, isDataCanvasHealthy);
+  if (running && (values.port === undefined || Number(values.port) === running.port)) {
+    const link = `http://127.0.0.1:${running.port}/?token=${running.token}`;
+    console.log(`DataCanvas is already running. Open this link in your browser:\n  ${link}`);
+    if (!values["no-open"]) openBrowser(link);
+    return;
+  }
+
   // Port: an explicit --port must be honoured exactly (fail if busy); the
   // default port silently falls back to the next free one.
   let port: number;
@@ -124,6 +150,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log("\nStopping DataCanvas…");
     await stopWebServer(server);
+    await removeInstance(dataDir, process.pid).catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
@@ -152,6 +179,14 @@ async function main(): Promise<void> {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   console.log(`DataCanvas is running. Open this link in your browser:\n  ${url}`);
   console.log("The link is private to this run. Press Ctrl+C to stop.");
+  await writeInstance(dataDir, {
+    pid: process.pid,
+    port,
+    token: sessionToken,
+    version: VERSION,
+  }).catch(
+    () => {}, // not being able to write it only disables "open the running one"
+  );
   if (!values["no-open"]) openBrowser(url);
 }
 

@@ -6,12 +6,13 @@ DataCanvas is a local tool: it runs on your computer, talks to your database fro
 
 ## What stays on your machine
 
-| Thing                      | Where it lives                                                                                           |
-| -------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Database password          | In memory of the running server only. Never written to disk, never returned by the API, never logged.    |
-| Host, port, database, user | In `~/.datacanvas/connections.json` only if you choose **Save connection**. Not the password.            |
-| Canvas layouts             | `~/.datacanvas/workspaces/` (table names and positions). Files are owner-only (mode 0600).               |
-| What leaves the machine    | Nothing. No account, no cloud, no analytics. Telemetry of the web framework is switched off at start-up. |
+| Thing                         | Where it lives                                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Database password             | In memory of the running server only. Never written to disk, never returned by the API, never logged.                  |
+| Host, port, database, user    | In `~/.datacanvas/connections.json` only if you choose **Save connection**. Not the password.                          |
+| Canvas layouts                | `~/.datacanvas/workspaces/` (table names and positions). Files are owner-only (mode 0600).                             |
+| Session token (while running) | In the server's memory and in `~/.datacanvas/run.json` (owner-only) so a second launch can reopen it. Deleted on exit. |
+| What leaves the machine       | Nothing. No account, no cloud, no analytics. Telemetry of the web framework is switched off at start-up.               |
 
 Set `DATACANVAS_HOME` to use a different folder.
 

@@ -54,6 +54,15 @@ export function getServerContext(): ServerContext {
   return holder[CONTEXT_KEY];
 }
 
+/**
+ * Close all database connections if a context exists. Never creates one (a
+ * shutdown must not start new work). Safe to call more than once.
+ */
+export async function disposeServerContext(): Promise<void> {
+  const context = (globalThis as WithContext)[CONTEXT_KEY];
+  if (context) await context.connections.dispose();
+}
+
 /** For tests only: replace the shared context (pass undefined to reset). */
 export function setServerContextForTests(context: ServerContext | undefined): void {
   (globalThis as WithContext)[CONTEXT_KEY] = context;

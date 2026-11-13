@@ -28,6 +28,10 @@ describe("buildServerEnv", () => {
     expect(env.NEXT_TELEMETRY_DISABLED).toBe("1");
   });
 
+  it("takes over signal handling so database sessions close first", () => {
+    expect(env.NEXT_MANUAL_SIG_HANDLE).toBe("1");
+  });
+
   it("keeps the rest of the environment", () => {
     expect(env.PATH).toBe("/bin");
   });

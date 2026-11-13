@@ -648,3 +648,20 @@ Documents: `SECURITY.md` (for users), `docs/threat-model.md` (assets, attackers,
 ## Phase 10: what is not covered
 
 Verified in one browser on one machine. No independent review. No full Content-Security-Policy. No defence against a program running as the same user.
+
+## Phase 11: the command line and the one-command install
+
+`npx --yes datacanvas` runs `bin/datacanvas.mjs` (the CLI, bundled by esbuild into one file). In order:
+
+1. **Node check** (20.9+) with an actionable message; flags via `util.parseArgs` (`--port`, `--no-open`, `--version`, `--help`, nothing else).
+2. **Data folder** (`~/.datacanvas`, or `DATACANVAS_HOME`): created owner-only (mode 0700) on first run, with a one-line welcome. `cli/src/data-dir.ts` repeats the web app's resolver on purpose (the CLI is bundled alone); `tests/data-dir.test.ts` fails if they disagree.
+3. **Already running?** `cli/src/instance.ts` reads `run.json` (port, token, pid; mode 0600). If that process is alive and `/api/health` answers as DataCanvas, the CLI opens the running instance's private link and exits. Stale files (crash) are ignored.
+4. **Port:** 4747, or the next free one (with a message); an explicit `--port` must be free.
+5. **Start** `web/apps/web/server.js` as a child process on `127.0.0.1` with a fresh token, wait for `/api/health`, write `run.json`, print the link, open the browser (`open`, `start`, `xdg-open`; the link is printed anyway).
+6. **Shutdown** (Ctrl+C / SIGTERM): the CLI signals the server, which (via `instrumentation.ts` and `lib/server/shutdown.ts`) closes every database session and forgets all credentials within 3 s, then exits; the CLI removes `run.json`. The CLI sets `NEXT_MANUAL_SIG_HANDLE=1` so Next.js does not exit first.
+
+**Packaging:** `npm run package` assembles `.package/` (CLI + standalone web output + bundled `node_modules`, `files` allowlist, `engines.node`, no install scripts, no native add-ons). `npm run verify:package` then tests the PACKED tarball: it runs `npm pack`, installs the tarball into an empty project, and exercises the installed command (22 checks, including token protection, instance reuse and clean shutdown). It prints the tarball size and cold-start time.
+
+## Phase 11: what is not covered
+
+Verified on macOS only (no Windows or Linux run, no real `npx` from the registry because nothing is published). Two simultaneous first launches can race. A `kill -9` of the CLI leaves the server running until it is stopped by hand.

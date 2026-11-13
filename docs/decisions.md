@@ -490,3 +490,29 @@ Short records of choices that are not obvious from the code. Newest at the botto
 - Other web apps on `127.0.0.1` receive the cookie (blocked from using it in a browser).
 - Passwords are in process memory while a connection is open.
 - No independent security review.
+
+## 78. Instance reuse through a private run file
+
+**Decision:** the running instance writes `run.json` (pid, port, token, version; mode 0600) in the data folder; a second launch opens that instance's link instead of starting another server. The file is deleted on clean shutdown and ignored when stale.
+
+**Why:** Phase 10's per-run token means the second launch could not otherwise get into the first one. **Trade-off:** the token is also on disk while DataCanvas runs; anyone who can read that file as the same user could already read the server's process environment, so the exposure is the same class (see docs/threat-model.md).
+
+## 79. The app closes its own database sessions
+
+**Decision:** the CLI sets `NEXT_MANUAL_SIG_HANDLE=1`; the server's `instrumentation.ts` handles SIGINT/SIGTERM by disposing the connection registry (3 s limit), then exits.
+
+**Why:** the plan asks for pools to be closed before exit, and credentials should leave memory on purpose, not by accident. The time limit means a hung database can never keep the server alive.
+
+## 80. Test the tarball, not the repository
+
+**Decision:** `scripts/verify-package.mjs` packs, installs into an empty project and drives the installed command.
+
+**Why:** a missing bundled file or a dependency that only resolves inside the repo would pass every monorepo test and fail for the first user.
+
+## 81. Known limits of Phase 11
+
+- Verified on macOS only; Windows and Linux are Phase 12 work.
+- `--port` differing from the running instance starts a second server and overwrites `run.json`; only the newest is reusable.
+- Simultaneous first launches can race.
+- Killing the CLI with SIGKILL leaves the server process behind.
+- Tarball size 4.9 MB packed / 22.6 MB unpacked; cold start about 360 ms on the test machine.

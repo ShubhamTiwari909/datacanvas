@@ -41,6 +41,9 @@ export function buildServerEnv(
     HOSTNAME: "127.0.0.1",
     // SECURITY: the per-run secret the server requires on every request.
     DATACANVAS_SESSION_TOKEN: sessionToken,
+    // Tell Next.js NOT to install its own SIGINT/SIGTERM handlers: the app's
+    // instrumentation.ts installs one that first closes database connections.
+    NEXT_MANUAL_SIG_HANDLE: "1",
     // PRIVACY: nothing leaves the machine. Next.js would otherwise send
     // anonymous usage data from a running server.
     NEXT_TELEMETRY_DISABLED: "1",

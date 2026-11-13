@@ -73,6 +73,11 @@ export class ConnectionService {
     this.profiles = dependencies.profiles;
   }
 
+  /** Close every database session and forget all credentials. Used when the server shuts down. */
+  async dispose(): Promise<void> {
+    await this.connections.dispose();
+  }
+
   /**
    * Check that the details work, without remembering anything. Throws a
    * `DatabaseError` describing what is wrong if they do not.

@@ -30,6 +30,7 @@ Cookies are shared across ports, so it receives the cookie when the browser visi
 ### 3. Another program on the machine
 
 - Other users: the server listens on loopback and requires the token; a different user cannot normally see the token. **Residual:** a hostile administrator.
+- While DataCanvas runs, the token is also in `~/.datacanvas/run.json` (mode 0600) so a second launch can reopen the running instance. It is deleted on clean shutdown; a stale file is useless because the token dies with the process.
 - Same user: can read the process environment and the CLI output, and can read `~/.datacanvas`. **Out of scope:** this attacker already controls the account. We still keep the password out of every file, so even they find no password at rest.
 
 ### 4. Someone who gets a diagram or workspace file

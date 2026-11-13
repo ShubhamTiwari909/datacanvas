@@ -120,8 +120,28 @@ async function main() {
     console.log("\nRehearsal finished. When you are ready:  npm run publish:npm -- --publish");
     return;
   }
+  // `npm publish` exiting normally only means npm accepted the upload. A new
+  // version can take a minute to show up (and npm may hold an upload for
+  // approval), so wait for the registry to say it exists before claiming success.
+  console.log("\nWaiting for the registry to list the new version (up to 2 minutes)...");
+  let visible = false;
+  for (let attempt = 0; attempt < 12 && !visible; attempt += 1) {
+    const seen = capture("npm", ["view", `${pkg.name}@${pkg.version}`, "version"]);
+    visible = typeof seen === "string" && seen === pkg.version;
+    if (!visible) await new Promise((resolve) => setTimeout(resolve, 10_000));
+  }
+  if (!visible) {
+    console.log(`
+npm accepted the upload, but ${pkg.name}@${pkg.version} is not visible yet.
+It may still be propagating, or npm may be waiting for you to approve it: check
+https://www.npmjs.com/package/${pkg.name} and your npm notifications, then run:
+  npm view ${pkg.name} dist-tags
+Do NOT run this script again for the same version.
+`);
+    return;
+  }
   console.log(`
-Published ${pkg.name}@${pkg.version} under the "${tag}" tag.
+Published ${pkg.name}@${pkg.version} under the "${tag}" tag, and the registry lists it.
 
 Check it from a clean folder:
   npx --yes ${pkg.name}@${pkg.version} --version

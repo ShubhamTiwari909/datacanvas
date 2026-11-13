@@ -26,6 +26,12 @@ test("README screenshots", async ({ page, app, database }) => {
   await page.getByRole("button", { name: /^Connect$/ }).click();
   await expect(page.getByRole("button", { name: "Disconnect Sample shop" })).toBeVisible();
 
+  await page.getByRole("tab", { name: "Overview" }).click();
+  await expect(page.getByRole("article", { name: "Schema public" })).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: out("overview.png") });
+  await page.getByRole("tab", { name: "Canvas" }).click();
+
   await page.getByRole("button", { name: "Add all tables of public to the canvas" }).click();
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
   await page.getByRole("button", { name: "Layout", exact: true }).click();

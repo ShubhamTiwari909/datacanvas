@@ -600,3 +600,9 @@ Follow-up decisions are 91 and 92.
 **Why:** catalog layouts and defaults change between versions (`reltuples` is -1 for never-analysed tables from 14, partition behaviour, generated columns from 12). 12 is the floor because the fixtures use generated columns. Older versions are not tested and not promised.
 
 **Status (verified locally, macOS, Docker, 2026-11-13):** the adapter, odd-schema, performance and service tests all pass on 12.22, 13.23, 14.25, 15.20, 16.16, 17.12 and 18.7 (177 tests each). The first run found one problem, in the TEST helper not the adapter: `DROP DATABASE ... WITH (FORCE)` needs PostgreSQL 13, so teardown failed on 12. It now terminates connections and drops, which works everywhere. Managed services (RDS, Supabase, Neon) are still untested.
+
+## 95. The overview reuses existing reads and adds no endpoint
+
+**Decision:** the schema overview is computed in the browser from the schema list, the per-schema table lists and the foreign keys the canvas already loads.
+
+**Why:** a new endpoint would add attack surface and a new contract to maintain for numbers that are cheap to derive. **Limits:** one request per schema (a database with hundreds of schemas makes hundreds of small requests); row counts are the planner's estimates and show "unknown" for never-analysed tables; "no declared relationships" says nothing about databases that use no foreign keys (the page says so when there are none at all). Not covered: tables without a primary key, unused indexes or other health checks, which need the details of every table (a possible next feature).

@@ -30,6 +30,7 @@ Good practice:
 
 ## 3. Explore
 
+- The **Overview** tab shows one card per schema: table and view counts, estimated rows, how it connects to other schemas, the most connected tables, the largest tables, and tables with no declared relationships. Click a table name to show it on the canvas, or **Add to canvas** for a whole schema.
 - The left list shows schemas and tables. Open a schema to see its tables; the dot marks tables already on the canvas.
 - The grid button beside a schema ("Add all tables of this schema") puts it on the canvas. Use the search box to add one table or find a column.
 - Click a table to see its details in the inspector: columns, relationships, constraints, indexes.

@@ -10,11 +10,14 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 > **Status: release candidate work, not published yet.** Everything described here exists and is tested, but the package is not on npm and the repository has not had a public release. See [docs/release-checklist.md](docs/release-checklist.md).
 
+![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
+
 ![The DataCanvas canvas showing a sample shop database: tables, relationships and the inspector panel](docs/images/canvas.png)
 
 ## What you can do
 
 - **Connect** to PostgreSQL with a connection string or separate fields. Passwords are kept in memory only.
+- **Get an overview** of the whole database: per schema, how many tables and views, how they connect to other schemas, the most connected tables, the largest tables and tables without relationships.
 - **Explore** schemas, tables, columns, keys, indexes, constraints and row-count estimates.
 - **See relationships** drawn as edges with their cardinality (1:1, 1:N, N:1), including across schemas.
 - **Arrange** tables on an infinite canvas: drag, zoom, auto-layout (hierarchical, grouped, compact), search, filters, and focus on one table and its neighbours.

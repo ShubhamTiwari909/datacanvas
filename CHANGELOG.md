@@ -13,6 +13,7 @@ First public release (not yet published).
 - Schema explorer: schemas, tables, views, columns, keys, indexes, constraints, partitions, row-count estimates.
 - Relationship detection with cardinality, including cross-schema relationships.
 - Interactive canvas: drag, zoom, minimap, grid, multi-select, search (on the canvas and in the database), filters, focus mode, inspector panel.
+- Schema overview tab: per-schema counts, cross-schema connections, most connected tables, largest tables and tables without relationships.
 - Automatic layouts (hierarchical, grouped, compact, grid).
 - Saved connections and workspaces (versioned files, migrations, import and export).
 - PNG and SVG export with a privacy notice.

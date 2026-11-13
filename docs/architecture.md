@@ -704,3 +704,13 @@ Nothing has been published or pushed. There is no LICENSE, no repository address
 `postgres.adapter.odd-schema.test.ts` loads it into a throwaway database and pins down what the adapter returns for each case (31 tests). `scripts/pg-matrix.mjs` (`npm run test:pg-matrix`) runs all PostgreSQL-facing tests against PostgreSQL 12 to 18, one Docker container per version; CI does the same with a job matrix.
 
 **Result on PostgreSQL 17:** no adapter bug was found in any of these cases. One gap was confirmed: **foreign tables** (for example `postgres_fdw`) are not listed (decision 93).
+
+## Schema overview
+
+A third tab next to Canvas and Table details. `features/overview/`:
+
+- `schema-overview.ts`: pure functions (`computeSchemaOverview`, `computeDatabaseOverview`, `relationshipDegrees`) that turn the table lists and the foreign keys into per-schema numbers: counts by kind, summed row estimates, relationships inside / going out / coming in, connected schemas, the five most connected tables, tables with no relationship, the five largest.
+- `load-overview.ts`: reads the schema list, one table list per schema (in parallel) and the foreign keys. The foreign keys go through the same metadata cache the canvas uses, so they are fetched once per connection.
+- `schema-overview-view.tsx`: the cards. A table name is a button that puts the table on the canvas and switches to it; "Add to canvas" adds a whole schema (with the existing 200-table cap).
+
+No new endpoint and no new database query: it only combines data the app already reads. A table counts as having no relationships only when no _declared_ foreign key touches it; views never have foreign keys, so they are not listed as such. Covered by 16 unit tests and an end-to-end test (`e2e/overview.spec.ts`), and checked by eye against the awkward schema.

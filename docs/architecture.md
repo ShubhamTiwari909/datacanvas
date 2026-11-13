@@ -714,3 +714,13 @@ A third tab next to Canvas and Table details. `features/overview/`:
 - `schema-overview-view.tsx`: the cards. A table name is a button that puts the table on the canvas and switches to it; "Add to canvas" adds a whole schema (with the existing 200-table cap).
 
 No new endpoint and no new database query: it only combines data the app already reads. A table counts as having no relationships only when no _declared_ foreign key touches it; views never have foreign keys, so they are not listed as such. Covered by 16 unit tests and an end-to-end test (`e2e/overview.spec.ts`), and checked by eye against the awkward schema.
+
+## Health checks
+
+A fourth tab, `features/health/`:
+
+- `health-checks.ts`: pure `runHealthChecks(entries, relationships)` over the details of every table. Checks: no primary key; foreign key without a supporting index (an index whose leading columns, in any order, equal the foreign key's; partial indexes and index types that cannot serve equality lookups do not count; downgraded to a note for tables under 1000 estimated rows); duplicate indexes (same method, uniqueness, key columns, predicate and INCLUDE); redundant prefix indexes; nullable foreign key columns; tables over 50 columns. Index key names are un-quoted before comparing because PostgreSQL prints `"select"` quoted while constraints give the raw name.
+- `load-health.ts`: lists every schema's tables (shared `explorer/load-all-tables.ts`), loads their details through the metadata cache in bulk (at most 2000 tables) and runs the checks.
+- `health-view.tsx`: findings grouped by check with the reason, the fix, a button per table that shows it on the canvas, and SQL to copy. Warnings are open, notes are folded.
+
+Metadata only; suggested SQL is shown, never executed. 22 unit tests and an end-to-end test (`e2e/health.spec.ts`) that plants problems in a throwaway database and checks exactly those are reported.

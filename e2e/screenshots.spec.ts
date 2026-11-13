@@ -30,6 +30,10 @@ test("README screenshots", async ({ page, app, database }) => {
   await expect(page.getByRole("article", { name: "Schema public" })).toBeVisible();
   await page.waitForTimeout(500);
   await page.screenshot({ path: out("overview.png") });
+  await page.getByRole("tab", { name: "Health" }).click();
+  await expect(page.getByText(/Checked \d+ tables?/)).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: out("health.png") });
   await page.getByRole("tab", { name: "Canvas" }).click();
 
   await page.getByRole("button", { name: "Add all tables of public to the canvas" }).click();

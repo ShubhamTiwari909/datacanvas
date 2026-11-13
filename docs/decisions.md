@@ -606,3 +606,15 @@ Follow-up decisions are 91 and 92.
 **Decision:** the schema overview is computed in the browser from the schema list, the per-schema table lists and the foreign keys the canvas already loads.
 
 **Why:** a new endpoint would add attack surface and a new contract to maintain for numbers that are cheap to derive. **Limits:** one request per schema (a database with hundreds of schemas makes hundreds of small requests); row counts are the planner's estimates and show "unknown" for never-analysed tables; "no declared relationships" says nothing about databases that use no foreign keys (the page says so when there are none at all). Not covered: tables without a primary key, unused indexes or other health checks, which need the details of every table (a possible next feature).
+
+## 96. Health checks are hints with suggested SQL shown, never run
+
+**Decision:** the Health tab reports structural findings with the reason and a fix, and offers SQL as text to copy. A `DROP INDEX` is suggested only for a plain non-unique, non-primary index; duplicates of constraint-backed indexes get no statement. A missing foreign-key index on a table under 1000 estimated rows is a note, not a warning.
+
+**Why:** DataCanvas has no way to run SQL (decision: no arbitrary-SQL endpoint), and only the owner knows whether an optional relationship or a small table is intended. **Not covered:** unused indexes (needs usage statistics), type mismatches, naming conventions, undeclared relationships guessed from column names, partitions on their own, and anything beyond the first 2000 tables.
+
+## 97. Whole-schema add allows 1000 tables (was 200)
+
+**Decision:** `MAX_TABLES_ADDED_AT_ONCE` is 1000, below the 2000 nodes a saved workspace may hold.
+
+**Why:** the maintainer hit the 200 limit on a real 332-table schema. Measured in a real browser with 1000 tables: adding about 1.7 s, 20 nodes in the page at a time (only visible ones are drawn), the layout algorithm 0.2 to 0.65 s but page work around it in bursts of up to about 0.8 s. **Correction:** the earlier 400-table browser test passed while only 200 tables were on the canvas (its text match was too loose); it now requires the exact count. **Limit:** more than 1000 tables in one schema still adds the first 1000 and says so.

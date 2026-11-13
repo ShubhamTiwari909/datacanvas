@@ -1,12 +1,12 @@
 /**
  * Fetch what the overview needs and compute it.
  *
- * Reads only structure the app already knows how to read: the schema list, the
- * table list of every schema (one request each, in parallel) and the database's
- * foreign keys (shared with the canvas through the metadata cache, so opening
- * the overview first makes the canvas faster, and the other way round).
+ * Reads only structure the app already knows how to read: the table list of
+ * every schema and the database's foreign keys (shared with the canvas through
+ * the metadata cache, so opening the overview first makes the canvas faster,
+ * and the other way round).
  */
-import { getSchemas, getTables } from "@/features/explorer/api";
+import { loadAllTables } from "@/features/explorer/load-all-tables";
 import type { ApiResult } from "@/lib/api-client";
 import { useMetadataStore } from "@/stores/metadata-store";
 import { computeDatabaseOverview, type DatabaseOverview } from "./schema-overview";
@@ -14,22 +14,11 @@ import { computeDatabaseOverview, type DatabaseOverview } from "./schema-overvie
 export async function loadDatabaseOverview(
   connectionId: string,
 ): Promise<ApiResult<DatabaseOverview>> {
-  const schemas = await getSchemas(connectionId);
-  if (!schemas.ok) return schemas;
-
-  const [lists, relationshipsOutcome] = await Promise.all([
-    Promise.all(
-      schemas.data.map(async (s) => ({
-        schema: s.name,
-        result: await getTables(connectionId, s.name),
-      })),
-    ),
+  const [tables, relationshipsOutcome] = await Promise.all([
+    loadAllTables(connectionId),
     useMetadataStore.getState().ensureRelationships(connectionId),
   ]);
-
-  for (const { result } of lists) {
-    if (!result.ok) return result;
-  }
+  if (!tables.ok) return tables;
   if (!relationshipsOutcome.ok) {
     return {
       ok: false,
@@ -38,11 +27,5 @@ export async function loadDatabaseOverview(
   }
 
   const relationships = useMetadataStore.getState().byConnection[connectionId]?.relationships ?? [];
-  return {
-    ok: true,
-    data: computeDatabaseOverview(
-      lists.flatMap(({ schema, result }) => (result.ok ? [{ schema, tables: result.data }] : [])),
-      relationships,
-    ),
-  };
+  return { ok: true, data: computeDatabaseOverview(tables.data, relationships) };
 }

@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Building from source now needs Node.js 20.19 or newer (or 22.12 or newer); it needs to load an ES-module-only dependency of the CSS build tool with `require()`. Running the published package is unchanged: Node.js 20.9 or newer. The install check in CI now builds on Node 22 and runs the packed package on 20.9.0 and 22, instead of failing to build on 20.9.0.
+
 ### Added
 
 - **Snapshots** tab: save a database's structure (schemas, tables, columns, constraints, indexes, foreign keys) and compare it later with the live database, with another snapshot, or with a different database. The comparison lists added, removed and changed tables, columns, constraints, indexes and foreign keys, each change with its before and after values, and can be copied as a Markdown report for a review or a ticket. Snapshots can be exported and imported as `.snapshot.json` files. A snapshot holds structure only: no table rows, no row estimates, no credentials. Items are matched by name, so a rename shows as one removal and one addition.

@@ -4,12 +4,10 @@
 #              real PostgreSQL, dependency audit (shipped dependencies only),
 #              the packaged app, the packed-tarball check and the browser tests.
 #  postgres-versions  The database tests on PostgreSQL 12 to 18.
-#  install-qa  macOS, Linux and Windows on two Node versions: build the package,
-#              install the packed tarball into an empty project and run it.
+#  install-qa  macOS, Linux and Windows on two Node versions: build the package
+#              (always on Node 22), then install the packed tarball into an empty
+#              project and run it on the Node version under test (20.9.0 and 22).
 #              (No database: this proves the one-command install, not the data.)
-#
-# NOTE: this file has not been run on GitHub yet (nothing is pushed). Expect to
-# fix small problems, especially on Windows, on its first run.
 name: CI
 on:
   push:
@@ -88,10 +86,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # BUILD on Node 22. The build tool (Tailwind's @tailwindcss/node) loads magic-string, which
+      # is an ES module only, with require(); that works from Node 20.19 and 22.12 and fails on
+      # 20.9 to 20.18. Users never build: they install the prebuilt package.
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run package
+      # RUN the packed package on the Node version under test. This is what the job proves:
+      # the one-command install works on the oldest Node we support (20.9.0) and on a current one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
       - run: npm run verify:package

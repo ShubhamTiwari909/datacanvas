@@ -7,7 +7,7 @@ npm install
 npm run check
 ```
 
-Requires Node.js 20.9+ and npm 10+. Ordinary users never run these commands; they will use `npx @shubhamtiwari909/datacanvas`.
+Requires Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21) and npm 10+ to build from source (the build tool loads an ES-module-only dependency with `require()`). Ordinary users never run these commands, and need only Node.js 20.9+; they will use `npx @shubhamtiwari909/datacanvas`.
 
 ## Scripts (run from the repo root)
 

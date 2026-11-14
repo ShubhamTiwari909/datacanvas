@@ -68,7 +68,7 @@ Your data lives in `~/.datacanvas` (set `DATACANVAS_HOME` to change it). Startin
 
 ## For contributors
 
-Requirements: Node.js 20.9 or newer and npm 10 or newer.
+Requirements: Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21) and npm 10 or newer. Building needs more than running: the build tool loads an ES-module-only dependency with `require()`, which Node supports only from those versions. Users of the published package still need only Node.js 20.9.
 
 ```bash
 git clone https://github.com/ShubhamTiwari909/pg-visualizer.git

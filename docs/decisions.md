@@ -48,7 +48,7 @@ Short records of choices that are not obvious from the code. Newest at the botto
 
 **Decision:** `engines.node` is `>=20.9.0`.
 
-**Why:** confirmed in Phase 1: Next.js 16.4.6 declares `engines.node >=20.9.0`, so that is our floor.
+**Why:** confirmed in Phase 1: Next.js 16.4.6 declares `engines.node >=20.9.0`, so that is our floor. (This is the floor for RUNNING the published package. Building from source needs a newer Node; see decision 107.)
 
 ## 8. Package name
 
@@ -670,3 +670,9 @@ Follow-up decisions are 91 and 92.
 ## 106. Changes found in review of the first pull request
 
 **Decisions:** (1) Cut definition text carries a fingerprint of the whole text, so a change after the 20,000-character cut is still reported; it is a hash inside the stored text, not a new field, so the file format did not change. (2) The snapshot limit check and the write are one locked step. (3) Triggers and policies that belong to an extension are skipped like the other members; the tests record the membership the way an extension's install script does, because ordinary DDL cannot add them. (4) An unused index on a standby is information only. (5) Unknown counter age still allows a warning for a large index, because most databases never reset their statistics and "unknown" is the usual case; this is stated in the documentation instead of being treated as too young, which would have made the check almost never warn. (6) The snapshot screen, export and docs say "no connection credentials" and that definitions can contain secrets. **Not done:** one-transaction snapshot reads and scanning definitions for secret-looking text (both noted as limits).
+
+## 107. Running the package needs Node 20.9; building it needs Node 20.19 or 22.12
+
+**Decision:** the published package keeps `engines.node >=20.9.0`. The repository's own `engines` is `^20.19.0 || >=22.12.0`, and the CI job `install-qa` builds on Node 22 and then runs the packed package on the Node version under test (20.9.0 and 22).
+
+**Why:** the `install-qa` jobs on Node 20.9.0 failed on every push, including on `main`, because `@tailwindcss/node` loads `magic-string` (ES module only since its 1.x line) with `require()`, which Node supports by default only from 20.19 and 22.12; the error is `ERR_REQUIRE_ESM` inside the PostCSS step of `next build`. The job exists to prove that users can install and run the prebuilt package on the oldest supported Node, and users never build, so building on 20.9.0 tested nothing a user does. **Trade-off:** contributors on Node 20.9 to 20.18 (and on Node 21) can no longer build from source; they get an `engines` warning and a failed build, and must upgrade Node. Users of the published package are unaffected. **How it was found:** reproduced locally by clearing `apps/web/.next` and building on Node 20.13.1 (the same error), and checked that `npm run verify:package` passes on Node 20.13.1 against a package built by Node 22 (22 checks). **A trap:** Next's persistent cache can store the failed PostCSS result, so a build on Node 22 right after a failed build on Node 20 fails too until `.next` is deleted; and a warm cache hides the failure entirely, which is why it passed locally for so long. **Not covered:** running the packed package on exactly 20.9.0 was not possible locally (only 20.13.1 was available); the CI matrix does that.

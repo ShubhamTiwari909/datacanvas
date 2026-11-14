@@ -20,6 +20,7 @@ import {
 import { randomBytes } from "node:crypto";
 import type { ConnectionService } from "./connection-service";
 import { ServiceError } from "./service-error";
+import { KeyedMutex } from "./storage/atomic-file";
 import type { SnapshotStorage } from "./storage/snapshot-storage";
 
 export interface SnapshotServiceDependencies {
@@ -47,6 +48,11 @@ export class SnapshotService {
   private readonly snapshots: SnapshotStorage;
   private readonly connections: Pick<ConnectionService, "captureStructure">;
   private readonly now: () => Date;
+  /**
+   * Makes "is there room?" and "write" one step. Without it, several requests at
+   * once could all see room for one more and all write, going over the limit.
+   */
+  private readonly roomLock = new KeyedMutex();
 
   constructor(dependencies: SnapshotServiceDependencies) {
     this.snapshots = dependencies.snapshots;
@@ -72,7 +78,8 @@ export class SnapshotService {
    * @throws ServiceError `connection_not_found`, `snapshot_too_large`, `snapshot_limit_reached`
    */
   async create(connectionId: string, input: CreateSnapshotInput): Promise<SnapshotSummary> {
-    // Check the room BEFORE the (possibly slow) read of the database.
+    // A quick early check, so a full store fails BEFORE the (possibly slow) read of the database.
+    // It is checked again, under the lock, right before writing.
     await this.requireRoom();
     const { structure, source } = await this.connections.captureStructure(connectionId);
     const at = this.now();
@@ -85,7 +92,7 @@ export class SnapshotService {
       source,
       structure,
     };
-    await this.snapshots.put(snapshot);
+    await this.putIfRoom(snapshot);
     return summarizeSnapshot(snapshot);
   }
 
@@ -110,10 +117,17 @@ export class SnapshotService {
   async importFile(raw: unknown): Promise<SnapshotSummary> {
     const parsed = parseSnapshotFile(raw);
     if (!parsed.ok) throw new ServiceError("invalid_snapshot_file", parsed.message);
-    await this.requireRoom();
     const snapshot: Snapshot = { ...parsed.snapshot, id: randomBytes(12).toString("base64url") };
-    await this.snapshots.put(snapshot);
+    await this.putIfRoom(snapshot);
     return summarizeSnapshot(snapshot);
+  }
+
+  /** Check the limit and write, as one step. @throws ServiceError `snapshot_limit_reached` */
+  private putIfRoom(snapshot: Snapshot): Promise<void> {
+    return this.roomLock.run("room", async () => {
+      await this.requireRoom();
+      await this.snapshots.put(snapshot);
+    });
   }
 
   private async requireRoom(): Promise<void> {

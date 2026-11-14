@@ -161,6 +161,46 @@ describe("SnapshotService", () => {
     expect(await snapshots.list()).toHaveLength(MAX_SNAPSHOTS);
   }, 30_000);
 
+  describe("the limit under concurrent requests", () => {
+    it("never goes over the maximum when many saves arrive at once", async () => {
+      const { snapshots, connectionId } = await setup();
+      for (let i = 0; i < MAX_SNAPSHOTS - 2; i++) {
+        await snapshots.create(connectionId, { name: `s${i}` });
+      }
+
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) => snapshots.create(connectionId, { name: `race${i}` })),
+      );
+
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
+      for (const failed of results.filter((r) => r.status === "rejected")) {
+        expect((failed as PromiseRejectedResult).reason).toMatchObject({
+          code: "snapshot_limit_reached",
+        });
+      }
+      expect(await snapshots.list()).toHaveLength(MAX_SNAPSHOTS);
+    }, 30_000);
+
+    it("holds for imports too, and for a mix of saves and imports", async () => {
+      const { snapshots, connectionId } = await setup();
+      const first = await snapshots.create(connectionId, { name: "first" });
+      const { content } = await snapshots.exportFile(first.id);
+      for (let i = 1; i < MAX_SNAPSHOTS - 1; i++) {
+        await snapshots.create(connectionId, { name: `s${i}` });
+      }
+
+      const results = await Promise.allSettled([
+        snapshots.importFile(JSON.parse(JSON.stringify(content))),
+        snapshots.create(connectionId, { name: "a" }),
+        snapshots.importFile(JSON.parse(JSON.stringify(content))),
+        snapshots.create(connectionId, { name: "b" }),
+      ]);
+
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(await snapshots.list()).toHaveLength(MAX_SNAPSHOTS);
+    }, 30_000);
+  });
+
   describe("export and import", () => {
     it("round-trips: an imported file is a new snapshot with the same structure", async () => {
       const { snapshots, connectionId } = await setup();

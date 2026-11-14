@@ -127,6 +127,8 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
   const [compare, setCompare] = useState<CompareState>({ status: "idle" });
   // Only the newest comparison may show its result (a slow older one is ignored).
   const compareRun = useRef(0);
+  // Which two sides the comparison on screen (or still loading) is about.
+  const comparedSides = useRef<string[]>([]);
 
   if (state.status === "loading") {
     return (
@@ -193,7 +195,15 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
   const remove = (id: string): Promise<void> =>
     run(async () => {
       const result = await deleteSnapshot(id);
-      return result.ok ? null : result.error.message;
+      if (!result.ok) return result.error.message;
+      // A comparison that used this snapshot would show a result nobody can reproduce:
+      // clear it, and make sure a slow one still in flight cannot appear afterwards.
+      if (comparedSides.current.includes(`snapshot:${id}`)) {
+        compareRun.current += 1;
+        comparedSides.current = [];
+        setCompare({ status: "idle" });
+      }
+      return null;
     }, "Snapshot deleted.");
 
   const importFile = (file: File): Promise<void> =>
@@ -213,6 +223,7 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
   const runCompare = async (): Promise<void> => {
     if (!beforeSide || !afterSide) return;
     const mine = ++compareRun.current;
+    comparedSides.current = [sideValue(beforeSide), sideValue(afterSide)];
     setCompare({ status: "loading" });
     const result = await compareSides(beforeSide, afterSide);
     if (mine !== compareRun.current) return;
@@ -229,12 +240,15 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
         <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
           Snapshots
           <span className="text-sm font-normal text-muted-foreground">
-            Save the structure now, compare it later. Structure only: no table rows, no credentials.
+            Save the structure now, compare it later. No table rows and no connection credentials.
           </span>
         </h2>
         <p className="text-xs text-muted-foreground">
-          Snapshot files list table and column names, which can be sensitive. Treat an exported file
-          like the schema itself.
+          Snapshot files list table and column names, and copy view queries and function bodies as
+          they are written, so they can contain anything someone typed into them, even a key or a
+          password. Treat an exported file like the schema itself, and look before you share it. A
+          snapshot is read in several steps, so one taken while a migration runs can mix before and
+          after.
         </p>
       </header>
 

@@ -403,7 +403,8 @@ async function listFunctions(db: Queryable): Promise<FunctionInfo[]> {
 
 /**
  * User triggers only (`NOT tgisinternal` hides the triggers PostgreSQL creates
- * to enforce foreign keys). `tgtype` packs the timing, events and level into
+ * to enforce foreign keys; triggers an extension installed are skipped like its
+ * other members). `tgtype` packs the timing, events and level into
  * bits (see `decodeTriggerType`). `tgenabled`: O = enabled (origin), D = disabled,
  * R = replica only, A = always.
  */
@@ -425,6 +426,7 @@ const TRIGGERS_SQL = `
   WHERE NOT t.tgisinternal
     AND NOT c.relispartition
     AND ${excludeSystemSchemas("n.nspname")}
+    AND ${notExtensionMember("pg_catalog.pg_trigger", "t.oid")}
   ORDER BY n.nspname, c.relname, t.tgname
 `;
 
@@ -538,6 +540,7 @@ const POLICIES_SQL = `
   JOIN pg_catalog.pg_class c ON c.oid = pol.polrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
   WHERE ${excludeSystemSchemas("n.nspname")}
+    AND ${notExtensionMember("pg_catalog.pg_policy", "pol.oid")}
   ORDER BY n.nspname, c.relname, pol.polname
 `;
 

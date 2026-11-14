@@ -63,6 +63,18 @@ const SQL = `
     USING (id > 0) WITH CHECK (id < 1000);
   ALTER TABLE products ENABLE ROW LEVEL SECURITY;
   ALTER TABLE products FORCE ROW LEVEL SECURITY;
+
+  -- A trigger and a policy that belong to an extension. An extension's install script records
+  -- its members in pg_depend exactly like this, and ordinary DDL cannot add a trigger or policy
+  -- to an extension, so the row is written directly (the test database is throwaway).
+  CREATE TRIGGER gadgets_ext AFTER INSERT ON gadgets FOR EACH ROW EXECUTE FUNCTION touch();
+  CREATE POLICY gadgets_ext_policy ON gadgets FOR DELETE USING (id > 0);
+  INSERT INTO pg_depend (classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype)
+  SELECT 'pg_trigger'::regclass, tg.oid, 0, 'pg_extension'::regclass, e.oid, 0, 'e'
+  FROM pg_trigger tg, pg_extension e WHERE tg.tgname = 'gadgets_ext' AND e.extname = 'pg_trgm';
+  INSERT INTO pg_depend (classid, objid, objsubid, refclassid, refobjid, refobjsubid, deptype)
+  SELECT 'pg_policy'::regclass, p.oid, 0, 'pg_extension'::regclass, e.oid, 0, 'e'
+  FROM pg_policy p, pg_extension e WHERE p.polname = 'gadgets_ext_policy' AND e.extname = 'pg_trgm';
 `;
 
 describe("decodeTriggerType", () => {
@@ -296,6 +308,10 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getObjects", () => {
       expect(trigger("gadgets_touch").definition).toContain("CREATE TRIGGER gadgets_touch");
     });
 
+    it("leaves out a trigger that belongs to an extension", () => {
+      expect(objects.triggers.map((t) => t.name)).not.toContain("gadgets_ext");
+    });
+
     it("hides the triggers that enforce foreign keys, and a partitioned table's copies", () => {
       expect(objects.triggers.map((t) => `${t.table}.${t.name}`).sort()).toEqual([
         "ev.ev_touch",
@@ -334,6 +350,10 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getObjects", () => {
       expect(limit).toMatchObject({ command: "update", permissive: false, roles: ["public"] });
       expect(limit.using).toContain("id > 0");
       expect(limit.withCheck).toContain("id < 1000");
+    });
+
+    it("leaves out a policy that belongs to an extension", () => {
+      expect(objects.policies.map((p) => p.name).sort()).toEqual(["gadget_limit", "gadget_reader"]);
     });
 
     it("lists tables with row security on, forced or not, even without policies", () => {

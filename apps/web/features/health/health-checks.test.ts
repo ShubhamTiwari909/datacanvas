@@ -488,6 +488,22 @@ describe("unused_index", () => {
     expect(young.message).toContain("less than a week old");
   });
 
+  it("is only information on a standby, whose counters cover just its own queries", () => {
+    const report = run(
+      usage([{ index: "t_x", sizeBytes: LARGE_INDEX_BYTES * 10 }], { inRecovery: true }),
+      [index("t_x", ["x"])],
+    );
+    const [finding] = of("unused_index", report);
+    expect(finding).toMatchObject({ severity: "info" });
+    expect(finding!.message).toContain("This server is a standby");
+    expect(report.usage?.inRecovery).toBe(true);
+    // The same index on a primary is a warning.
+    const primary = run(usage([{ index: "t_x", sizeBytes: LARGE_INDEX_BYTES * 10 }]), [
+      index("t_x", ["x"]),
+    ]);
+    expect(of("unused_index", primary)[0]!.severity).toBe("warning");
+  });
+
   it("treats counters of unknown age as old enough, and does not claim a date", () => {
     const [finding] = of(
       "unused_index",

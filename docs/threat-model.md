@@ -35,7 +35,7 @@ Cookies are shared across ports, so it receives the cookie when the browser visi
 
 ### 4. Someone who gets a diagram, workspace file or snapshot file
 
-Contains table and column names (a snapshot also column types, defaults, comments, index and constraint definitions, view queries, function and trigger bodies, and row-level-security policy expressions and role names, which can describe business logic and access rules) but no row data and no credentials. The export dialog and the Snapshots tab say so. Imported workspace and snapshot files are validated (unknown keys refused, every list and string bounded), size-limited, and can never overwrite existing data: an imported snapshot always gets a new id.
+Contains table and column names (a snapshot also column types, defaults, comments, index and constraint definitions, view queries, function and trigger bodies, and row-level-security policy expressions and role names, which can describe business logic and access rules) but no row data and no connection credentials. Definitions are copied exactly as written, so they can contain secrets someone typed into them (a literal key in a function body, a password in a view's query); an exported file carries them along, and DataCanvas does not scan for them. The export dialog and the Snapshots tab say so. Imported workspace and snapshot files are validated (unknown keys refused, every list and string bounded), size-limited, and can never overwrite existing data: an imported snapshot always gets a new id.
 
 ### 5. Hostile input
 

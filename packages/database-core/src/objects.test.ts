@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MAX_OBJECT_TEXT, type DatabaseObjects, type FunctionInfo } from "./models.js";
 import {
   clipText,
+  fingerprint,
+  safeSlice,
   displayName,
   emptyObjects,
   functionKey,
@@ -29,12 +31,53 @@ const withFunctions = (functions: FunctionInfo[]): DatabaseObjects => ({
 });
 
 describe("clipText", () => {
-  it("keeps text up to the limit and cuts longer text visibly", () => {
+  it("keeps text up to the limit unchanged", () => {
     const exact = "x".repeat(MAX_OBJECT_TEXT);
     expect(clipText(exact)).toBe(exact);
-    const cut = clipText(`${exact}y`);
-    expect(cut).toHaveLength(MAX_OBJECT_TEXT);
-    expect(cut.endsWith("...")).toBe(true);
+  });
+
+  it("cuts longer text to the limit, ending with its length and a fingerprint of the whole", () => {
+    const cut = clipText("x".repeat(MAX_OBJECT_TEXT + 5000));
+    expect(cut.length).toBeLessThanOrEqual(MAX_OBJECT_TEXT);
+    expect(cut).toMatch(/\.\.\. \[text cut: 25000 characters, fingerprint [0-9a-f]{14}\]$/);
+  });
+
+  it("gives different results for long texts that differ only after the cut", () => {
+    const head = "x".repeat(MAX_OBJECT_TEXT + 100);
+    expect(clipText(`${head}A`)).not.toBe(clipText(`${head}B`));
+    expect(clipText(`${head}A`)).toBe(clipText(`${head}A`));
+  });
+
+  it("does not change text it already cut (cutting twice is the same as once)", () => {
+    const once = clipText("y".repeat(MAX_OBJECT_TEXT * 2));
+    expect(clipText(once)).toBe(once);
+  });
+
+  it("never cuts an emoji in half, wherever the cut falls", () => {
+    const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+    // The cut falls about 70 characters before the limit; try every position around it.
+    for (let offset = 40; offset <= 100; offset += 1) {
+      const text = `${"a".repeat(MAX_OBJECT_TEXT - offset)}😀${"b".repeat(400)}`;
+      const cut = clipText(text);
+      expect(cut.length).toBeLessThanOrEqual(MAX_OBJECT_TEXT);
+      expect(loneSurrogate.test(cut), `offset ${offset}`).toBe(false);
+    }
+  });
+});
+
+describe("fingerprint and safeSlice", () => {
+  it("is stable and sensitive to every character", () => {
+    expect(fingerprint("abc")).toBe(fingerprint("abc"));
+    expect(fingerprint("abc")).not.toBe(fingerprint("abd"));
+    expect(fingerprint("")).toMatch(/^[0-9a-f]{14}$/);
+    expect(fingerprint("ab")).not.toBe(fingerprint("ba"));
+  });
+
+  it("drops a half pair at the end instead of keeping it", () => {
+    expect(safeSlice("a😀b", 2)).toBe("a"); // would end inside the pair
+    expect(safeSlice("a😀b", 3)).toBe("a😀");
+    expect(safeSlice("abc", 0)).toBe("");
+    expect(safeSlice("abc", 99)).toBe("abc");
   });
 });
 
@@ -78,7 +121,8 @@ describe("normalizeObjects", () => {
     const result = normalizeObjects(
       withFunctions([fn("big", "", { definition: "z".repeat(MAX_OBJECT_TEXT * 3) })]),
     );
-    expect(result.functions[0]!.definition).toHaveLength(MAX_OBJECT_TEXT);
+    expect(result.functions[0]!.definition.length).toBeLessThanOrEqual(MAX_OBJECT_TEXT);
+    expect(result.functions[0]!.definition).toContain("text cut: 60000 characters");
   });
 
   it("does not change its input", () => {

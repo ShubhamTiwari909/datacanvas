@@ -520,6 +520,78 @@ describe("diffStructures: objects", () => {
   });
 });
 
+describe("diffStructures: what looks the same but is not", () => {
+  it("reports a change deep inside a very long definition (past the cut)", () => {
+    const long = "SELECT 1 " + "-- padding\n".repeat(3000);
+    const diff = diffStructures(
+      withObjects({ functions: [func("f", "", { definition: `${long}A` })] }),
+      withObjects({ functions: [func("f", "", { definition: `${long}B` })] }),
+    );
+    // Through buildStructure, as a snapshot is made, so the text is cut like a stored one.
+    const built = (definition: string) =>
+      buildStructure(["public"], [entry("t")], [], {
+        ...emptyObjects(),
+        functions: [func("f", "", { definition })],
+      });
+    const viaBuild = diffStructures(built(`${long}A`), built(`${long}B`));
+    expect(diff.objects!.functions).toHaveLength(1);
+    expect(viaBuild.objects!.functions.map((f) => f.status)).toEqual(["changed"]);
+    expect(diffStructures(built(`${long}A`), built(`${long}A`)).isEmpty).toBe(true);
+  });
+
+  it("tells a list of two names from one name containing a comma", () => {
+    const index = (columns: string[]) => ({
+      ...entry("t", { indexes: [idx("i", columns)] }),
+    });
+    const diff = diffStructures(structure([index(["a, b"])]), structure([index(["a", "b"])]));
+    const changed = diff.tables[0]!.indexes.find((i) => i.status === "changed");
+    expect(changed).toBeDefined();
+    if (changed?.status !== "changed") return;
+    const columns = changed.changes.find((c) => c.field === "columns")!;
+    expect(columns.before).not.toBe(columns.after); // the report never says "a, b -> a, b"
+  });
+
+  it("still treats no value and an empty string as the same", () => {
+    const comment = (c: string | null) =>
+      structure([entry("t", { columns: [col("a", { comment: c })] })]);
+    expect(diffStructures(comment(null), comment("")).isEmpty).toBe(true);
+  });
+
+  it("does not drop an item when two share a key; each copy is paired with its match", () => {
+    const twin = (definition: string) =>
+      withObjects({ views: [view("v", { definition: "same" }), view("v", { definition })] });
+    const diff = diffStructures(twin("one"), twin("two"));
+    expect(diff.objects!.views.map((v) => v.status)).toEqual(["changed"]);
+    expect(diffStructures(twin("one"), twin("one")).isEmpty).toBe(true);
+    const added = diffStructures(
+      withObjects({ views: [view("v", { definition: "same" })] }),
+      twin("two"),
+    );
+    expect(added.objects!.views.map((v) => v.status)).toEqual(["added"]);
+  });
+
+  it("says whether objects were compared, so an empty diff cannot be misread", () => {
+    const recorded = withObjects({ functions: [func("f")] });
+    expect(diffStructures(recorded, withObjects({ functions: [func("f")] })).objectsCompared).toBe(
+      true,
+    );
+    const skipped = diffStructures(withObjects(null), recorded);
+    expect(skipped).toMatchObject({ objectsCompared: false, isEmpty: true });
+  });
+
+  it("cuts a long value in a report without splitting an emoji", () => {
+    const text = `${"x".repeat(119)}😀${"y".repeat(50)}`;
+    const report = diffToMarkdown(
+      diffStructures(
+        withObjects({ views: [view("v", { definition: "a" })] }),
+        withObjects({ views: [view("v", { definition: text })] }),
+      ),
+      labels,
+    );
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(report)).toBe(false);
+  });
+});
+
 describe("buildStructure: objects", () => {
   it("keeps null as null (not recorded), and sorts recorded objects", () => {
     expect(buildStructure(["public"], [], []).objects).toBeNull();

@@ -71,6 +71,9 @@ function profileDetails(
   };
 }
 
+/** How many schemas have their tables listed at the same time when a snapshot is taken. */
+const SCHEMA_BATCH = 8;
+
 export class ConnectionService {
   private readonly adapters: AdapterRegistry<ProviderConfigs>;
   private readonly connections: ConnectionRegistry;
@@ -215,7 +218,16 @@ export class ConnectionService {
     }
     return this.connections.use(id, async (adapter) => {
       const schemas = (await adapter.getSchemas()).map((s) => s.name);
-      const lists = await Promise.all(schemas.map((schema) => adapter.getTables(schema)));
+      // A few schemas at a time: a database with one schema per tenant must not send hundreds
+      // of queries at once (that could exhaust the connection pool).
+      const lists: TableInfo[][] = [];
+      for (let start = 0; start < schemas.length; start += SCHEMA_BATCH) {
+        lists.push(
+          ...(await Promise.all(
+            schemas.slice(start, start + SCHEMA_BATCH).map((schema) => adapter.getTables(schema)),
+          )),
+        );
+      }
       const refs = lists.flat().map((t): TableRef => ({ schema: t.schema, name: t.name }));
       if (refs.length > MAX_SNAPSHOT_TABLES) {
         throw new ServiceError(

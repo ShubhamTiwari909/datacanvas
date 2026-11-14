@@ -26,6 +26,9 @@ export interface LoadedHealth extends HealthReport {
 }
 
 export async function loadHealth(connectionId: string): Promise<ApiResult<LoadedHealth>> {
+  // The usage counters are independent of the structure, so they are fetched at the same time.
+  // (The request never rejects: failures come back as a result, handled below.)
+  const usagePending = getIndexUsage(connectionId);
   const listed = await loadAllTables(connectionId);
   if (!listed.ok) return listed;
 
@@ -50,7 +53,7 @@ export async function loadHealth(connectionId: string): Promise<ApiResult<Loaded
     return entry ? [entry] : [];
   });
   // The usage counters are a separate read; if it fails the structural checks are still worth showing.
-  const usage = await getIndexUsage(connectionId);
+  const usage = await usagePending;
   const report = runHealthChecks(entries, cache?.relationships ?? [], {
     usage: usage.ok ? usage.data : null,
   });

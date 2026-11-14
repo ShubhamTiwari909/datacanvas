@@ -161,7 +161,7 @@ export interface SearchHit {
 // extensions and row-level-security policies. All of it is DEFINITION text and
 // settings read from the catalogs; none of it reads table rows.
 
-/** Longest piece of definition text kept (a view query, a function body). Longer text is cut and ends with "...". */
+/** Longest piece of definition text kept (a view query, a function body). Longer text is cut to this length and ends with its full length and a fingerprint of the whole text, so a change after the cut is still noticed. */
 export const MAX_OBJECT_TEXT = 20_000;
 
 /** A table, view, materialized view or foreign table that something refers to. */

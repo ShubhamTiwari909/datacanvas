@@ -151,7 +151,10 @@ export interface HealthOptions {
 
 /** Counters younger than this are too short a sample to call an index unused. */
 export const MIN_STATS_DAYS = 7;
-/** An unused index at least this big is worth a warning; smaller ones are information. */
+/**
+ * An unused index at least this big is worth a warning, if the counters are old enough (or of
+ * unknown age) and this is not a standby; otherwise, and for smaller ones, it is information.
+ */
 export const LARGE_INDEX_BYTES = 10 * 1024 * 1024;
 /** Naming checks compare against the database's own style once this share of names follows it. */
 export const NAMING_DOMINANCE = 0.8;
@@ -485,9 +488,12 @@ export function runHealthChecks(
             : "") +
           (tooYoung
             ? " The counters are less than a week old, which is too short to be sure."
+            : "") +
+          (usage.inRecovery
+            ? " This server is a standby: its counters only reflect queries run on it, so the index may be used on the primary."
             : ""),
         protects ? null : `DROP INDEX CONCURRENTLY ${qualified(u.schema, u.index)};`,
-        large && !tooYoung ? "warning" : "info",
+        large && !tooYoung && !usage.inRecovery ? "warning" : "info",
       );
     }
   }

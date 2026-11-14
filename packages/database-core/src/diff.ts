@@ -44,6 +44,7 @@ import type {
 import { OBJECT_KINDS } from "./models.js";
 import {
   displayName,
+  safeSlice,
   extensionKey,
   functionKey,
   policyKey,
@@ -85,6 +86,7 @@ export interface TableDiff {
   relationships: NamedItem<RelationshipInfo>[];
 }
 
+/** `changed` is always 0 for schemas (a schema is only added or removed); the shape is shared with the other kinds. */
 export interface Counts {
   added: number;
   removed: number;
@@ -116,7 +118,13 @@ export interface SchemaDiff {
    */
   objects: ObjectDiffs | null;
   summary: DiffSummary;
-  /** True when the two structures are the same as far as DataCanvas compares. */
+  /** False when the objects were not compared because one side never recorded them (then `objects` is null). */
+  objectsCompared: boolean;
+  /**
+   * True when nothing differs in what WAS compared. Read it together with
+   * `objectsCompared`: when that is false, an empty diff says nothing about
+   * views, types, sequences, functions, triggers, extensions or policies.
+   */
   isEmpty: boolean;
 }
 
@@ -273,14 +281,43 @@ function diffObjects(before: DatabaseObjects, after: DatabaseObjects): ObjectDif
 
 const ZERO: Counts = { added: 0, removed: 0, changed: 0 };
 
+/** The value as it is compared: "no value" is null, lists keep their elements (so ["a, b"] is not ["a", "b"]). */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value === undefined || value === "" ? null : value);
+
 function changesBetween<T>(fields: Fields<T>, before: T, after: T): FieldChange[] {
   const changes: FieldChange[] = [];
   for (const [field, get] of Object.entries(fields)) {
-    const a = formatValue(get(before));
-    const b = formatValue(get(after));
-    if (a !== b) changes.push({ field, before: a, after: b });
+    const was = get(before);
+    const now = get(after);
+    // Compare the raw values, not their display text, which can look the same for different values.
+    if (canonical(was) === canonical(now)) continue;
+    let a = formatValue(was);
+    let b = formatValue(now);
+    if (a === b) {
+      a = canonical(was);
+      b = canonical(now);
+    }
+    changes.push({ field, before: a, after: b });
   }
   return changes;
+}
+
+/**
+ * Items by key. If an adapter returned the same key twice, the later copies get
+ * a suffix (their position among the copies), so none is silently dropped; the
+ * same rule on both sides pairs the first copy with the first, and so on.
+ */
+function byKey<T>(items: readonly T[], key: (item: T) => string): Map<string, T> {
+  const result = new Map<string, T>();
+  const seen = new Map<string, number>();
+  for (const item of items) {
+    const k = key(item);
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    result.set(n === 0 ? k : `${k}\u0001${n}`, item);
+  }
+  return result;
 }
 
 /** Added, removed and changed items between two lists, matched by `key`, sorted by name. */
@@ -291,8 +328,8 @@ function diffByKey<T>(
   nameOf: (item: T) => string,
   fields: Fields<T>,
 ): NamedItem<T>[] {
-  const was = new Map(before.map((item) => [key(item), item]));
-  const now = new Map(after.map((item) => [key(item), item]));
+  const was = byKey(before, key);
+  const now = byKey(after, key);
   const result: NamedItem<T>[] = [];
   for (const [k, item] of was) {
     const next = now.get(k);
@@ -453,6 +490,7 @@ export function diffStructures(before: DatabaseStructure, after: DatabaseStructu
     schemasRemoved,
     tables,
     objects,
+    objectsCompared: objects !== null,
     summary,
     isEmpty:
       schemasAdded.length === 0 &&
@@ -474,7 +512,7 @@ function code(text: string): string {
 
 const MAX_VALUE = 120;
 const short = (text: string): string =>
-  text.length > MAX_VALUE ? `${text.slice(0, MAX_VALUE)}...` : text;
+  text.length > MAX_VALUE ? `${safeSlice(text, MAX_VALUE)}...` : text;
 
 function itemLines<T extends { name?: string }>(label: string, items: NamedItem<T>[]): string[] {
   return items.map((item) => {

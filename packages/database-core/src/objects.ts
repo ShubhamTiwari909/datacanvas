@@ -4,7 +4,7 @@
  *
  * `normalizeObjects` is applied to whatever an adapter returns before it is
  * stored or compared: lists are sorted (by code unit, so every machine gives
- * the same order) and over-long definition text is cut. That keeps a snapshot
+ * the same order) and over-long definition text is cut (with a fingerprint of the whole text, so a change after the cut is still noticed). That keeps a snapshot
  * file stable and bounded however the database answered.
  *
  * The `*Key` functions say what makes two objects "the same object" in two
@@ -41,9 +41,44 @@ export function emptyObjects(): DatabaseObjects {
   };
 }
 
-/** Cut text longer than `MAX_OBJECT_TEXT`; the cut text ends with "..." so it is visibly incomplete. */
+/**
+ * A fast 53-bit hash of text (cyrb53). Not cryptographic: it only has to make
+ * a change to long text visible, and 53 bits make an accidental match between
+ * two different texts of the same length negligible.
+ */
+export function fingerprint(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+}
+
+/** The first `end` characters, without cutting an emoji or other surrogate pair in half. */
+export function safeSlice(text: string, end: number): string {
+  const last = end > 0 ? text.charCodeAt(end - 1) : 0;
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? end - 1 : end);
+}
+
+/**
+ * Cut text longer than `MAX_OBJECT_TEXT`. The cut text ends with a note that
+ * carries the full length and a fingerprint of the WHOLE text, so two long
+ * definitions that agree for the first 20,000 characters and differ later still
+ * come out different, and the diff reports the change instead of missing it.
+ * The result is never longer than `MAX_OBJECT_TEXT`, and text that is already
+ * short enough (including text cut earlier) comes back unchanged.
+ */
 export function clipText(text: string): string {
-  return text.length <= MAX_OBJECT_TEXT ? text : `${text.slice(0, MAX_OBJECT_TEXT - 3)}...`;
+  if (text.length <= MAX_OBJECT_TEXT) return text;
+  const note = `... [text cut: ${text.length} characters, fingerprint ${fingerprint(text)}]`;
+  return safeSlice(text, MAX_OBJECT_TEXT - note.length) + note;
 }
 const clipNullable = (text: string | null): string | null =>
   text === null ? null : clipText(text);

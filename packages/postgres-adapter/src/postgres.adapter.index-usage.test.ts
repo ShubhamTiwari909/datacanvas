@@ -54,7 +54,9 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getIndexUsage", () => {
       await client.query(SQL);
       await client.query("ANALYZE iu_things");
       await client.query("SELECT pg_stat_reset()");
-      resetAt = Date.now();
+      // The server's own clock, not this machine's: the two can differ.
+      const { rows } = await client.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+      resetAt = rows[0]!.now.getTime();
     } finally {
       await client.end();
     }

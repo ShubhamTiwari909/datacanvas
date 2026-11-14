@@ -93,6 +93,13 @@ test("objects are listed, saved in a snapshot and compared", async ({ page, app,
     await expect(page.getByRole("region", { name: "Policies" })).toBeVisible();
     // Tables did not change, and the object kinds that did not change are not listed.
     await expect(page.getByRole("region", { name: "Types" })).toHaveCount(0);
+
+    // Deleting the snapshot the comparison used clears that comparison.
+    await page.getByRole("button", { name: "Delete Before changes" }).click();
+    await page.getByRole("button", { name: "Confirm deleting Before changes" }).click();
+    await expect(page.getByText("Snapshot deleted.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Functions" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Views" })).toHaveCount(0);
   } finally {
     await client.end();
   }

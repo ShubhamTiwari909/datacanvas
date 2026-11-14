@@ -4,7 +4,8 @@
  * Downloads a snapshot as a `.snapshot.json` file.
  *
  * Reminder for users: the file lists table and column names, which can be
- * sensitive. It holds no rows and no credentials.
+ * sensitive, and view and function definitions are copied as written, so they can contain
+ * anything typed into them. It holds no rows and no connection credentials.
  */
 import { getServerContext } from "@/lib/server/context";
 import { handleRoute } from "@/lib/server/error-response";

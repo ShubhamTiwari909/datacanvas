@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-14
+
 ### Changed
 
 - Building from source now needs Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21), because the CSS build tool loads an ES-module-only dependency with `require()`. The published package still runs on Node.js 20.9 or newer.

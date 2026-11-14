@@ -6,8 +6,10 @@
  * the metadata cache (bulk requests of up to 500 tables), so tables already on
  * the canvas are not fetched twice, and the canvas benefits from what is
  * fetched here. Views are skipped: they have no keys or indexes of their own.
+ * The index usage counters (for the unused-index check) are read separately.
  */
 import { tableRefKey, type TableDetailsEntry, type TableRef } from "@datacanvas/database-core";
+import { getIndexUsage } from "@/features/explorer/api";
 import { loadAllTables } from "@/features/explorer/load-all-tables";
 import type { ApiResult } from "@/lib/api-client";
 import { useMetadataStore } from "@/stores/metadata-store";
@@ -19,6 +21,8 @@ export const MAX_HEALTH_TABLES = 2000;
 export interface LoadedHealth extends HealthReport {
   /** Tables that exist but were left out because of the limit. */
   skippedTables: number;
+  /** Why the unused-index check did not run (the other checks still did), or null. */
+  usageProblem: string | null;
 }
 
 export async function loadHealth(connectionId: string): Promise<ApiResult<LoadedHealth>> {
@@ -45,6 +49,17 @@ export async function loadHealth(connectionId: string): Promise<ApiResult<Loaded
     const entry: TableDetailsEntry | undefined = cache?.tables[tableRefKey(ref)];
     return entry ? [entry] : [];
   });
-  const report = runHealthChecks(entries, cache?.relationships ?? []);
-  return { ok: true, data: { ...report, skippedTables: allTables.length - refs.length } };
+  // The usage counters are a separate read; if it fails the structural checks are still worth showing.
+  const usage = await getIndexUsage(connectionId);
+  const report = runHealthChecks(entries, cache?.relationships ?? [], {
+    usage: usage.ok ? usage.data : null,
+  });
+  return {
+    ok: true,
+    data: {
+      ...report,
+      skippedTables: allTables.length - refs.length,
+      usageProblem: usage.ok ? null : usage.error.message,
+    },
+  };
 }

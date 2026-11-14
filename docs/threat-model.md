@@ -33,9 +33,9 @@ Cookies are shared across ports, so it receives the cookie when the browser visi
 - While DataCanvas runs, the token is also in `~/.datacanvas/run.json` (mode 0600) so a second launch can reopen the running instance. It is deleted on clean shutdown; a stale file is useless because the token dies with the process.
 - Same user: can read the process environment and the CLI output, and can read `~/.datacanvas`. **Out of scope:** this attacker already controls the account. We still keep the password out of every file, so even they find no password at rest.
 
-### 4. Someone who gets a diagram or workspace file
+### 4. Someone who gets a diagram, workspace file or snapshot file
 
-Contains table and column names but no row data. The export dialog says so. Imported workspace files are validated, size-limited, and can never overwrite existing data.
+Contains table and column names (a snapshot also column types, defaults, comments, index and constraint definitions, view queries, function and trigger bodies, and row-level-security policy expressions and role names, which can describe business logic and access rules) but no row data and no credentials. The export dialog and the Snapshots tab say so. Imported workspace and snapshot files are validated (unknown keys refused, every list and string bounded), size-limited, and can never overwrite existing data: an imported snapshot always gets a new id.
 
 ### 5. Hostile input
 

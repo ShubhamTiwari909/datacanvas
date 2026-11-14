@@ -16,13 +16,16 @@ import { ConnectionService, type ProviderConfigs } from "./connection-service";
 import { ProfileService } from "./profile-service";
 import { ProfileStorage } from "./storage/profile-storage";
 import { resolveDataDir } from "./storage/data-dir";
+import { SnapshotStorage } from "./storage/snapshot-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
+import { SnapshotService } from "./snapshot-service";
 import { WorkspaceService } from "./workspace-service";
 
 export interface ServerContext {
   connections: ConnectionService;
   profiles: ProfileService;
   workspaces: WorkspaceService;
+  snapshots: SnapshotService;
 }
 
 const CONTEXT_KEY = Symbol.for("datacanvas.server-context");
@@ -41,8 +44,11 @@ function createServerContext(): ServerContext {
   const workspaceStorage = new WorkspaceStorage(dataDir);
   const profiles = new ProfileService({ profiles: profileStorage, workspaces: workspaceStorage });
 
+  const connections = new ConnectionService({ adapters, connections: registry, profiles });
+
   return {
-    connections: new ConnectionService({ adapters, connections: registry, profiles }),
+    connections,
+    snapshots: new SnapshotService({ snapshots: new SnapshotStorage(dataDir), connections }),
     profiles,
     workspaces: new WorkspaceService({ workspaces: workspaceStorage, profiles: profileStorage }),
   };

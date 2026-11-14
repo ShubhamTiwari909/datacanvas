@@ -13,7 +13,9 @@ import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
   ColumnInfo,
   ConstraintInfo,
+  DatabaseObjects,
   IndexInfo,
+  IndexUsageReport,
   RelationshipInfo,
   SchemaInfo,
   SearchHit,
@@ -21,6 +23,7 @@ import type {
   TableInfo,
   TableRef,
 } from "../models.js";
+import { normalizeObjects } from "../objects.js";
 import { uniqueTableRefs } from "../table-refs.js";
 import { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";
 
@@ -157,6 +160,16 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
   async getRelationships(): Promise<RelationshipInfo[]> {
     this.requireConnection();
     return copy(this.data.relationships);
+  }
+
+  async getObjects(): Promise<DatabaseObjects> {
+    this.requireConnection();
+    return normalizeObjects(copy(this.data.objects));
+  }
+
+  async getIndexUsage(): Promise<IndexUsageReport> {
+    this.requireConnection();
+    return copy(this.data.indexUsage);
   }
 
   async disconnect(): Promise<void> {

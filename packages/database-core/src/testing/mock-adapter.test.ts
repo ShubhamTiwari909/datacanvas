@@ -33,6 +33,30 @@ describe("MockDatabaseAdapter specifics", () => {
     expect(second[0]!.name).toBe("active_users");
   });
 
+  describe("objects and index usage", () => {
+    it("need a connection, like every other data call", async () => {
+      const idle = new MockDatabaseAdapter();
+      await expect(idle.getObjects()).rejects.toMatchObject({ code: "not_connected" });
+      await expect(idle.getIndexUsage()).rejects.toMatchObject({ code: "not_connected" });
+    });
+
+    it("return copies: changing a result does not change the database", async () => {
+      const objects = await adapter.getObjects();
+      objects.views.length = 0;
+      expect((await adapter.getObjects()).views.length).toBeGreaterThan(0);
+      const usage = await adapter.getIndexUsage();
+      usage.indexes.length = 0;
+      expect((await adapter.getIndexUsage()).indexes.length).toBeGreaterThan(0);
+    });
+
+    it("give objects in their sorted normal form", async () => {
+      const { views } = await adapter.getObjects();
+      expect(views.map((v) => `${v.schema}.${v.name}`)).toEqual(
+        [...views.map((v) => `${v.schema}.${v.name}`)].sort(),
+      );
+    });
+  });
+
   describe("sample data integrity", () => {
     it("is JSON-safe: a round trip through JSON changes nothing", () => {
       const data = createEcommerceData();

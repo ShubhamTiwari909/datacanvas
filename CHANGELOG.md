@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Snapshots** tab: save a database's structure (schemas, tables, columns, constraints, indexes, foreign keys) and compare it later with the live database, with another snapshot, or with a different database. The comparison lists added, removed and changed tables, columns, constraints, indexes and foreign keys, each change with its before and after values, and can be copied as a Markdown report for a review or a ticket. Snapshots can be exported and imported as `.snapshot.json` files. A snapshot holds structure only: no table rows, no row estimates, no credentials. Items are matched by name, so a rename shows as one removal and one addition.
+- **Objects** tab: views (with their query, what each reads and which views read it), enums, domains, composite and range types, sequences (and the column that owns each), functions and procedures (with their definitions, language, volatility and security), triggers, extensions, and row-level-security policies grouped per table, with a warning for security that is on without any policy and for policies on a table where security is off. Only definitions and settings are read, never table rows or sequence values. Objects that belong to an extension are left out.
+- Snapshots now record these objects and the comparison shows what changed in them (a changed view query or function body is shown before and after). Snapshot file format 2; files from the previous release open as before and their objects show as "not recorded" instead of being reported as new.
+- Three new **Health** checks. **Unused indexes**, from the server's usage counters (never a primary key, unique or constraint index; a warning only for a large index with counters at least a week old; it says when the index is the only one serving a foreign key, and that a standby's counters only reflect its own queries). **Foreign keys whose column types differ** (integer against bigint is a warning, a length difference only information; domains and enums are not judged). **Naming**: names that need quoting, and foreign key columns not ending in `_id`, each judged against the database's own style and only when at least 80% of it is consistent.
+- `GET /api/connections/:id/index-usage`.
+- `GET /api/connections/:id/objects`.
+- `GET /api/connections/:id/structure`, `POST /api/connections/:id/snapshots`, and `GET/DELETE /api/snapshots[/:id]`, `GET /api/snapshots/:id/export`, `POST /api/snapshots/import`.
+
 ## [1.0.2] - 2026-11-13
 
 ### Fixed

@@ -85,4 +85,20 @@ export const searchHitSchema = z.object({
   dataType: z.string().nullable(),
 });
 
+export const indexUsageReportSchema = z.object({
+  statsReset: z.string().nullable(),
+  inRecovery: z.boolean(),
+  indexes: z.array(
+    z.object({
+      schema: z.string(),
+      table: z.string(),
+      index: z.string(),
+      scans: z.number(),
+      sizeBytes: z.number(),
+      backsConstraint: z.boolean(),
+      valid: z.boolean(),
+    }),
+  ),
+});
+
 // Inferred types are intentionally NOT exported: use the database-core types.

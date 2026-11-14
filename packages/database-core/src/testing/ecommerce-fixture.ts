@@ -13,7 +13,9 @@
 import type {
   ColumnInfo,
   ConstraintInfo,
+  DatabaseObjects,
   IndexInfo,
+  IndexUsageReport,
   RelationshipInfo,
   SchemaInfo,
   TableInfo,
@@ -28,6 +30,10 @@ export interface MockDatabaseData {
   constraints: Record<string, ConstraintInfo[]>;
   indexes: Record<string, IndexInfo[]>;
   relationships: RelationshipInfo[];
+  /** Views, types, sequences, functions, triggers, extensions and policies. */
+  objects: DatabaseObjects;
+  /** Counters for the indexes of the sample tables. */
+  indexUsage: IndexUsageReport;
 }
 
 function column(
@@ -70,6 +76,16 @@ function index(
     method: "btree",
     definition: `CREATE ${unique ? "UNIQUE " : ""}INDEX ${name} ON public.${tableName} USING btree (${columns.join(", ")})`,
   };
+}
+
+function usage(
+  index: string,
+  table: string,
+  scans: number,
+  sizeBytes: number,
+  backsConstraint: boolean,
+): IndexUsageReport["indexes"][number] {
+  return { schema: "public", table, index, scans, sizeBytes, backsConstraint, valid: true };
 }
 
 const idColumn = (): ColumnInfo =>
@@ -237,5 +253,120 @@ export function createEcommerceData(): MockDatabaseData {
         onUpdate: "no_action",
       },
     ],
+
+    objects: {
+      views: [
+        {
+          schema: "analytics",
+          name: "daily_sales",
+          materialized: true,
+          comment: null,
+          definition:
+            " SELECT date_trunc('day'::text, placed_at)::date AS day,\n    sum(oi.quantity * p.price_cents) AS total_cents\n   FROM orders o\n     JOIN order_items oi ON oi.order_id = o.id\n     JOIN products p ON p.id = oi.product_id\n  GROUP BY (date_trunc('day'::text, placed_at)::date);",
+          dependsOn: [
+            { schema: "public", name: "order_items" },
+            { schema: "public", name: "orders" },
+            { schema: "public", name: "products" },
+          ],
+        },
+        {
+          schema: "public",
+          name: "active_users",
+          materialized: false,
+          comment: null,
+          definition:
+            " SELECT id,\n    email\n   FROM users\n  WHERE created_at > (now() - '1 year'::interval);",
+          dependsOn: [{ schema: "public", name: "users" }],
+        },
+      ],
+      types: [
+        {
+          schema: "public",
+          name: "order_status",
+          kind: "enum",
+          comment: null,
+          values: ["pending", "paid", "shipped", "cancelled"],
+          attributes: [],
+          baseType: null,
+          defaultValue: null,
+          constraints: [],
+        },
+      ],
+      sequences: [
+        {
+          schema: "public",
+          name: "users_id_seq",
+          dataType: "integer",
+          start: "1",
+          increment: "1",
+          min: "1",
+          max: "2147483647",
+          cache: "1",
+          cycle: false,
+          ownedBy: { schema: "public", table: "users", column: "id" },
+        },
+      ],
+      functions: [
+        {
+          schema: "public",
+          name: "touch_updated_at",
+          kind: "function",
+          arguments: "",
+          returns: "trigger",
+          language: "plpgsql",
+          volatility: "volatile",
+          securityDefiner: false,
+          comment: null,
+          definition:
+            "CREATE OR REPLACE FUNCTION public.touch_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$ BEGIN NEW.placed_at = now(); RETURN NEW; END $function$\n",
+        },
+      ],
+      triggers: [
+        {
+          schema: "public",
+          table: "orders",
+          name: "orders_touch",
+          timing: "before",
+          events: ["update"],
+          level: "row",
+          function: "public.touch_updated_at",
+          state: "enabled",
+          definition:
+            "CREATE TRIGGER orders_touch BEFORE UPDATE ON public.orders FOR EACH ROW EXECUTE FUNCTION touch_updated_at()",
+        },
+      ],
+      extensions: [
+        {
+          name: "plpgsql",
+          version: "1.0",
+          schema: "pg_catalog",
+          comment: "PL/pgSQL procedural language",
+        },
+      ],
+      policies: [
+        {
+          schema: "public",
+          table: "orders",
+          name: "orders_owner_only",
+          command: "select",
+          permissive: true,
+          roles: ["public"],
+          using: "(user_id = (current_setting('app.user_id'::text))::integer)",
+          withCheck: null,
+        },
+      ],
+      rowSecurity: [{ schema: "public", table: "orders", forced: false }],
+    },
+
+    indexUsage: {
+      statsReset: "2026-10-01T00:00:00.000Z",
+      inRecovery: false,
+      indexes: [
+        usage("users_pkey", "users", 900, 16384, true),
+        usage("users_email_key", "users", 450, 16384, true),
+        usage("orders_user_id_idx", "orders", 0, 8192, false),
+        usage("order_items_order_id_idx", "order_items", 120, 8192, false),
+      ],
+    },
   };
 }

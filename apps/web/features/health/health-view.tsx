@@ -93,7 +93,8 @@ export function HealthView({ connectionId }: { connectionId: string }) {
         <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
           Health
           <span className="text-sm font-normal text-muted-foreground">
-            Hints from the structure only. No table rows are read and nothing is changed.
+            Hints from the structure and the server&apos;s usage counters. No table rows are read
+            and nothing is changed.
           </span>
         </h2>
         <p className="flex flex-wrap items-center gap-3 text-sm">
@@ -103,6 +104,26 @@ export function HealthView({ connectionId }: { connectionId: string }) {
           </Badge>
           <Badge variant="secondary">{plural(notes, "note")}</Badge>
         </p>
+        {report.usage ? (
+          <p className="text-sm text-muted-foreground">
+            Index usage counters{" "}
+            {report.usage.statsReset
+              ? `since ${new Date(report.usage.statsReset).toLocaleDateString()}`
+              : "(the server does not say when they were last reset)"}
+            , {plural(report.usage.indexes, "index", "indexes")} read.
+          </p>
+        ) : null}
+        {report.usage?.inRecovery ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            This server is a standby. Its counters only reflect queries run on it, so an index used
+            on the primary can look unused here.
+          </p>
+        ) : null}
+        {report.usageProblem ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            The unused-index check was skipped: {report.usageProblem}
+          </p>
+        ) : null}
         {report.skippedTables > 0 ? (
           <p role="status" className="text-sm text-muted-foreground">
             Only the first {MAX_HEALTH_TABLES} tables were checked; {report.skippedTables} more were
@@ -145,7 +166,9 @@ export function HealthView({ connectionId }: { connectionId: string }) {
           <span className="flex items-center gap-2 text-base font-semibold">
             <Icon className="size-4" aria-hidden="true" />
             {info.title}
-            <Badge variant={info.severity === "warning" ? "destructive" : "secondary"}>
+            <Badge
+              variant={findings.some((f) => f.severity === "warning") ? "destructive" : "secondary"}
+            >
               {findings.length}
             </Badge>
           </span>

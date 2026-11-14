@@ -9,6 +9,7 @@ import {
   columnInfoSchema,
   constraintInfoSchema,
   indexInfoSchema,
+  indexUsageReportSchema,
   relationshipInfoSchema,
   schemaInfoSchema,
   searchHitSchema,
@@ -85,3 +86,6 @@ export const searchQuerySchema = z.object({
 });
 
 export const searchResponseSchema = z.object({ hits: z.array(searchHitSchema) });
+
+/** `GET /api/connections/:id/index-usage`: usage counters of the indexes (statistics, not rows). */
+export const indexUsageResponseSchema = z.object({ usage: indexUsageReportSchema });

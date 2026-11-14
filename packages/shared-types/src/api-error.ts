@@ -39,6 +39,11 @@ export const API_ERROR_CODES = [
   "workspace_not_found",
   "workspace_limit_reached",
   "invalid_workspace_file",
+  // Structure snapshots.
+  "snapshot_not_found",
+  "snapshot_limit_reached",
+  "snapshot_too_large",
+  "invalid_snapshot_file",
   "storage_error",
 ] as const;
 

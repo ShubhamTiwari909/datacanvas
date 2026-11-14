@@ -2,6 +2,8 @@
  * Calls that read a connection's structure.
  */
 import {
+  indexUsageResponseSchema,
+  objectsResponseSchema,
   relationshipsResponseSchema,
   schemasResponseSchema,
   searchResponseSchema,
@@ -12,6 +14,8 @@ import {
 import type {
   ColumnInfo,
   ConstraintInfo,
+  DatabaseObjects,
+  IndexUsageReport,
   IndexInfo,
   RelationshipInfo,
   SchemaInfo,
@@ -100,4 +104,16 @@ export async function searchObjects(
     searchResponseSchema,
   );
   return unwrap(result, (d) => d.hits);
+}
+
+/** Views (with definitions and what they read), types, sequences, functions, triggers, extensions and policies. */
+export async function getObjects(connectionId: string): Promise<ApiResult<DatabaseObjects>> {
+  const result = await apiRequest(`${base(connectionId)}/objects`, objectsResponseSchema);
+  return unwrap(result, (d) => d.objects);
+}
+
+/** Usage counters of the indexes of the ordinary tables (statistics, not rows). */
+export async function getIndexUsage(connectionId: string): Promise<ApiResult<IndexUsageReport>> {
+  const result = await apiRequest(`${base(connectionId)}/index-usage`, indexUsageResponseSchema);
+  return unwrap(result, (d) => d.usage);
 }

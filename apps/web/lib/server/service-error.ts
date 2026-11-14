@@ -9,6 +9,10 @@ export type ServiceErrorCode =
   | "workspace_not_found"
   | "workspace_limit_reached"
   | "invalid_workspace_file"
+  | "snapshot_not_found"
+  | "snapshot_limit_reached"
+  | "snapshot_too_large"
+  | "invalid_snapshot_file"
   | "storage_error";
 
 export class ServiceError extends Error {

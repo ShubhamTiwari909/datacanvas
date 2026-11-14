@@ -153,3 +153,193 @@ export interface SearchHit {
   column: string | null;
   dataType: string | null;
 }
+
+// ------------------------------------------------------------------ objects ---
+//
+// Everything in a database that is not a table, a column, an index or a
+// foreign key: view definitions, types, sequences, functions, triggers,
+// extensions and row-level-security policies. All of it is DEFINITION text and
+// settings read from the catalogs; none of it reads table rows.
+
+/** Longest piece of definition text kept (a view query, a function body). Longer text is cut and ends with "...". */
+export const MAX_OBJECT_TEXT = 20_000;
+
+/** A table, view, materialized view or foreign table that something refers to. */
+export interface ObjectRef {
+  schema: string;
+  name: string;
+}
+
+/** A view or materialized view: its query, and the relations that query reads. */
+export interface ViewInfo {
+  schema: string;
+  name: string;
+  materialized: boolean;
+  comment: string | null;
+  /** The view's SELECT, as the database prints it. */
+  definition: string;
+  /** Tables and views the query reads, sorted. Only relations outside the system schemas. */
+  dependsOn: ObjectRef[];
+}
+
+export type TypeKind = "enum" | "composite" | "domain" | "range";
+
+/** A user-defined type. Which of the detail fields are filled depends on `kind`; the others are empty or null. */
+export interface TypeInfo {
+  schema: string;
+  name: string;
+  kind: TypeKind;
+  comment: string | null;
+  /** enum: the labels, in their defined order. */
+  values: string[];
+  /** composite: the attributes, in order. */
+  attributes: Array<{ name: string; dataType: string }>;
+  /** domain: the underlying type. range: the type of its bounds. */
+  baseType: string | null;
+  /** domain: the default expression as SQL text. */
+  defaultValue: string | null;
+  /** domain: "NOT NULL" and the CHECK constraints as SQL text. */
+  constraints: string[];
+}
+
+export interface SequenceInfo {
+  schema: string;
+  name: string;
+  dataType: string;
+  /** Kept as text: a bigint sequence goes beyond what a JavaScript number holds exactly. The current value is never read (it is data). */
+  start: string;
+  increment: string;
+  min: string;
+  max: string;
+  cache: string;
+  cycle: boolean;
+  /** The table column the sequence belongs to (serial / identity columns), or null. */
+  ownedBy: { schema: string; table: string; column: string } | null;
+}
+
+export type FunctionKind = "function" | "procedure";
+export type Volatility = "immutable" | "stable" | "volatile";
+
+export interface FunctionInfo {
+  schema: string;
+  name: string;
+  kind: FunctionKind;
+  /** The argument list as the database prints it, e.g. "a integer, b text". It tells overloads apart. */
+  arguments: string;
+  /** The result type, e.g. "integer" or "TABLE(id integer)"; null for a procedure. */
+  returns: string | null;
+  language: string;
+  volatility: Volatility;
+  securityDefiner: boolean;
+  comment: string | null;
+  /** The full CREATE statement, body included. */
+  definition: string;
+}
+
+export type TriggerTiming = "before" | "after" | "instead_of";
+export type TriggerEvent = "insert" | "update" | "delete" | "truncate";
+export type TriggerState = "enabled" | "disabled" | "replica" | "always";
+
+export interface TriggerInfo {
+  schema: string;
+  /** The table (or view) the trigger is on. */
+  table: string;
+  name: string;
+  timing: TriggerTiming;
+  events: TriggerEvent[];
+  level: "row" | "statement";
+  /** The function it runs, "schema.name". */
+  function: string;
+  state: TriggerState;
+  definition: string;
+}
+
+export interface ExtensionInfo {
+  name: string;
+  version: string;
+  /** The schema the extension's objects were installed in. */
+  schema: string;
+  comment: string | null;
+}
+
+export type PolicyCommand = "all" | "select" | "insert" | "update" | "delete";
+
+/** A row-level-security policy. Its expressions are SQL text; no rows are evaluated. */
+export interface PolicyInfo {
+  schema: string;
+  table: string;
+  name: string;
+  command: PolicyCommand;
+  permissive: boolean;
+  /** Role names the policy applies to; "public" means every role. */
+  roles: string[];
+  /** The USING expression, or null. */
+  using: string | null;
+  /** The WITH CHECK expression, or null. */
+  withCheck: string | null;
+}
+
+/** A table that has row-level security switched on (with or without policies). */
+export interface RowSecurityInfo {
+  schema: string;
+  table: string;
+  /** FORCE ROW LEVEL SECURITY: the table's owner is subject to the policies too. */
+  forced: boolean;
+}
+
+/** All of the above for one database, from one call. Every list is sorted. */
+export interface DatabaseObjects {
+  views: ViewInfo[];
+  types: TypeInfo[];
+  sequences: SequenceInfo[];
+  functions: FunctionInfo[];
+  triggers: TriggerInfo[];
+  extensions: ExtensionInfo[];
+  policies: PolicyInfo[];
+  rowSecurity: RowSecurityInfo[];
+}
+
+export const OBJECT_KINDS = [
+  "views",
+  "types",
+  "sequences",
+  "functions",
+  "triggers",
+  "extensions",
+  "policies",
+  "rowSecurity",
+] as const;
+export type ObjectKind = (typeof OBJECT_KINDS)[number];
+
+// -------------------------------------------------------------- index usage ---
+
+/** How often one index has been used, from the database's own usage counters. */
+export interface IndexUsage {
+  schema: string;
+  table: string;
+  index: string;
+  /** Index scans counted since the statistics were last reset. 0 means "not used since then". */
+  scans: number;
+  /** Disk space the index takes. */
+  sizeBytes: number;
+  /** The index enforces a primary key, unique or exclusion constraint, so dropping it is not an option. */
+  backsConstraint: boolean;
+  /** False for an index left broken by a failed CREATE INDEX CONCURRENTLY. */
+  valid: boolean;
+}
+
+/**
+ * Index usage for the whole database. These are statistics COUNTERS the server
+ * keeps (`pg_stat_*`), not table data. Read them with their limits in mind: the
+ * counters belong to THIS server only (a standby counts only the queries run on
+ * it, so an index used on the primary can show 0 on a replica), they start over
+ * when someone resets them, and they say nothing about a query that runs once
+ * a quarter.
+ */
+export interface IndexUsageReport {
+  /** When the counters were last reset (ISO 8601), or null when the server does not say. */
+  statsReset: string | null;
+  /** The server is a standby (in recovery): the counters reflect only the queries run on it. */
+  inRecovery: boolean;
+  indexes: IndexUsage[];
+}

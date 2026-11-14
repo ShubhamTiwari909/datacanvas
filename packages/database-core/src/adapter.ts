@@ -19,7 +19,9 @@
 import type {
   ColumnInfo,
   ConstraintInfo,
+  DatabaseObjects,
   IndexInfo,
+  IndexUsageReport,
   RelationshipInfo,
   SchemaInfo,
   SearchHit,
@@ -112,6 +114,32 @@ export interface DatabaseAdapter {
    * the edges at once.
    */
   getRelationships(): Promise<RelationshipInfo[]>;
+
+  /**
+   * Views (with their definitions and what they read), user-defined types,
+   * sequences, functions and procedures, triggers, extensions and row-level
+   * security policies, for the whole database, in one call. All of it is
+   * definition text and settings from the catalogs: no table rows and no
+   * sequence values are read.
+   *
+   * - Objects that belong to an extension (its functions and types) are left
+   *   out; the extension itself is listed.
+   * - Definition text longer than `MAX_OBJECT_TEXT` is cut.
+   * - Every list is sorted (schema, then name), so the result is stable.
+   */
+  getObjects(): Promise<DatabaseObjects>;
+
+  /**
+   * How often each index of the ordinary tables has been used, from the
+   * server's statistics counters, plus when they were last reset and whether
+   * this server is a standby. Counters only: no table rows are read.
+   *
+   * - Indexes of partitions are left out (the partitioned table is the unit, as
+   *   everywhere else).
+   * - The counters are the server's own and may be young or reset; see
+   *   `IndexUsageReport` for what they can and cannot say.
+   */
+  getIndexUsage(): Promise<IndexUsageReport>;
 
   /**
    * Close everything and release resources. Safe to call more than once, and

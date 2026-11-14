@@ -14,3 +14,5 @@ import { z } from "zod";
  */
 export const profileIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 export const workspaceIdSchema = profileIdSchema;
+/** Ids of saved structure snapshots: the same safe format (they become file names too). */
+export const snapshotIdSchema = profileIdSchema;

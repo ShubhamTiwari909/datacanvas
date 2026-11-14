@@ -10,6 +10,7 @@ import type {
   ConstraintInfo,
   DatabaseErrorCode,
   IndexInfo,
+  IndexUsageReport,
   RelationshipInfo,
   SchemaInfo,
   SearchHit,
@@ -32,6 +33,7 @@ import {
 import type {
   constraintInfoSchema,
   indexInfoSchema,
+  indexUsageReportSchema,
   relationshipInfoSchema,
   searchHitSchema,
   tableDetailsEntrySchema,
@@ -51,6 +53,7 @@ assertType<Same<z.infer<typeof indexInfoSchema>, IndexInfo>>();
 assertType<Same<z.infer<typeof relationshipInfoSchema>, RelationshipInfo>>();
 assertType<Same<z.infer<typeof tableDetailsEntrySchema>, TableDetailsEntry>>();
 assertType<Same<z.infer<typeof searchHitSchema>, SearchHit>>();
+assertType<Same<z.infer<typeof indexUsageReportSchema>, IndexUsageReport>>();
 // Every database error code must be a valid API error code.
 assertType<[DatabaseErrorCode] extends [ApiErrorCode] ? true : false>();
 

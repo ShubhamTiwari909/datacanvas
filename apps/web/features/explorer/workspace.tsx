@@ -4,12 +4,20 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Table details
+ *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | Snapshots | Table details
  */
 "use client";
 
 import { useEffect } from "react";
-import { HeartPulse, LayoutDashboard, LayoutList, Route, TableProperties } from "lucide-react";
+import {
+  Boxes,
+  Camera,
+  HeartPulse,
+  LayoutDashboard,
+  LayoutList,
+  Route,
+  TableProperties,
+} from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
 import { EmptyState } from "@/components/states/empty-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -20,6 +28,8 @@ import { WelcomePanel } from "@/features/connections/welcome-panel";
 import { HealthView } from "@/features/health/health-view";
 import { PathView } from "@/features/paths/path-view";
 import { SchemaOverviewView } from "@/features/overview/schema-overview-view";
+import { ObjectsView } from "@/features/objects/objects-view";
+import { SnapshotsView } from "@/features/snapshots/snapshots-view";
 import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
@@ -33,6 +43,8 @@ const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashb
   { view: "overview", label: "Overview", icon: LayoutList },
   { view: "paths", label: "Paths", icon: Route },
   { view: "health", label: "Health", icon: HeartPulse },
+  { view: "objects", label: "Objects", icon: Boxes },
+  { view: "snapshots", label: "Snapshots", icon: Camera },
   { view: "details", label: "Table details", icon: TableProperties },
 ];
 
@@ -115,6 +127,10 @@ export function Workspace() {
             <PathView key={connection.id} connectionId={connection.id} />
           ) : view === "health" ? (
             <HealthView key={connection.id} connectionId={connection.id} />
+          ) : view === "objects" ? (
+            <ObjectsView key={connection.id} connectionId={connection.id} />
+          ) : view === "snapshots" ? (
+            <SnapshotsView key={connection.id} connectionId={connection.id} />
           ) : table ? (
             <TableDetails
               key={`${connection.id}/${table.schema}/${table.name}`}

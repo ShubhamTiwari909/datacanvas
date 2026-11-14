@@ -9,22 +9,31 @@
  * This file knows nothing about PostgreSQL or HTTP: it speaks only the
  * `DatabaseAdapter` interface and plain data.
  */
-import type {
-  AdapterRegistry,
-  ColumnInfo,
-  ConstraintInfo,
-  IndexInfo,
-  RelationshipInfo,
-  SchemaInfo,
-  SearchHit,
-  TableDetailsEntry,
-  TableInfo,
-  TableRef,
+import {
+  buildStructure,
+  OBJECT_KINDS,
+  type AdapterRegistry,
+  type ColumnInfo,
+  type ConstraintInfo,
+  type DatabaseObjects,
+  type IndexInfo,
+  type IndexUsageReport,
+  type RelationshipInfo,
+  type SchemaInfo,
+  type SearchHit,
+  type DatabaseStructure,
+  type TableDetailsEntry,
+  type TableInfo,
+  type TableRef,
 } from "@datacanvas/database-core";
 import {
+  MAX_SNAPSHOT_OBJECTS_PER_KIND,
+  MAX_SNAPSHOT_TABLES,
+  MAX_TABLES_PER_DETAILS_REQUEST,
   resolvePostgresConnection,
   summarizePostgresConnection,
   type ConnectionSummary,
+  type SnapshotSource,
   type PostgresConnectionInput,
   type ResolvedPostgresConnection,
 } from "@datacanvas/shared-types";
@@ -61,6 +70,9 @@ function profileDetails(
     sslMode: summary.sslMode,
   };
 }
+
+/** How many schemas have their tables listed at the same time when a snapshot is taken. */
+const SCHEMA_BATCH = 8;
 
 export class ConnectionService {
   private readonly adapters: AdapterRegistry<ProviderConfigs>;
@@ -178,5 +190,74 @@ export class ConnectionService {
 
   getRelationships(id: string): Promise<RelationshipInfo[]> {
     return this.connections.use(id, (adapter) => adapter.getRelationships());
+  }
+
+  /** Usage counters of the indexes (statistics, not rows). */
+  getIndexUsage(id: string): Promise<IndexUsageReport> {
+    return this.connections.use(id, (adapter) => adapter.getIndexUsage());
+  }
+
+  /** Views, types, sequences, functions, triggers, extensions and policies of the database. */
+  getObjects(id: string): Promise<DatabaseObjects> {
+    return this.connections.use(id, (adapter) => adapter.getObjects());
+  }
+
+  /**
+   * Read the whole structure of a database: every schema, table, column,
+   * constraint, index and foreign key (never rows). Used for snapshots and for
+   * comparing a live database with one.
+   *
+   * @throws ServiceError `snapshot_too_large` when there are more tables than a snapshot may hold.
+   */
+  captureStructure(id: string): Promise<{ structure: DatabaseStructure; source: SnapshotSource }> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    return this.connections.use(id, async (adapter) => {
+      const schemas = (await adapter.getSchemas()).map((s) => s.name);
+      // A few schemas at a time: a database with one schema per tenant must not send hundreds
+      // of queries at once (that could exhaust the connection pool).
+      const lists: TableInfo[][] = [];
+      for (let start = 0; start < schemas.length; start += SCHEMA_BATCH) {
+        lists.push(
+          ...(await Promise.all(
+            schemas.slice(start, start + SCHEMA_BATCH).map((schema) => adapter.getTables(schema)),
+          )),
+        );
+      }
+      const refs = lists.flat().map((t): TableRef => ({ schema: t.schema, name: t.name }));
+      if (refs.length > MAX_SNAPSHOT_TABLES) {
+        throw new ServiceError(
+          "snapshot_too_large",
+          `This database has ${refs.length} tables; a snapshot holds at most ${MAX_SNAPSHOT_TABLES}.`,
+        );
+      }
+      const entries: TableDetailsEntry[] = [];
+      for (let start = 0; start < refs.length; start += MAX_TABLES_PER_DETAILS_REQUEST) {
+        entries.push(
+          ...(await adapter.getTablesDetails(
+            refs.slice(start, start + MAX_TABLES_PER_DETAILS_REQUEST),
+          )),
+        );
+      }
+      const relationships = await adapter.getRelationships();
+      const objects = await adapter.getObjects();
+      const tooMany = OBJECT_KINDS.find(
+        (kind) => objects[kind].length > MAX_SNAPSHOT_OBJECTS_PER_KIND,
+      );
+      if (tooMany !== undefined) {
+        throw new ServiceError(
+          "snapshot_too_large",
+          `This database has ${objects[tooMany].length} objects of one kind (${tooMany}); a snapshot holds at most ${MAX_SNAPSHOT_OBJECTS_PER_KIND} of each kind.`,
+        );
+      }
+      return {
+        structure: buildStructure(schemas, entries, relationships, objects),
+        source: { connectionName: summary.name, database: summary.database },
+      };
+    });
   }
 }

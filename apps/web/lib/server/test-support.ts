@@ -17,6 +17,8 @@ import { ConnectionRegistry, type ConnectionRegistryOptions } from "./connection
 import { ConnectionService, type ProviderConfigs } from "./connection-service";
 import type { ServerContext } from "./context";
 import { ProfileService } from "./profile-service";
+import { SnapshotService } from "./snapshot-service";
+import { SnapshotStorage } from "./storage/snapshot-storage";
 import { ProfileStorage } from "./storage/profile-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
 import { WorkspaceService } from "./workspace-service";
@@ -73,8 +75,14 @@ export function createTestContext(
     workspaces: workspaceStorage,
     now: options.now,
   });
+  const connections = new ConnectionService({ adapters, connections: registry, profiles });
   return {
-    connections: new ConnectionService({ adapters, connections: registry, profiles }),
+    connections,
+    snapshots: new SnapshotService({
+      snapshots: new SnapshotStorage(dataDir),
+      connections,
+      now: options.now,
+    }),
     profiles,
     workspaces: new WorkspaceService({
       workspaces: workspaceStorage,

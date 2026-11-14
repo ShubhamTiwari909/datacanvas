@@ -13,3 +13,6 @@ export * from "./errors.js";
 export * from "./adapter.js";
 export * from "./registry.js";
 export * from "./table-refs.js";
+export * from "./structure.js";
+export * from "./objects.js";
+export * from "./diff.js";

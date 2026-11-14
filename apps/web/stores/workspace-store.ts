@@ -22,7 +22,8 @@ import { useMetadataStore } from "./metadata-store";
 import { usePersistenceStore } from "./persistence-store";
 
 /** What the main area shows for the selected connection. */
-export type WorkspaceView = "canvas" | "details" | "overview" | "health" | "paths";
+export type WorkspaceView =
+  "canvas" | "details" | "overview" | "health" | "paths" | "snapshots" | "objects";
 
 export interface SelectedTable {
   schema: string;

@@ -6,7 +6,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ### Changed
 
-- Building from source now needs Node.js 20.19 or newer (or 22.12 or newer); it needs to load an ES-module-only dependency of the CSS build tool with `require()`. Running the published package is unchanged: Node.js 20.9 or newer. The install check in CI now builds on Node 22 and runs the packed package on 20.9.0 and 22, instead of failing to build on 20.9.0.
+- Building from source now needs Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21), because the CSS build tool loads an ES-module-only dependency with `require()`. The published package still runs on Node.js 20.9 or newer.
 
 ### Added
 

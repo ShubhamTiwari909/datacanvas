@@ -35,6 +35,29 @@ interface Entry {
   inFlight: number;
   /** True between a successful connect() and the idle close, so we only close what is open. */
   open: boolean;
+  /**
+   * The person unlocked writes for this connection in this session (decision 125).
+   * Memory only: never in the summary, a profile or a file. Gone with the entry,
+   * so a disconnect, a reconnect (a new id) or a restart clears it. The idle
+   * close keeps it: the entry and its credentials stay too.
+   */
+  writeUnlocked: boolean;
+}
+
+/**
+ * Is the connection's host this machine? Loopback (`localhost`, `127.0.0.0/8`,
+ * `::1`) or a Unix socket path. Anything else, including `0.0.0.0` and LAN
+ * addresses, is not. This is what the person typed: a tunnel or proxy on
+ * 127.0.0.1 can still lead to a remote database (see docs/data-editing-plan.md 6.1).
+ */
+export function isLocalHost(host: string): boolean {
+  const name = host.trim().toLowerCase();
+  if (name.startsWith("/")) return true; // a Unix socket directory
+  if (name === "localhost" || name === "::1" || name === "[::1]") return true;
+  const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
+  if (!octets) return false;
+  const parts = octets.slice(1).map(Number);
+  return parts.every((part) => part <= 255) && parts[0] === 127;
 }
 
 export class ConnectionRegistry {
@@ -44,6 +67,7 @@ export class ConnectionRegistry {
   private readonly now: () => number;
   private readonly generateId: () => string;
   private sweeper: ReturnType<typeof setInterval> | undefined;
+  private readonly removeListeners = new Set<(id: string) => void>();
 
   constructor(options: ConnectionRegistryOptions = {}) {
     this.maxConnections = options.maxConnections ?? 10;
@@ -71,8 +95,34 @@ export class ConnectionRegistry {
       lastUsedAt: this.now(),
       inFlight: 0,
       open: true,
+      writeUnlocked: false,
     });
     return summary;
+  }
+
+  /** Be told when a connection is removed (disconnect or shutdown), to drop what belongs to it. */
+  onRemove(listener: (id: string) => void): () => void {
+    this.removeListeners.add(listener);
+    return () => this.removeListeners.delete(listener);
+  }
+
+  private notifyRemoved(id: string): void {
+    for (const listener of this.removeListeners) listener(id);
+  }
+
+  /**
+   * Unlock or lock writes for a live connection (memory only).
+   * @throws ServiceError `connection_not_found`
+   */
+  setWriteUnlocked(id: string, unlocked: boolean): void {
+    const entry = this.entries.get(id);
+    if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    entry.writeUnlocked = unlocked;
+  }
+
+  /** Whether writes are unlocked for the connection; false when it does not exist. */
+  isWriteUnlocked(id: string): boolean {
+    return this.entries.get(id)?.writeUnlocked ?? false;
   }
 
   /** The summary of a connection, or undefined if it does not exist. */
@@ -99,6 +149,8 @@ export class ConnectionRegistry {
     const entry = this.entries.get(id);
     if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
     entry.summary = { ...entry.summary, dataAccess: enabled };
+    // Editing needs data viewing (guardrail 3): switching it off also locks writes.
+    if (!enabled) entry.writeUnlocked = false;
     return entry.summary;
   }
 
@@ -144,6 +196,7 @@ export class ConnectionRegistry {
     const entry = this.entries.get(id);
     if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
     this.entries.delete(id); // forget first, so nothing can pick it up while we disconnect
+    this.notifyRemoved(id);
     await entry.adapter.disconnect();
   }
 
@@ -176,7 +229,9 @@ export class ConnectionRegistry {
     if (this.sweeper) clearInterval(this.sweeper);
     this.sweeper = undefined;
     const entries = [...this.entries.values()];
+    const ids = [...this.entries.keys()];
     this.entries.clear();
+    for (const id of ids) this.notifyRemoved(id);
     await Promise.all(entries.map((entry) => entry.adapter.disconnect().catch(() => {})));
   }
 }

@@ -65,6 +65,12 @@ const SERVICE_ERROR_STATUS = {
   snapshot_too_large: 413,
   invalid_snapshot_file: 400,
   storage_error: 500,
+  writes_not_enabled: 403,
+  writes_not_allowed_here: 403,
+  write_not_unlocked: 403,
+  wrong_database_name: 400,
+  preview_expired: 410,
+  write_busy: 429,
 } as const;
 
 /** A log-safe description: names and codes only, never messages (they may hold secrets). */

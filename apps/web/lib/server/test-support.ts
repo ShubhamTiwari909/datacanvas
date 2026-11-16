@@ -22,6 +22,7 @@ import { SnapshotStorage } from "./storage/snapshot-storage";
 import { ProfileStorage } from "./storage/profile-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
 import { WorkspaceService } from "./workspace-service";
+import { WriteService } from "./write-service";
 
 const FAILURES: Record<string, DatabaseErrorCode> = {
   "wrong-password": "authentication_failed",
@@ -56,7 +57,7 @@ export interface TestContext extends ServerContext {
 
 export function createTestContext(
   registryOptions: ConnectionRegistryOptions = {},
-  options: { dataDir?: string; now?: () => Date } = {},
+  options: { dataDir?: string; now?: () => Date; writesEnabled?: boolean } = {},
 ): TestContext {
   const dataDir = options.dataDir ?? createTestDataDir();
   const createdAdapters: MockDatabaseAdapter[] = [];
@@ -88,6 +89,12 @@ export function createTestContext(
       workspaces: workspaceStorage,
       profiles: profileStorage,
       now: options.now,
+    }),
+    // Off unless a test asks for it, as in production without `--enable-writes`.
+    writes: new WriteService({
+      connections: registry,
+      writesEnabled: options.writesEnabled ?? false,
+      now: options.now ? () => options.now!().getTime() : undefined,
     }),
     dataDir,
     registry,

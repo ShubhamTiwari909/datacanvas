@@ -15,7 +15,14 @@ export type ServiceErrorCode =
   | "snapshot_limit_reached"
   | "snapshot_too_large"
   | "invalid_snapshot_file"
-  | "storage_error";
+  | "storage_error"
+  // Writes (1.4.0): the three switches of decision 125, and the preview.
+  | "writes_not_enabled"
+  | "writes_not_allowed_here"
+  | "write_not_unlocked"
+  | "wrong_database_name"
+  | "preview_expired"
+  | "write_busy";
 
 export class ServiceError extends Error {
   readonly code: ServiceErrorCode;

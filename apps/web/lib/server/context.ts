@@ -20,12 +20,16 @@ import { SnapshotStorage } from "./storage/snapshot-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
 import { SnapshotService } from "./snapshot-service";
 import { WorkspaceService } from "./workspace-service";
+import { WriteService } from "./write-service";
+import { readSecurityConfig } from "../security/request-guard";
 
 export interface ServerContext {
   connections: ConnectionService;
   profiles: ProfileService;
   workspaces: WorkspaceService;
   snapshots: SnapshotService;
+  /** Editing rows and tables: refuses everything unless started with `--enable-writes`. */
+  writes: WriteService;
 }
 
 const CONTEXT_KEY = Symbol.for("datacanvas.server-context");
@@ -51,6 +55,11 @@ function createServerContext(): ServerContext {
     snapshots: new SnapshotService({ snapshots: new SnapshotStorage(dataDir), connections }),
     profiles,
     workspaces: new WorkspaceService({ workspaces: workspaceStorage, profiles: profileStorage }),
+    // The flag is read once, at start-up, from what the CLI set; nothing in the API can change it.
+    writes: new WriteService({
+      connections: registry,
+      writesEnabled: readSecurityConfig().writesEnabled,
+    }),
   };
 }
 

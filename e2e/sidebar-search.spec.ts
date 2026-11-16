@@ -54,6 +54,20 @@ test("finds a table in a schema that was never opened, and sends no text", async
   const sidebar = page.getByRole("complementary", { name: "Connections and schema explorer" });
   const search = sidebar.getByRole("textbox", { name: "Find a table" });
 
+  // The requests made between typing a text and acting on a result. Clicking a
+  // result rightly requests that table by name, so each window ends before the click.
+  const windows: Array<{ text: string; requests: string[] }> = [];
+  let open: { text: string; from: number } | null = null;
+  const closeWindow = () => {
+    if (open) windows.push({ text: open.text, requests: sent.slice(open.from) });
+    open = null;
+  };
+  const type = async (text: string) => {
+    closeWindow();
+    open = { text, from: sent.length };
+    await search.fill(text);
+  };
+
   // The warehouse schema is closed, so its tables are not on screen.
   await expect(sidebar.getByRole("button", { name: /^warehouse$/ })).toHaveAttribute(
     "aria-expanded",
@@ -61,7 +75,7 @@ test("finds a table in a schema that was never opened, and sends no text", async
   );
   await expect(sidebar.getByRole("button", { name: /^stock_levels\b/ })).toHaveCount(0);
 
-  await search.fill("STOCK");
+  await type("STOCK");
   const status = sidebar.getByRole("status");
   await expect(status).toHaveText(/^2 of \d+ tables and views$/);
   // The name that starts with the text comes first; the view is listed too.
@@ -73,16 +87,18 @@ test("finds a table in a schema that was never opened, and sends no text", async
   await expect(sidebar.getByRole("list", { name: "Schemas" })).toBeHidden();
 
   // `%` is an ordinary character.
-  await search.fill("50%");
+  await type("50%");
   await expect(status).toHaveText(/^1 of \d+/);
   await expect(matches).toHaveText([/^Odd_50%_Name/]);
 
   // Nothing matches: a sentence that does not repeat the text.
-  await search.fill("zzz-nothing");
+  await type("zzz-nothing");
   await expect(status).toHaveText("No table matches this text.");
 
   // Canvas view: clicking a result adds the table to the canvas.
-  await search.fill("stock_lev");
+  await type("stock_lev");
+  await expect(matches.first()).toBeVisible();
+  closeWindow();
   await matches.first().click();
   await expect(page.locator('.react-flow__node[data-id*="stock_levels"]')).toBeVisible();
   await expect(matches.first()).toHaveAttribute("aria-current", "true");
@@ -99,15 +115,26 @@ test("finds a table in a schema that was never opened, and sends no text", async
 
   // Details view: clicking a result shows the table's details. The clear button empties the box.
   await page.getByRole("tab", { name: "Table details" }).click();
-  await search.fill("low_");
+  await type("low_");
+  await expect(matches.first()).toBeVisible();
+  closeWindow();
   await matches.first().click();
   await expect(page.getByRole("heading", { name: /low_stock/ })).toBeVisible();
   await sidebar.getByRole("button", { name: "Clear the table search" }).click();
   await expect(search).toHaveValue("");
 
-  // None of the typed text was sent anywhere. (Only texts that are not also a
-  // table name: opening a table rightly requests it by name.)
-  for (const text of ["STOCK", "50%", "50%25", "zzz-nothing"]) {
-    expect(sent.filter((line) => line.includes(text))).toEqual([]);
+  // None of the typed text was sent anywhere: not as typed, and not URL-encoded, in any case.
+  closeWindow();
+  expect(windows.map((w) => w.text)).toEqual(["STOCK", "50%", "zzz-nothing", "stock_lev", "low_"]);
+  // The check has something to look at: the first search loads every schema's table list.
+  expect(windows[0]?.requests.some((line) => line.includes("/tables"))).toBe(true);
+  for (const { text, requests } of windows) {
+    const lines = requests.map((line) => line.toLowerCase());
+    for (const form of [text, encodeURIComponent(text)]) {
+      expect(
+        lines.filter((line) => line.includes(form.toLowerCase())),
+        `a request carried "${text}"`,
+      ).toEqual([]);
+    }
   }
 });

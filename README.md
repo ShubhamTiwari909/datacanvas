@@ -39,7 +39,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 - Everything runs locally and listens on `127.0.0.1` only.
 - By default only **metadata** is read (names, types, keys, indexes). If you switch on **Allow viewing table data** for a connection, DataCanvas can also show the rows of a table you open: one page at a time, never saved, logged or put in a snapshot or workspace. There is no way to run your own SQL.
-- DataCanvas **never changes your database unless you start it with `--enable-writes`**, the database is on your own machine, and you unlock writes for that connection by typing its name. Even then there is no way to run your own SQL: you edit rows and design tables through forms that show the exact statement first.
+- DataCanvas **never changes your database unless you start it with `--enable-writes`**, the connection looks like one to a database on your own machine (an SSH tunnel to a remote database can look the same, see [SECURITY.md](SECURITY.md)), and you unlock writes for that connection by typing its name. Even then there is no way to run your own SQL: you edit rows and design tables through forms that show the exact statement first.
 - No telemetry, no cloud, no account.
 - The local server refuses requests from other websites and other programs (Host, Origin and a per-run session token).
 

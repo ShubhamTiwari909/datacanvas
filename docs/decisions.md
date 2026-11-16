@@ -819,7 +819,7 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 
 ## 131. The session history is kept in memory only and never holds values
 
-**Decision:** the list of changes made since connecting holds the operation, the table, the column names, the time and the outcome (and the SQL for structure changes, which carries no values). It is never written to a file.
+**Decision:** the list of changes made since connecting holds the operation, the table, the column names, the time and the outcome (and the SQL for a structure change, except when the change carries a default value or a comment the person typed: that text is not kept). It is never written to a file. The preview shown to the person stays exact; only the history leaves such text out.
 
 **Why:** a file would be one more thing to protect and document, for little gain.
 

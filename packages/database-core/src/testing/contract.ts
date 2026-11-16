@@ -413,6 +413,93 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
           expect(seen).toEqual(["1", "2", "3"]);
         });
 
+        it("says what each column can do: text, ordered, or other", async () => {
+          const page = await adapter.getRows(users, first);
+          expect(Object.fromEntries(page.columns.map((c) => [c.name, c.kind]))).toEqual({
+            id: "ordered",
+            email: "text",
+            full_name: "text",
+            created_at: "ordered",
+          });
+          expect(page.sort).toBeNull();
+          expect(page.sortValueTooLong).toBe(false);
+        });
+
+        describe("sorting", () => {
+          const idsOf = (page: {
+            rows: Array<Array<{ value: string | null }>>;
+          }): Array<string | null> => page.rows.map((row) => row[0]!.value);
+
+          /** Every page of a sorted read, one row at a time. */
+          async function walk(sort: { column: string; direction: "asc" | "desc" }) {
+            const seen: Array<string | null> = [];
+            let cursor: string | null = null;
+            for (let guard = 0; guard < 20; guard += 1) {
+              const page: Awaited<ReturnType<typeof adapter.getRows>> = await adapter.getRows(
+                users,
+                {
+                  ...first,
+                  pageSize: 1,
+                  cursor,
+                  sort,
+                },
+              );
+              seen.push(...idsOf(page));
+              cursor = page.nextCursor;
+              if (cursor === null) return seen;
+            }
+            throw new Error("paging did not end");
+          }
+
+          it("orders by the column, ascending and descending, and echoes the sort", async () => {
+            const asc = await adapter.getRows(users, {
+              ...first,
+              sort: { column: "email", direction: "asc" },
+            });
+            expect(idsOf(asc)).toEqual(["1", "2", "3"]);
+            const desc = await adapter.getRows(users, {
+              ...first,
+              sort: { column: "email", direction: "desc" },
+            });
+            expect(idsOf(desc)).toEqual(["3", "2", "1"]);
+            expect(desc.sort).toEqual({ column: "email", direction: "desc" });
+            expect(desc.order).toEqual({ kind: "primary_key", columns: ["id"] });
+          });
+
+          it("pages through a sorted table one row at a time, each row once", async () => {
+            expect(await walk({ column: "email", direction: "desc" })).toEqual(["3", "2", "1"]);
+            expect(await walk({ column: "email", direction: "asc" })).toEqual(["1", "2", "3"]);
+          });
+
+          it("breaks ties with the key, including a column that is NULL in every row", async () => {
+            // full_name is NULL everywhere: the order is the key's, in both directions, and paging through NULLs works.
+            expect(await walk({ column: "full_name", direction: "asc" })).toEqual(["1", "2", "3"]);
+            expect(await walk({ column: "full_name", direction: "desc" })).toEqual(["1", "2", "3"]);
+          });
+
+          it("refuses a column that does not exist, and a cursor from a different sort", async () => {
+            await expect(
+              adapter.getRows(users, { ...first, sort: { column: "nope", direction: "asc" } }),
+            ).rejects.toMatchObject({ code: "invalid_request" });
+            const plain = await adapter.getRows(users, { ...first, pageSize: 1 });
+            await expect(
+              adapter.getRows(users, {
+                ...first,
+                cursor: plain.nextCursor,
+                sort: { column: "email", direction: "asc" },
+              }),
+            ).rejects.toMatchObject({ code: "invalid_request" });
+            const sorted = await adapter.getRows(users, {
+              ...first,
+              pageSize: 1,
+              sort: { column: "email", direction: "asc" },
+            });
+            await expect(
+              adapter.getRows(users, { ...first, cursor: sorted.nextCursor }),
+            ).rejects.toMatchObject({ code: "invalid_request" });
+          });
+        });
+
         it("gives an empty page for a table with no rows, with its columns", async () => {
           const page = await adapter.getRows({ schema: "public", name: "orders" }, first);
           expect(page.rows).toEqual([]);

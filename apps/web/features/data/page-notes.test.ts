@@ -4,8 +4,8 @@ import { pageNotes } from "./page-notes";
 
 const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   columns: [
-    { name: "id", dataType: "integer", masked: false },
-    { name: "email", dataType: "text", masked: false },
+    { name: "id", dataType: "integer", masked: false, kind: "ordered" },
+    { name: "email", dataType: "text", masked: false, kind: "text" },
   ],
   rows: [],
   nextCursor: null,
@@ -14,6 +14,8 @@ const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   cutBySize: false,
   offsetCapped: false,
   rowSecurity: "off",
+  sort: null,
+  sortValueTooLong: false,
   ...overrides,
 });
 
@@ -49,14 +51,14 @@ describe("pageNotes", () => {
 
   it("says when columns were hidden because their names look sensitive, singular and plural", () => {
     const one = pageNotes(
-      page({ columns: [{ name: "password", dataType: "text", masked: true }] }),
+      page({ columns: [{ name: "password", dataType: "text", masked: true, kind: "text" }] }),
     );
     expect(one.join(" ")).toContain("A column whose name looks sensitive was not read");
     const two = pageNotes(
       page({
         columns: [
-          { name: "password", dataType: "text", masked: true },
-          { name: "api_key", dataType: "text", masked: true },
+          { name: "password", dataType: "text", masked: true, kind: "text" },
+          { name: "api_key", dataType: "text", masked: true, kind: "text" },
         ],
       }),
     );
@@ -78,7 +80,7 @@ describe("pageNotes", () => {
             { value: "x", truncated: false },
           ],
         ],
-        columns: [{ name: "password", dataType: "text", masked: true }],
+        columns: [{ name: "password", dataType: "text", masked: true, kind: "text" }],
       }),
     ).join(" ");
     expect(text).not.toContain("SECRET-CELL");

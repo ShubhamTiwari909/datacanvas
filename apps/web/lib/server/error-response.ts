@@ -17,6 +17,7 @@ import { ServiceError } from "./service-error";
  *         (credentials, database name, TLS setting, privileges);
  *  - 404: the schema or table does not exist;
  *  - 409: the connection is not open;
+ *  - 422: a read with a sort or a filter was stopped because it ran too long;
  *  - 502 / 504: the database server could not be reached / did not answer in time
  *         (we are a gateway to it);
  *  - 500: anything we did not anticipate.
@@ -30,6 +31,7 @@ export const DATABASE_ERROR_STATUS: Record<DatabaseErrorCode, number> = {
   not_connected: 409,
   invalid_request: 400,
   not_supported: 400,
+  too_slow: 422,
   unreachable: 502,
   timeout: 504,
   unexpected: 500,

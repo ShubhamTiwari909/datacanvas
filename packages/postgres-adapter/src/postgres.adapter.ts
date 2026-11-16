@@ -14,6 +14,7 @@
  */
 import {
   DatabaseError,
+  ROWS_SORT_FILTER_TIMEOUT_MS,
   type ColumnInfo,
   type ConstraintInfo,
   type DatabaseAdapter,
@@ -164,8 +165,21 @@ export class PostgresAdapter implements DatabaseAdapter {
     return this.read((db) => listObjects(db));
   }
 
-  getRows(table: TableRef, options: RowsOptions): Promise<RowPage> {
-    return this.read((db) => readRows(db, table, options));
+  async getRows(table: TableRef, options: RowsOptions): Promise<RowPage> {
+    // A plain page keeps the usual statement timeout. A read with a sort runs under a shorter one
+    // (never longer than the usual), and a read it stops is reported as too slow, not as a timeout.
+    if (options.sort === undefined || options.sort === null) {
+      return this.read((db) => readRows(db, table, options));
+    }
+    const limit = Math.min(ROWS_SORT_FILTER_TIMEOUT_MS, this.options.statementTimeoutMs);
+    try {
+      return await this.read((db) => readRows(db, table, options), limit);
+    } catch (error) {
+      if (error instanceof DatabaseError && error.code === "timeout" && wasCancelled(error.cause)) {
+        throw new DatabaseError("too_slow", { cause: error.cause });
+      }
+      throw error;
+    }
   }
 
   getIndexUsage(): Promise<IndexUsageReport> {
@@ -173,15 +187,25 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   /** Run `work` in a read-only transaction and translate any failure to a DatabaseError. */
-  private async read<T>(work: (db: Queryable) => Promise<T>): Promise<T> {
+  private async read<T>(
+    work: (db: Queryable) => Promise<T>,
+    statementTimeoutMs: number = this.options.statementTimeoutMs,
+  ): Promise<T> {
     const pool = this.pool;
     if (!pool) throw new DatabaseError("not_connected");
     try {
-      return await withReadOnlyTransaction(pool, this.options.statementTimeoutMs, work);
+      return await withReadOnlyTransaction(pool, statementTimeoutMs, work);
     } catch (error) {
       throw mapPgError(error); // returns DatabaseErrors (such as not_found) unchanged
     }
   }
+}
+
+/** Did the server cancel the statement (SQLSTATE 57014: our statement timeout fired), as opposed to a connection that timed out? */
+function wasCancelled(cause: unknown): boolean {
+  return (
+    typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "57014"
+  );
 }
 
 /** Factory in the shape `AdapterRegistry.register("postgresql", ...)` expects. */

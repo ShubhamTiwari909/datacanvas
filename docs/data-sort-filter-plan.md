@@ -1,6 +1,6 @@
 # Plan: sorting and filtering rows in the data viewer
 
-Status: **design settled 2026-11-16 (all seven recommendations accepted, section 8); nothing built.** This is the part of milestone M4 that `docs/data-viewer-plan.md` (decision 6, section 5.3) left for its own design, because it lets the browser's choice of column and value shape the `SELECT`. The decisions are in section 8. Numbers in section 2 were measured on 2026-11-16 on one machine; they show shape, not guarantees.
+Status: **design settled 2026-11-16 (all seven recommendations accepted, section 8). S1a (sorting, in the core and the PostgreSQL adapter) is built; filters, the server routes and the screens are not.** This is the part of milestone M4 that `docs/data-viewer-plan.md` (decision 6, section 5.3) left for its own design, because it lets the browser's choice of column and value shape the `SELECT`. The decisions are in section 8. Numbers in section 2 were measured on 2026-11-16 on one machine; they show shape, not guarantees.
 
 ## 1. Goal and non-goals
 
@@ -54,7 +54,7 @@ Three things follow.
 
 ### 4.2 What can be sorted and filtered
 
-The `kind` of a column comes from the catalog, once, with the column list: **text** is the string category (`text`, `varchar`, `char`, `name`); **ordered** is any other type with a default btree operator class (numbers, dates and times, booleans, uuid, enums, ranges; domains count as their base type); **other** is everything else (`json`, `xml`, arrays, composites, `bytea`, geometric types).
+The `kind` of a column comes from the catalog, once, with the column list: **text** is the string category (`text`, `varchar`, `char`, `name`); **ordered** is any other type with a default btree operator class (numbers, dates and times, booleans, uuid, enums, ranges; domains count as their base type), except `jsonb` and `bytea`, whose order means nothing to a person; **other** is everything else (`json`, `jsonb`, `xml`, arrays, composites, `bytea`, geometric types).
 
 | Kind    | Operators                                                                                | Sortable |
 | ------- | ---------------------------------------------------------------------------------------- | -------- |
@@ -103,7 +103,7 @@ Today the statement has one shape. With this change it has a small family of sha
 
 ### 4.6 Cost: a shorter timeout
 
-A read with a sort or a filter runs with a statement timeout of **5 seconds** (a plain page keeps the existing 15). The transaction wrapper gains an optional timeout for the call. When a read is stopped, the person sees a fixed message and a new error code, `rows_too_slow`:
+A read with a sort or a filter runs with a statement timeout of **5 seconds** (a plain page keeps the existing 15). The transaction wrapper gains an optional timeout for the call. When a read is stopped, the person sees a fixed message and a new error code, `too_slow` (the same name in the core and in the API, which keeps the two lists in step):
 
 > This took longer than 5 seconds, so it was stopped. On a large table, sort or filter by a column that has an index, or narrow the filter.
 
@@ -116,7 +116,7 @@ Five seconds is chosen from section 2: unindexed sorts and equality stay far bel
 | `packages/database-core`    | `RowsOptions` gains `sort` and `filters`; `RowColumn` gains `kind`; the page echoes what was applied; the cursor gains the sort value; validation of both against the column list. |
 | `packages/postgres-adapter` | Column `kind` from the catalog; the query builder with the fixed grammar; the shorter timeout; the sort-value limit and its note.                                                  |
 | Mock and contract tests     | The mock sorts and filters the sample data the same way; a shared contract block, so mock and PostgreSQL agree (NULL placement, ties, case).                                       |
-| `packages/shared-types`     | The two request keys, `kind` and the echo in the response, the `rows_too_slow` code.                                                                                               |
+| `packages/shared-types`     | The two request keys, `kind` and the echo in the response, the `too_slow` code.                                                                                                    |
 | `apps/web` server           | Pass-through and the new error code; no logging of either key.                                                                                                                     |
 | `apps/web` UI               | Sort headers, the filter panel and chips, notes, the reducer actions that reset the trail, the empty and too-slow states, in both themes.                                          |
 
@@ -143,12 +143,12 @@ Five seconds is chosen from section 2: unindexed sorts and equality stay far bel
 
 Each is a separate PR ending with `npm run check`, the browser tests and the PostgreSQL 13 to 18 matrix.
 
-| #   | Milestone                                                                                                                                           | Size |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| S1  | **Adapter and core**: column `kind`, sort with keyset paging and NULLs, filters, the shorter timeout, the generated grammar test, mock and contract | L    |
-| S2  | **Server**: the schema keys, `rows_too_slow`, route tests, security rules                                                                           | S    |
-| S3  | **Screens**: sort headers, the filter panel, notes, states, accessibility, browser tests                                                            | L    |
-| S4  | **Documents**: this plan's findings, the threat model and getting-started text, the changelog for the release it ships in                           | S    |
+| #   | Milestone                                                                                                                                                                                                                   | Size |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| S1  | **Adapter and core**, in two steps. **S1a (built):** column `kind`, sort with keyset paging and NULLs, the shorter timeout, the generated grammar test, mock and contract. **S1b:** filters, on the same builder and cursor | L    |
+| S2  | **Server**: the schema keys, route tests, security rules (the `too_slow` code and its status, 422, arrived with S1a because the build needs every core code in the API list)                                                | S    |
+| S3  | **Screens**: sort headers, the filter panel, notes, states, accessibility, browser tests                                                                                                                                    | L    |
+| S4  | **Documents**: this plan's findings, the threat model and getting-started text, the changelog for the release it ships in                                                                                                   | S    |
 
 Sort alone is a smaller first step (S1 and S3 without the filter panel) and can ship earlier if the owner prefers; the design above covers both so the cursor and the request do not change twice.
 
@@ -171,3 +171,15 @@ Several sort columns; OR groups; filters on JSON fields and array elements; a re
 ## 10. Consequence for the release order
 
 Decision 7 puts the viewer's release first: **M5 (documents, changelog, version 1.2.0) is next**, and sort and filter follow as 1.3.0, built as S1 to S4 (section 7) after 1.2.0 is published. The editing plan's suggested version moves from 1.3.0 to 1.4.0 accordingly.
+
+## 11. What S1a found (sorting in the core and the adapter, 2026-11-16)
+
+S1 was split in two so each pull request stays reviewable: S1a is sorting, S1b is filters (decision 1 already said sort first).
+
+1. **The sort value belongs in the cursor, and it can be NULL.** A keyset cursor now holds the last row's key and, for a sorted page, the last row's value in the sort column: `{k: [...], s: [value or null]}`. NULL and the empty string stay different. The decoder accepts only the shapes `{k}`, `{k, s}` and `{o}`. Ascending puts NULL last and continues with `value > last OR (value = last AND key > last key) OR value IS NULL`; descending (NULL first) drops the last clause; after a NULL the two forms are different again. Every form is walked page by page on a real server (each row exactly once, at 1 to 13 rows per page, in both directions), and removing one clause from the statement fails six of those tests.
+2. **A cursor can outgrow its limit.** Key values (up to 3,000 characters each) plus a sort value (up to 1,024) can exceed the 4,096-character cursor limit. The page then ends with `sortValueTooLong` instead of producing a cursor the next request would refuse. The sort value is read one character past what a cursor can carry, to tell a value that fits from one that does not.
+3. **`jsonb` and `bytea` are "other".** Both have a btree order, so a catalog test for "has an order" calls them sortable. It means nothing to a person, so they are named out (section 4.2). Arrays and composites have a btree class over a pseudo-type (`anyarray`, `anyrecord`) that the same test does not match, so they stay "other" without being named. Enums and ranges also order through pseudo-types and are named in. Domains are followed down to their base type, including a domain over a domain.
+4. **The generated grammar test is the guard for "no text typed by the user becomes SQL".** 400 random requests, with names such as `"; DROP TABLE users; --`, `$1`, emoji and 63-byte names, must produce a statement that matches a written grammar once quoted names are replaced; no value of the request may appear outside a quoted name; and every parameter must be used (PostgreSQL refuses an unused one). Making the builder paste a sort value into the text fails it.
+5. **The timeout is tested with a lock, not with a slow query.** A sorted read needs a key, so a view with `pg_sleep` cannot be sorted. Another session holds `ACCESS EXCLUSIVE` on a table; the read waits on it and the statement timeout cancels it (SQLSTATE 57014). A sorted read reports `too_slow`; the same read without a sort reports `timeout`; and the adapter works again once the lock is gone. The adapter test runs with a 700 ms limit, because the limit is the smaller of 5 seconds and the adapter's own statement timeout.
+6. **The error code is `too_slow`, in the core and in the API**, not `rows_too_slow`: the API's list of codes must contain every core code (a type test keeps them in step), so one name serves both. Status 422.
+7. **A hidden column is refused with the same message as any other bad request**, and the message never repeats the column name (tested). The shape of a sort request, whether the column exists, whether it is hidden, whether its type orders, and whether the table has a key are all checked in one pure function used by both adapters.

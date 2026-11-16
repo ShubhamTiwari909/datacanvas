@@ -13,11 +13,13 @@ import {
   ROWS_MAX_OFFSET,
   ROWS_MAX_PAGE_SIZE,
   ROWS_MAX_RESPONSE_CHARS,
+  ROWS_MAX_SORT_VALUE_CHARS,
   type RowCell,
   type RowColumn,
   type RowOrder,
   type RowPage,
   type RowSecurityState,
+  type RowSort,
   type RowsOptions,
 } from "./models.js";
 import { safeSlice } from "./objects.js";
@@ -58,7 +60,13 @@ export function isSensitiveColumnName(name: string): boolean {
 
 // ------------------------------------------------------------------ cursor ---
 
-export type RowsCursor = { kind: "keyset"; values: string[] } | { kind: "offset"; offset: number };
+/**
+ * Where the next page starts. A keyset cursor holds the last row's key and, when the
+ * page was sorted, the last row's value in the sort column (`value: null` is SQL NULL).
+ */
+export type RowsCursor =
+  | { kind: "keyset"; values: string[]; sort?: { value: string | null } | undefined }
+  | { kind: "offset"; offset: number };
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -91,7 +99,11 @@ function fromBase64Url(text: string): Uint8Array | null {
 
 export function encodeRowsCursor(cursor: RowsCursor): string {
   const json = JSON.stringify(
-    cursor.kind === "keyset" ? { k: cursor.values } : { o: cursor.offset },
+    cursor.kind === "keyset"
+      ? cursor.sort
+        ? { k: cursor.values, s: [cursor.sort.value] }
+        : { k: cursor.values }
+      : { o: cursor.offset },
   );
   // Escape everything outside ASCII (\uXXXX), so the cursor is plain ASCII and needs no
   // UTF-8 handling; JSON.parse reads the escapes back, including surrogate pairs.
@@ -124,9 +136,11 @@ export function decodeRowsCursor(text: string): RowsCursor {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw invalid();
   const keys = Object.keys(parsed);
-  if (keys.length !== 1) throw invalid();
-  const record = parsed as { k?: unknown; o?: unknown };
-  if (keys[0] === "k") {
+  const record = parsed as { k?: unknown; o?: unknown; s?: unknown };
+  // The shapes: {k}, {k, s} (a sorted page) or {o}. Nothing else.
+  const shape = [...keys].sort().join(",");
+  if (shape !== "k" && shape !== "k,s" && shape !== "o") throw invalid();
+  if (keys.includes("k")) {
     const values = record.k;
     if (
       !Array.isArray(values) ||
@@ -136,7 +150,18 @@ export function decodeRowsCursor(text: string): RowsCursor {
     ) {
       throw invalid();
     }
-    return { kind: "keyset", values: values as string[] };
+    if (!keys.includes("s")) return { kind: "keyset", values: values as string[] };
+    const sorted = record.s;
+    const value = Array.isArray(sorted) && sorted.length === 1 ? sorted[0] : undefined;
+    if (!(
+      value === null ||
+      (typeof value === "string" &&
+        value.length <= ROWS_MAX_SORT_VALUE_CHARS &&
+        !value.includes("\u0000"))
+    )) {
+      throw invalid();
+    }
+    return { kind: "keyset", values: values as string[], sort: { value } };
   }
   if (keys[0] === "o") {
     const offset = record.o;
@@ -159,6 +184,7 @@ export interface NormalizedRowsOptions {
   pageSize: number;
   cursor: RowsCursor | null;
   reveal: ReadonlySet<string>;
+  sort: RowSort | null;
 }
 
 /** Validate what the caller asked for. @throws DatabaseError `invalid_request` */
@@ -177,7 +203,48 @@ export function normalizeRowsOptions(options: RowsOptions): NormalizedRowsOption
     pageSize,
     cursor: cursor === null ? null : decodeRowsCursor(cursor),
     reveal: new Set(revealColumns),
+    sort: normalizeSort(options.sort),
   };
+}
+
+/** The shape of a sort request (not yet whether the table and column allow it: see `checkRowsSort`). */
+function normalizeSort(sort: RowSort | null | undefined): RowSort | null {
+  if (sort === undefined || sort === null) return null;
+  if (
+    typeof sort !== "object" ||
+    Array.isArray(sort) ||
+    typeof sort.column !== "string" ||
+    sort.column.length === 0 ||
+    sort.column.length > 255 ||
+    (sort.direction !== "asc" && sort.direction !== "desc")
+  ) {
+    throw invalid();
+  }
+  return { column: sort.column, direction: sort.direction };
+}
+
+/** Can the rows of a table be sorted by this column? */
+export function canSortRows(column: RowColumn, order: RowOrder): boolean {
+  // A hidden column is refused: ordering by it (or paging past it) would read it back one comparison at a time.
+  // A table without a key has no tie-breaker, so a page boundary could skip or repeat rows.
+  return !column.masked && column.kind !== "other" && order.kind !== "none";
+}
+
+/**
+ * Check a sort against the columns that were read. A column that is not one of them
+ * (a name that does not exist, or one of the columns left out beyond the first 100),
+ * a hidden or unsortable column, or a table without a key: `invalid_request`
+ * (a fixed message, no echo of the name).
+ */
+export function checkRowsSort(
+  sort: RowSort | null,
+  columns: readonly RowColumn[],
+  order: RowOrder,
+): RowSort | null {
+  if (sort === null) return null;
+  const column = columns.find((c) => c.name === sort.column);
+  if (!column || !canSortRows(column, order)) throw invalid();
+  return sort;
 }
 
 // -------------------------------------------------------------------- page ---
@@ -186,6 +253,8 @@ export function normalizeRowsOptions(options: RowsOptions): NormalizedRowsOption
 export interface RawRow {
   cells: Array<string | null>;
   key: string[] | null;
+  /** The row's value in the sort column, cut at `ROWS_MAX_SORT_VALUE_CHARS + 1` characters (null for SQL NULL); only when the page is sorted. */
+  sortValue?: string | null | undefined;
 }
 
 export interface BuildRowPageInput {
@@ -202,6 +271,8 @@ export interface BuildRowPageInput {
   offset: number;
   /** Row-level security as it applies to the connected role; `off` when not given. */
   rowSecurity?: RowSecurityState;
+  /** The sort the rows were read with; null or absent for the key order. */
+  sort?: RowSort | null;
 }
 
 /** Cut one raw value to the cell limit (the database already cut it; this keeps every adapter to the same limit). */
@@ -240,12 +311,28 @@ export function buildRowPage(input: BuildRowPageInput): RowPage {
   }
 
   const more = rawRows.length > pageSize || cutBySize;
+  const sort = input.sort ?? null;
   let nextCursor: string | null = null;
   let offsetCapped = false;
+  let sortValueTooLong = false;
   if (more) {
     if (order.kind !== "none") {
-      const key = included[included.length - 1]?.key;
-      if (key) nextCursor = encodeRowsCursor({ kind: "keyset", values: key });
+      const last = included[included.length - 1];
+      const key = last?.key;
+      if (key) {
+        if (sort === null) {
+          nextCursor = encodeRowsCursor({ kind: "keyset", values: key });
+        } else {
+          const value = last.sortValue ?? null;
+          const cursor =
+            value === null || value.length <= ROWS_MAX_SORT_VALUE_CHARS
+              ? encodeRowsCursor({ kind: "keyset", values: key, sort: { value } })
+              : null;
+          // A value too long to carry, or a cursor that would be refused for its size, ends the paging.
+          if (cursor !== null && cursor.length <= ROWS_MAX_CURSOR_CHARS) nextCursor = cursor;
+          else sortValueTooLong = true;
+        }
+      }
     } else {
       const next = offset + included.length;
       if (next >= ROWS_MAX_OFFSET) offsetCapped = true;
@@ -262,5 +349,7 @@ export function buildRowPage(input: BuildRowPageInput): RowPage {
     cutBySize,
     offsetCapped,
     rowSecurity: input.rowSecurity ?? "off",
+    sort,
+    sortValueTooLong,
   };
 }

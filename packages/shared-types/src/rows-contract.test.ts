@@ -67,7 +67,7 @@ describe("rowsRequestSchema", () => {
 describe("rowsResponseSchema", () => {
   it("accepts a page and keeps NULL apart from the empty string", () => {
     const page = {
-      columns: [{ name: "a", dataType: "text", masked: false }],
+      columns: [{ name: "a", dataType: "text", masked: false, kind: "text" as const }],
       rows: [[{ value: null, truncated: false }], [{ value: "", truncated: false }]],
       nextCursor: null,
       order: { kind: "primary_key" as const, columns: ["a"] },
@@ -75,6 +75,8 @@ describe("rowsResponseSchema", () => {
       cutBySize: false,
       offsetCapped: false,
       rowSecurity: "off" as const,
+      sort: null,
+      sortValueTooLong: false,
     };
     expect(rowsResponseSchema.parse({ page })).toEqual({ page });
     expect(rowsResponseSchema.safeParse({ page: { ...page, rowSecurity: "maybe" } }).success).toBe(

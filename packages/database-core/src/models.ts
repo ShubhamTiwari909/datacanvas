@@ -366,6 +366,18 @@ export const ROWS_MAX_RESPONSE_CHARS = 2_000_000;
 export const ROWS_MAX_OFFSET = 10_000;
 /** A paging cursor is untrusted input: longer than this is refused. */
 export const ROWS_MAX_CURSOR_CHARS = 4096;
+/** The most characters of the sort column's value a cursor can carry; a page that ends on a longer value cannot be continued. */
+export const ROWS_MAX_SORT_VALUE_CHARS = 1024;
+/** A read with a sort (or a filter) is stopped after this long, however long a plain page is allowed to take. */
+export const ROWS_SORT_FILTER_TIMEOUT_MS = 5000;
+
+export type RowSortDirection = "asc" | "desc";
+
+/** Sort by one column. The table's key always follows as the tie-breaker, so the order is total and stable. */
+export interface RowSort {
+  column: string;
+  direction: RowSortDirection;
+}
 
 export interface RowsOptions {
   /** 1 to `ROWS_MAX_PAGE_SIZE`. */
@@ -377,7 +389,22 @@ export interface RowsOptions {
    * that are not columns of the table are ignored.
    */
   revealColumns: string[];
+  /**
+   * Sort by one column (null or absent: the key order). Only a column that can be
+   * sorted (`canSortRows`) and is not hidden; a table without a key cannot be sorted.
+   */
+  sort?: RowSort | null;
 }
+
+/**
+ * What can be done with a column's values:
+ *  - "text": a string type (text, varchar, char, name, citext);
+ *  - "ordered": any other type with a default btree ordering (numbers, dates and times,
+ *    booleans, uuid, enums, ranges; a domain counts as its base type), except `jsonb` and
+ *    `bytea`, whose order is not meaningful to a person;
+ *  - "other": everything else (json, xml, arrays, composites, geometric types, `jsonb`, `bytea`).
+ */
+export type RowColumnKind = "text" | "ordered" | "other";
 
 export interface RowColumn {
   name: string;
@@ -385,6 +412,7 @@ export interface RowColumn {
   dataType: string;
   /** The column looks sensitive and was not read: every cell of it is empty. */
   masked: boolean;
+  kind: RowColumnKind;
 }
 
 /** One value. `value` is null for SQL NULL (which is not the empty string); `truncated` says the text was cut. */
@@ -430,4 +458,8 @@ export interface RowPage {
   offsetCapped: boolean;
   /** Whether the rows shown may be only some of the table's rows because of row-level security. */
   rowSecurity: RowSecurityState;
+  /** The sort that was applied, or null for the key order. */
+  sort: RowSort | null;
+  /** The page ended on a sort value too long to continue from, so there is no next page. */
+  sortValueTooLong: boolean;
 }

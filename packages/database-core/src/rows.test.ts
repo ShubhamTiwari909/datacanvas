@@ -5,10 +5,13 @@ import {
   ROWS_MAX_OFFSET,
   ROWS_MAX_PAGE_SIZE,
   ROWS_MAX_RESPONSE_CHARS,
+  ROWS_MAX_SORT_VALUE_CHARS,
   type RowColumn,
 } from "./models.js";
 import {
   buildRowPage,
+  canSortRows,
+  checkRowsSort,
   decodeRowsCursor,
   encodeRowsCursor,
   isSensitiveColumnName,
@@ -64,6 +67,20 @@ describe("isSensitiveColumnName", () => {
   });
 });
 
+const forged = (json: string): string => {
+  // A valid base64url of arbitrary JSON text, built the same way the module does.
+  const bytes = [...json].map((c) => c.charCodeAt(0));
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    out += chars[(n >> 18) & 63]! + chars[(n >> 12) & 63]!;
+    if (i + 1 < bytes.length) out += chars[(n >> 6) & 63]!;
+    if (i + 2 < bytes.length) out += chars[n & 63]!;
+  }
+  return out;
+};
+
 describe("rows cursor", () => {
   it("round-trips a key, including quotes, Unicode, emoji, a lone surrogate and spaces", () => {
     for (const values of [
@@ -93,20 +110,6 @@ describe("rows cursor", () => {
     const text = encodeRowsCursor({ kind: "keyset", values: ["日本語 🙂", '"'] });
     expect(text).toMatch(/^[A-Za-z0-9_-]+$/);
   });
-
-  const forged = (json: string): string => {
-    // A valid base64url of arbitrary JSON text, built the same way the module does.
-    const bytes = [...json].map((c) => c.charCodeAt(0));
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let out = "";
-    for (let i = 0; i < bytes.length; i += 3) {
-      const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-      out += chars[(n >> 18) & 63]! + chars[(n >> 12) & 63]!;
-      if (i + 1 < bytes.length) out += chars[(n >> 6) & 63]!;
-      if (i + 2 < bytes.length) out += chars[n & 63]!;
-    }
-    return out;
-  };
 
   it.each([
     ["empty", ""],
@@ -188,9 +191,9 @@ describe("normalizeRowsOptions", () => {
 
 describe("buildRowPage", () => {
   const columns: RowColumn[] = [
-    { name: "id", dataType: "integer", masked: false },
-    { name: "note", dataType: "text", masked: false },
-    { name: "password", dataType: "text", masked: true },
+    { name: "id", dataType: "integer", masked: false, kind: "ordered" },
+    { name: "note", dataType: "text", masked: false, kind: "text" },
+    { name: "password", dataType: "text", masked: true, kind: "text" },
   ];
   const keyed = { kind: "primary_key" as const, columns: ["id"] };
   const row = (id: number, note: string | null, secret = "hunter2"): RawRow => ({
@@ -259,6 +262,7 @@ describe("buildRowPage", () => {
       name: `c${i}`,
       dataType: "text",
       masked: false,
+      kind: "text",
     }));
     const rawRows: RawRow[] = Array.from({ length: 5 }, (_, i) => ({
       cells: Array(cellsPerRow).fill(big) as string[],
@@ -284,6 +288,7 @@ describe("buildRowPage", () => {
       name: `c${i}`,
       dataType: "text",
       masked: false,
+      kind: "text",
     }));
     const raw: RawRow = {
       cells: Array(1100).fill("y".repeat(ROWS_CELL_CHARS)) as string[],
@@ -335,5 +340,215 @@ describe("buildRowPage", () => {
 
   it("reports how many columns were left out", () => {
     expect(page([row(1, "a")], 2, { hiddenColumns: 201 }).hiddenColumns).toBe(201);
+  });
+});
+
+describe("rows cursor with a sort value", () => {
+  const sorted = (value: string | null) => ({
+    kind: "keyset" as const,
+    values: ["7"],
+    sort: { value },
+  });
+
+  it.each([
+    ["text"],
+    [""],
+    ["multi\nline \u00e9 \ud83d\ude42"],
+    ["x".repeat(ROWS_MAX_SORT_VALUE_CHARS)],
+  ])("round-trips the sort value %j", (value) => {
+    expect(decodeRowsCursor(encodeRowsCursor(sorted(value)))).toEqual(sorted(value));
+  });
+
+  it("keeps SQL NULL apart from the empty string and from no sort at all", () => {
+    expect(decodeRowsCursor(encodeRowsCursor(sorted(null)))).toEqual(sorted(null));
+    expect(decodeRowsCursor(encodeRowsCursor(sorted("")))).toEqual(sorted(""));
+    expect(decodeRowsCursor(encodeRowsCursor({ kind: "keyset", values: ["7"] }))).toEqual({
+      kind: "keyset",
+      values: ["7"],
+    });
+  });
+
+  it.each([
+    ["a sort value over the limit", { k: ["1"], s: ["x".repeat(ROWS_MAX_SORT_VALUE_CHARS + 1)] }],
+    ["a sort that is not a list", { k: ["1"], s: "a" }],
+    ["a sort list of two", { k: ["1"], s: ["a", "b"] }],
+    ["an empty sort list", { k: ["1"], s: [] }],
+    ["a sort value that is a number", { k: ["1"], s: [5] }],
+    ["a sort value with a NUL character", { k: ["1"], s: ["a\u0000b"] }],
+    ["a sort with no key", { s: ["a"] }],
+    ["a sort next to an offset", { o: 1, s: ["a"] }],
+    ["an unknown extra key", { k: ["1"], s: ["a"], x: 1 }],
+  ])("refuses %s", (_name, value) => {
+    expect(() => decodeRowsCursor(forged(JSON.stringify(value)))).toThrow(
+      /page size or the paging position/,
+    );
+  });
+});
+
+describe("a sort in the options", () => {
+  const base = { pageSize: 10, cursor: null, revealColumns: [] };
+
+  it("is null when absent or null, and is read as given otherwise", () => {
+    expect(normalizeRowsOptions(base).sort).toBeNull();
+    expect(normalizeRowsOptions({ ...base, sort: null }).sort).toBeNull();
+    expect(
+      normalizeRowsOptions({ ...base, sort: { column: "a", direction: "desc" } }).sort,
+    ).toEqual({ column: "a", direction: "desc" });
+  });
+
+  it.each([
+    ["an empty column name", { column: "", direction: "asc" }],
+    ["a column name over 255 characters", { column: "c".repeat(256), direction: "asc" }],
+    ["a direction that is not asc or desc", { column: "a", direction: "up" }],
+    ["no direction", { column: "a" }],
+    ["a column that is not text", { column: 7, direction: "asc" }],
+    ["a list", [{ column: "a", direction: "asc" }]],
+  ])("refuses %s", (_name, sort) => {
+    expect(() => normalizeRowsOptions({ ...base, sort } as never)).toThrow(/paging position/);
+  });
+});
+
+describe("which columns can be sorted", () => {
+  const keyed = { kind: "primary_key" as const, columns: ["id"] };
+  const none = { kind: "none" as const, columns: [] };
+  const col = (name: string, kind: RowColumn["kind"], masked = false): RowColumn => ({
+    name,
+    dataType: "x",
+    masked,
+    kind,
+  });
+  const columns = [
+    col("id", "ordered"),
+    col("name", "text"),
+    col("data", "other"),
+    col("password", "text", true),
+  ];
+
+  it("allows a text or ordered column of a table with a key", () => {
+    expect(canSortRows(columns[0]!, keyed)).toBe(true);
+    expect(canSortRows(columns[1]!, keyed)).toBe(true);
+    expect(checkRowsSort({ column: "name", direction: "desc" }, columns, keyed)).toEqual({
+      column: "name",
+      direction: "desc",
+    });
+  });
+
+  it("is null when there is no sort", () => {
+    expect(checkRowsSort(null, columns, keyed)).toBeNull();
+    expect(checkRowsSort(null, columns, none)).toBeNull();
+  });
+
+  it.each([
+    ["a column of another kind (json, arrays, ...)", { column: "data", direction: "asc" }, keyed],
+    [
+      "a hidden column: ordering by it would read it back",
+      { column: "password", direction: "asc" },
+      keyed,
+    ],
+    ["a column that does not exist", { column: "nope", direction: "asc" }, keyed],
+    ["a table without a key", { column: "name", direction: "asc" }, none],
+  ])("refuses %s", (_name, sort, order) => {
+    expect(() => checkRowsSort(sort as never, columns, order)).toThrow(/paging position/);
+  });
+
+  it("allows a column that was hidden once it is revealed", () => {
+    const revealed = columns.map((c) => (c.name === "password" ? { ...c, masked: false } : c));
+    expect(checkRowsSort({ column: "password", direction: "asc" }, revealed, keyed)).not.toBeNull();
+  });
+
+  it("the refusal never repeats the column name", () => {
+    try {
+      checkRowsSort({ column: "SECRET-COLUMN-NAME", direction: "asc" }, columns, keyed);
+      expect.unreachable();
+    } catch (error) {
+      expect(String((error as Error).message)).not.toContain("SECRET-COLUMN-NAME");
+    }
+  });
+});
+
+describe("a sorted page", () => {
+  const columns: RowColumn[] = [
+    { name: "id", dataType: "integer", masked: false, kind: "ordered" },
+    { name: "name", dataType: "text", masked: false, kind: "text" },
+  ];
+  const keyed = { kind: "primary_key" as const, columns: ["id"] };
+  const sort = { column: "name", direction: "asc" as const };
+  const row = (id: number, name: string | null): RawRow => ({
+    cells: [String(id), name],
+    key: [String(id)],
+    sortValue: name,
+  });
+  const page = (rawRows: RawRow[], size = 1) =>
+    buildRowPage({
+      columns,
+      hiddenColumns: 0,
+      order: keyed,
+      rawRows,
+      pageSize: size,
+      offset: 0,
+      sort,
+    });
+
+  it("echoes the sort and carries the last row's sort value in the cursor", () => {
+    const result = page([row(1, "ann"), row(2, "bob")]);
+    expect(result.sort).toEqual(sort);
+    expect(decodeRowsCursor(result.nextCursor!)).toEqual({
+      kind: "keyset",
+      values: ["1"],
+      sort: { value: "ann" },
+    });
+  });
+
+  it("carries NULL as NULL, not as an empty string", () => {
+    const result = page([row(1, null), row(2, "bob")]);
+    expect(decodeRowsCursor(result.nextCursor!)).toEqual({
+      kind: "keyset",
+      values: ["1"],
+      sort: { value: null },
+    });
+  });
+
+  it("ends the paging, with a flag, when the last value is too long to carry", () => {
+    const long = "x".repeat(ROWS_MAX_SORT_VALUE_CHARS + 1);
+    const result = page([row(1, long), row(2, "bob")]);
+    expect(result.nextCursor).toBeNull();
+    expect(result.sortValueTooLong).toBe(true);
+    // Exactly at the limit still pages.
+    const fits = page([row(1, "x".repeat(ROWS_MAX_SORT_VALUE_CHARS)), row(2, "bob")]);
+    expect(fits.nextCursor).not.toBeNull();
+    expect(fits.sortValueTooLong).toBe(false);
+  });
+
+  it("ends the paging when the whole cursor would be too big", () => {
+    const wideKey: RawRow = {
+      cells: ["1", "a"],
+      key: ["k".repeat(2900), "k".repeat(2900)],
+      sortValue: "x".repeat(ROWS_MAX_SORT_VALUE_CHARS),
+    };
+    const result = buildRowPage({
+      columns,
+      hiddenColumns: 0,
+      order: { kind: "primary_key", columns: ["a", "b"] },
+      rawRows: [wideKey, row(2, "bob")],
+      pageSize: 1,
+      offset: 0,
+      sort,
+    });
+    expect(result.nextCursor).toBeNull();
+    expect(result.sortValueTooLong).toBe(true);
+  });
+
+  it("an unsorted page says so and has no flag", () => {
+    const result = buildRowPage({
+      columns,
+      hiddenColumns: 0,
+      order: keyed,
+      rawRows: [row(1, "a"), row(2, "b")],
+      pageSize: 1,
+      offset: 0,
+    });
+    expect(result.sort).toBeNull();
+    expect(result.sortValueTooLong).toBe(false);
+    expect(decodeRowsCursor(result.nextCursor!)).toEqual({ kind: "keyset", values: ["1"] });
   });
 });

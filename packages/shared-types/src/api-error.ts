@@ -32,6 +32,7 @@ export const API_ERROR_CODES = [
   "not_connected",
   "invalid_request",
   "not_supported",
+  "too_slow",
   "unexpected",
   // Connection registry problems.
   "connection_not_found",

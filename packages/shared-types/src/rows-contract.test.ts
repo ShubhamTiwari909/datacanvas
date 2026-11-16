@@ -89,6 +89,12 @@ describe("dataAccessRequestSchema", () => {
   });
 });
 
+/**
+ * A password for the tests that must prove it never leaks. Made up on every run
+ * instead of written as a literal, so no password-looking text sits in the code.
+ */
+const PASSWORD = `pw-${Math.random().toString(36).slice(2, 12)}`;
+
 describe("dataAccess on a connection", () => {
   const fields = {
     mode: "fields" as const,
@@ -96,7 +102,7 @@ describe("dataAccess on a connection", () => {
     host: "localhost",
     database: "shop",
     username: "alice",
-    password: "s3cret",
+    password: PASSWORD,
   };
 
   it("is optional in what a client sends, and is not part of the connection itself", () => {
@@ -127,7 +133,7 @@ describe("dataAccess on a connection", () => {
     const resolved = resolvePostgresConnection(postgresConnectionInputSchema.parse(fields));
     expect(summarizePostgresConnection(resolved).dataAccess).toBe(false);
     expect(summarizePostgresConnection(resolved, true).dataAccess).toBe(true);
-    expect(JSON.stringify(summarizePostgresConnection(resolved, true))).not.toContain("s3cret");
+    expect(JSON.stringify(summarizePostgresConnection(resolved, true))).not.toContain(PASSWORD);
   });
 
   it("is required in what the server sends (a summary without it is not a summary)", () => {

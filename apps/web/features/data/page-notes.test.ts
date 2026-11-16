@@ -15,6 +15,7 @@ const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   offsetCapped: false,
   rowSecurity: "off",
   sort: null,
+  filters: [],
   sortValueTooLong: false,
   ...overrides,
 });

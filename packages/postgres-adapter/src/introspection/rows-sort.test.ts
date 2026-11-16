@@ -4,7 +4,11 @@
  * quoted catalog names only. A value (a paging position, a sort value) is only ever a
  * bound parameter.
  */
-import { ROWS_CELL_CHARS, ROWS_MAX_SORT_VALUE_CHARS } from "@datacanvas/database-core";
+import {
+  ROWS_CELL_CHARS,
+  ROWS_MAX_SORT_VALUE_CHARS,
+  ROW_FILTER_OPS,
+} from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import { buildRowsQuery, type RowsQueryPlan } from "./rows.js";
 
@@ -155,13 +159,23 @@ const P = "\\$\\d+";
 const idList = `${ID}(?:, ${ID})*`;
 const paramList = `${P}(?:, ${P})*`;
 const afterKey = `ROW\\(${idList}\\) > ROW\\(${paramList}\\)`;
-const WHERE = [
-  `WHERE ${afterKey}`,
-  `WHERE \\(${ID} IS NULL AND ${afterKey}\\)`,
-  `WHERE \\(\\(${ID} IS NULL AND ${afterKey}\\) OR ${ID} IS NOT NULL\\)`,
-  `WHERE \\(${ID} > ${P} OR \\(${ID} = ${P} AND ${afterKey}\\) OR ${ID} IS NULL\\)`,
-  `WHERE \\(${ID} < ${P} OR \\(${ID} = ${P} AND ${afterKey}\\)\\)`,
+const AFTER_CONDITION = [
+  afterKey,
+  `\\(${ID} IS NULL AND ${afterKey}\\)`,
+  `\\(\\(${ID} IS NULL AND ${afterKey}\\) OR ${ID} IS NOT NULL\\)`,
+  `\\(${ID} > ${P} OR \\(${ID} = ${P} AND ${afterKey}\\) OR ${ID} IS NULL\\)`,
+  `\\(${ID} < ${P} OR \\(${ID} = ${P} AND ${afterKey}\\)\\)`,
 ].join("|");
+const FILTER_CONDITION = [
+  `${ID} = ${P}`,
+  `${ID} IS DISTINCT FROM ${P}`,
+  `${ID} (?:>|>=|<|<=) ${P}`,
+  `strpos\\(lower\\(CAST\\(${ID} AS text\\)\\), lower\\(${P}\\)\\) > 0`,
+  `starts_with\\(lower\\(CAST\\(${ID} AS text\\)\\), lower\\(${P}\\)\\)`,
+  `${ID} IS NULL`,
+  `${ID} IS NOT NULL`,
+].join("|");
+const WHERE = `WHERE (?:${FILTER_CONDITION}|${AFTER_CONDITION})(?: AND (?:${FILTER_CONDITION}|${AFTER_CONDITION}))*`;
 const ORDER = `ORDER BY (?:${ID} (?:ASC NULLS LAST|DESC NULLS FIRST), )?${idList}`;
 const GRAMMAR = new RegExp(
   `^SELECT 1 AS r` +
@@ -169,7 +183,7 @@ const GRAMMAR = new RegExp(
     `(?:, CAST\\(${ID} AS text\\) AS k\\d+)*` +
     `(?:, left\\(CAST\\(${ID} AS text\\), ${P}\\) AS s0)?` +
     ` FROM ${ID}\\.${ID}` +
-    `(?: (?:${WHERE}))?` +
+    `(?: ${WHERE})?` +
     `(?: ${ORDER})?` +
     ` LIMIT ${P}(?: OFFSET ${P})?$`,
 );
@@ -191,7 +205,14 @@ describe("buildRowsQuery, generated", () => {
       const direction = next() < 0.5 ? ("asc" as const) : ("desc" as const);
       const continuing = next() < 0.6;
       const sortValue = next() < 0.25 ? null : pick(VALUES);
+      const conditions = Array.from({ length: Math.floor(next() * 4) }, () => {
+        const op = pick(ROW_FILTER_OPS);
+        return op === "is_null" || op === "is_not_null"
+          ? { column: pick(NAMES), op }
+          : { column: pick(NAMES), op, value: pick(VALUES) };
+      });
       const request = plan({
+        filters: conditions,
         schema: pick(NAMES),
         table: pick(NAMES),
         shown,

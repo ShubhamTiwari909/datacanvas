@@ -371,7 +371,39 @@ export const ROWS_MAX_SORT_VALUE_CHARS = 1024;
 /** A read with a sort (or a filter) is stopped after this long, however long a plain page is allowed to take. */
 export const ROWS_SORT_FILTER_TIMEOUT_MS = 5000;
 
+/** The most conditions in one read; they are combined with AND. */
+export const ROWS_MAX_FILTERS = 3;
+/** The most characters in the value of a condition. */
+export const ROWS_MAX_FILTER_VALUE_CHARS = 200;
+
 export type RowSortDirection = "asc" | "desc";
+
+/**
+ * What a condition can ask. `eq` and the comparisons are typed (the value must be valid for the column's
+ * type); `neq` also matches NULL; `contains` and `starts_with` ignore case and treat every character of the
+ * value as itself (there are no wildcards); `is_null` and `is_not_null` take no value.
+ */
+export const ROW_FILTER_OPS = [
+  "eq",
+  "neq",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "contains",
+  "starts_with",
+  "is_null",
+  "is_not_null",
+] as const;
+export type RowFilterOp = (typeof ROW_FILTER_OPS)[number];
+
+/** One condition on a column. Conditions of a read are all required (AND). */
+export interface RowFilter {
+  column: string;
+  op: RowFilterOp;
+  /** Text, at most `ROWS_MAX_FILTER_VALUE_CHARS`; absent for `is_null` and `is_not_null`. */
+  value?: string;
+}
 
 /** Sort by one column. The table's key always follows as the tie-breaker, so the order is total and stable. */
 export interface RowSort {
@@ -394,6 +426,11 @@ export interface RowsOptions {
    * sorted (`canSortRows`) and is not hidden; a table without a key cannot be sorted.
    */
   sort?: RowSort | null;
+  /**
+   * Up to `ROWS_MAX_FILTERS` conditions, all required. Only on columns that are read and not hidden,
+   * with an operator the column's kind allows (`filterOpsFor`). Works on a table without a key as well.
+   */
+  filters?: RowFilter[];
 }
 
 /**
@@ -460,6 +497,8 @@ export interface RowPage {
   rowSecurity: RowSecurityState;
   /** The sort that was applied, or null for the key order. */
   sort: RowSort | null;
+  /** The conditions that were applied, in the order given. */
+  filters: RowFilter[];
   /** The page ended on a sort value too long to continue from, so there is no next page. */
   sortValueTooLong: boolean;
 }

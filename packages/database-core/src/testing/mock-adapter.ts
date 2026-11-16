@@ -31,6 +31,7 @@ import type {
 import { normalizeObjects } from "../objects.js";
 import {
   buildRowPage,
+  checkRowsFilters,
   checkRowsSort,
   isSensitiveColumnName,
   normalizeRowsOptions,
@@ -41,6 +42,7 @@ import {
   ROWS_MAX_OFFSET,
   ROWS_MAX_SORT_VALUE_CHARS,
   type RowColumnKind,
+  type RowFilter,
   type RowSort,
 } from "../models.js";
 import { uniqueTableRefs } from "../table-refs.js";
@@ -53,6 +55,11 @@ function kindOf(dataType: string): RowColumnKind {
   }
   if (/^(text|character|varchar|char|name|citext)\b/.test(dataType)) return "text";
   return "ordered";
+}
+
+/** Is this one of the number types the sample data uses? */
+function isNumericType(type: string): boolean {
+  return /^(smallint|integer|bigint|numeric|real|double precision)/.test(type);
 }
 
 /** The sort value as the adapter reads it: cut one character past what a cursor can carry. */
@@ -202,7 +209,13 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
 
   async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {
     this.requireConnection();
-    const { pageSize, cursor, reveal, sort: requestedSort } = normalizeRowsOptions(options);
+    const {
+      pageSize,
+      cursor,
+      reveal,
+      sort: requestedSort,
+      filters: requestedFilters,
+    } = normalizeRowsOptions(options);
     const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
     if (!table) throw new DatabaseError("not_found");
     if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
@@ -221,7 +234,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
     )
       ? "applies"
       : "off";
-    const empty = (order: RowOrder, sort: RowSort | null): RowPage =>
+    const empty = (order: RowOrder, sort: RowSort | null, filters: RowFilter[]): RowPage =>
       buildRowPage({
         columns,
         hiddenColumns: all.length - shown.length,
@@ -231,6 +244,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         offset: 0,
         rowSecurity,
         sort,
+        filters,
       });
 
     const mapKey = `${ref.schema}.${ref.name}`;
@@ -239,9 +253,31 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       ? { kind: key.kind, columns: key.columns }
       : { kind: "none", columns: [] };
     const sort = checkRowsSort(requestedSort, columns, order);
-    if (all.length === 0) return empty(order, sort);
+    const filters = checkRowsFilters(requestedFilters, columns);
+    // PostgreSQL refuses a value that does not fit the column's type when the statement is bound, rows or none.
+    for (const filter of filters) {
+      const type = all.find((c) => c.name === filter.column)?.dataType ?? "text";
+      if (filter.value !== undefined && isNumericType(type) && Number.isNaN(Number(filter.value))) {
+        if (filter.op !== "contains" && filter.op !== "starts_with") {
+          throw new DatabaseError("invalid_request");
+        }
+      }
+    }
+    if (all.length === 0) return empty(order, sort, filters);
 
-    const stored = Object.hasOwn(this.data.rows, mapKey) ? this.data.rows[mapKey]! : [];
+    const storedAll = Object.hasOwn(this.data.rows, mapKey) ? this.data.rows[mapKey]! : [];
+    const stored =
+      filters.length === 0
+        ? storedAll
+        : storedAll.filter((row) =>
+            filters.every((filter) =>
+              this.matchesFilter(
+                all.find((c) => c.name === filter.column)?.dataType ?? "text",
+                row[filter.column] ?? null,
+                filter,
+              ),
+            ),
+          );
     let rows = stored;
     let start = 0;
     let offset = 0;
@@ -311,6 +347,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       offset,
       rowSecurity,
       sort,
+      filters,
     });
   }
 
@@ -328,6 +365,34 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         i.columns.every((name) => columns.find((c) => c.name === name)?.nullable === false),
     );
     return unique ? { kind: "unique_index", columns: [...unique.columns] } : null;
+  }
+
+  /** One condition, the way the database answers it (a comparison with NULL is never true; `neq` also matches NULL). */
+  private matchesFilter(type: string, value: string | null, filter: RowFilter): boolean {
+    if (filter.op === "is_null") return value === null;
+    if (filter.op === "is_not_null") return value !== null;
+    const wanted = filter.value ?? "";
+    if (filter.op === "contains") {
+      return value !== null && value.toLowerCase().includes(wanted.toLowerCase());
+    }
+    if (filter.op === "starts_with") {
+      return value !== null && value.toLowerCase().startsWith(wanted.toLowerCase());
+    }
+    const compared = value === null ? null : this.compareValues(type, value, wanted);
+    switch (filter.op) {
+      case "eq":
+        return compared === 0;
+      case "neq":
+        return compared === null || compared !== 0;
+      case "gt":
+        return compared !== null && compared > 0;
+      case "gte":
+        return compared !== null && compared >= 0;
+      case "lt":
+        return compared !== null && compared < 0;
+      default:
+        return compared !== null && compared <= 0;
+    }
   }
 
   /** Compare two values of one column, ascending, with NULL after every value (as the database does). */

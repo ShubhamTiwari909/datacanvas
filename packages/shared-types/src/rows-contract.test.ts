@@ -76,6 +76,7 @@ describe("rowsResponseSchema", () => {
       offsetCapped: false,
       rowSecurity: "off" as const,
       sort: null,
+      filters: [],
       sortValueTooLong: false,
     };
     expect(rowsResponseSchema.parse({ page })).toEqual({ page });

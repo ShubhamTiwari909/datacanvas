@@ -4,6 +4,7 @@
  * could otherwise miss, and nothing here touches a value.
  */
 import { ROWS_MAX_OFFSET, type RowPage } from "@datacanvas/database-core";
+import { describeFilters } from "./filtering";
 import { describeSort } from "./sorting";
 
 const number = (n: number): string => new Intl.NumberFormat().format(n);
@@ -20,6 +21,9 @@ export function pageNotes(page: RowPage): string[] {
     notes.push(
       `This table has no key to order by, so the order is not guaranteed and only the first ${number(ROWS_MAX_OFFSET)} rows can be reached.`,
     );
+  }
+  if (page.filters.length > 0) {
+    notes.push(`Filtered: ${describeFilters(page.filters)}.`);
   }
   if (page.hiddenColumns > 0) {
     notes.push(

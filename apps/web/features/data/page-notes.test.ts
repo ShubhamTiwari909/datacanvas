@@ -20,6 +20,35 @@ const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   ...overrides,
 });
 
+describe("pageNotes with filters", () => {
+  it("says what was applied, in the order given", () => {
+    const notes = pageNotes(
+      page({
+        filters: [
+          { column: "email", op: "contains", value: "ann" },
+          { column: "deleted_at", op: "is_null" },
+        ],
+      }),
+    );
+    expect(notes).toContain('Filtered: email contains "ann"; deleted_at is NULL.');
+  });
+
+  it("says nothing about filters on a page that was not filtered", () => {
+    expect(pageNotes(page()).join(" ")).not.toContain("Filtered");
+  });
+
+  it("comes after how the page is ordered", () => {
+    const notes = pageNotes(
+      page({
+        filters: [{ column: "id", op: "gt", value: "1" }],
+        sort: { column: "id", direction: "asc" },
+      }),
+    );
+    expect(notes[0]).toMatch(/^Ordered by id/);
+    expect(notes[1]).toMatch(/^Filtered:/);
+  });
+});
+
 describe("pageNotes with a sort", () => {
   const sorted = (overrides: Partial<RowPage> = {}) =>
     page({ sort: { column: "email", direction: "desc" }, ...overrides });

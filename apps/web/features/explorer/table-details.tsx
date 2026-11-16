@@ -1,7 +1,8 @@
 /**
  * The detail panel for one table, view or materialized view: its columns
  * (with key badges), constraints, indexes and relationships, all read from the
- * database's structure (never its rows).
+ * database's structure, and, once data access is switched on for the connection,
+ * its rows (the Data section, `features/data`).
  */
 "use client";
 
@@ -16,6 +17,7 @@ import type {
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
+import { DataSection } from "@/features/data/data-section";
 import { useAsyncData } from "@/lib/use-async-data";
 import { KIND_LABEL } from "@/components/relation-kind";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -246,6 +248,8 @@ export function TableDetails({
         </div>
         {info?.comment ? <p className="text-sm text-muted-foreground">{info.comment}</p> : null}
       </header>
+
+      <DataSection connectionId={connectionId} schema={schema} table={table} info={info} />
 
       {details.state.status === "loading" ? <LoadingState label="Loading table…" /> : null}
       {details.state.status === "error" ? (

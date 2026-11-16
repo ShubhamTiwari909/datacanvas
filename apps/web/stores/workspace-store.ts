@@ -17,6 +17,7 @@ import {
   listConnections,
   listProfiles,
 } from "@/features/connections/api";
+import { setDataAccess as requestDataAccess } from "@/features/data/api";
 import { useCanvasStore } from "./canvas-store";
 import { useMetadataStore } from "./metadata-store";
 import { usePersistenceStore } from "./persistence-store";
@@ -56,6 +57,8 @@ interface WorkspaceState {
   openConnectDialog: (prefill?: ConnectionProfile) => void;
   updateConnection: (connection: ConnectionSummary) => void;
   refreshProfiles: () => Promise<void>;
+  /** Switch viewing table data on or off for a connection. Returns whether it worked (a failure shows as `actionError`). */
+  setDataAccess: (id: string, enabled: boolean) => Promise<boolean>;
   removeProfile: (id: string) => Promise<void>;
   closeConnectDialog: () => void;
 }
@@ -94,6 +97,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   addConnection(connection) {
+    const known = get().profiles.some((p) => p.id === connection.profileId);
     set((state) => ({
       connections: [...state.connections, connection],
       selectedConnectionId: connection.id,
@@ -102,6 +106,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       connectPrefill: null,
       actionError: null,
     }));
+    // A connection saved just now has a profile this list has not seen: fetch it, so that
+    // "Saved connections" is right as soon as the connection is closed (not only after a reload).
+    if (connection.profileId !== null && !known) void get().refreshProfiles();
   },
 
   async removeConnection(id) {
@@ -150,6 +157,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => ({
       connections: state.connections.map((c) => (c.id === connection.id ? connection : c)),
     }));
+  },
+
+  async setDataAccess(id, enabled) {
+    const result = await requestDataAccess(id, enabled);
+    if (!result.ok) {
+      set({ actionError: result.error.message });
+      return false;
+    }
+    // The server remembered it with the saved connection; mirror both copies.
+    get().updateConnection(result.data);
+    set({ actionError: null });
+    await get().refreshProfiles();
+    return true;
   },
 
   async refreshProfiles() {

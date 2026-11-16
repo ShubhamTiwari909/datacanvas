@@ -139,6 +139,8 @@ export function ConnectionForm({
   const [ssl, setSsl] = useState<SslChoice>(initial?.sslMode ?? "auto");
   // Offered for NEW connections: keep host, database and user (never the password) for next time.
   const [remember, setRemember] = useState(true);
+  // Reading the rows of tables is off unless the person turns it on (a saved connection brings its own setting back).
+  const [dataAccess, setDataAccess] = useState(initial?.dataAccess ?? false);
 
   const [busy, setBusy] = useState<Action | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -149,7 +151,9 @@ export function ConnectionForm({
   function buildInput(action: Action): { input: unknown } | { errors: FieldErrors } {
     // What to do with the connection once it works. A reconnected profile is linked; a new one is saved if asked.
     const persistence =
-      action === "connect" ? (initial ? { profileId: initial.id } : { remember }) : {};
+      action === "connect"
+        ? { ...(initial ? { profileId: initial.id } : { remember }), dataAccess }
+        : {};
     if (mode === "string")
       return { input: { mode: "string", name, connectionString, ...persistence } };
     if (port.trim() !== "" && !/^\d+$/.test(port.trim())) {
@@ -325,9 +329,25 @@ export function ConnectionForm({
       )}
 
       <p className="text-xs text-muted-foreground">
-        DataCanvas only reads the structure of your database, never its rows. A read-only database
-        user is recommended. Credentials stay on this machine, in memory.
+        By default DataCanvas reads only the structure of your database. A read-only database user
+        is still the safest choice. Credentials stay on this machine, in memory.
       </p>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-4"
+          checked={dataAccess}
+          onChange={(e) => setDataAccess(e.target.checked)}
+        />
+        <span>
+          Allow viewing table data
+          <span className="block text-xs text-muted-foreground">
+            Off by default. When on, DataCanvas reads and shows the rows of tables you open,
+            read-only. Rows are never saved.
+          </span>
+        </span>
+      </label>
 
       {!initial ? (
         <label className="flex items-start gap-2 text-sm">

@@ -7,6 +7,7 @@
 import { Plug, Plus, Trash2, Unplug } from "lucide-react";
 import { useState } from "react";
 import type { ConnectionProfile } from "@datacanvas/shared-types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { SchemaTree } from "@/features/explorer/schema-tree";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -26,6 +28,7 @@ export function ConnectionsSidebar() {
   const actionError = useWorkspaceStore((s) => s.actionError);
   const selectConnection = useWorkspaceStore((s) => s.selectConnection);
   const removeConnection = useWorkspaceStore((s) => s.removeConnection);
+  const setDataAccess = useWorkspaceStore((s) => s.setDataAccess);
   const openDialog = useWorkspaceStore((s) => s.openConnectDialog);
   const profiles = useWorkspaceStore((s) => s.profiles);
   const removeProfile = useWorkspaceStore((s) => s.removeProfile);
@@ -64,30 +67,47 @@ export function ConnectionsSidebar() {
           {connections.map((connection) => {
             const selected = connection.id === selectedId;
             return (
-              <li key={connection.id} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => selectConnection(connection.id)}
-                  aria-current={selected ? "true" : undefined}
-                  className={cn(
-                    "flex min-w-0 flex-1 flex-col rounded-md px-2 py-1.5 text-left hover:bg-accent",
-                    selected && "bg-accent",
-                  )}
-                >
-                  <span className="truncate text-sm font-medium">{connection.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {connection.database} @ {connection.host}
-                  </span>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => void removeConnection(connection.id)}
-                  aria-label={`Disconnect ${connection.name}`}
-                  title="Disconnect and forget the credentials"
-                >
-                  <Unplug aria-hidden="true" />
-                </Button>
+              <li key={connection.id} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => selectConnection(connection.id)}
+                    aria-current={selected ? "true" : undefined}
+                    className={cn(
+                      "flex min-w-0 flex-1 flex-col rounded-md px-2 py-1.5 text-left hover:bg-accent",
+                      selected && "bg-accent",
+                    )}
+                  >
+                    <span className="truncate text-sm font-medium">{connection.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {connection.database} @ {connection.host}
+                    </span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => void removeConnection(connection.id)}
+                    aria-label={`Disconnect ${connection.name}`}
+                    title="Disconnect and forget the credentials"
+                  >
+                    <Unplug aria-hidden="true" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 px-2 pb-1">
+                  <Switch
+                    id={`data-access-${connection.id}`}
+                    checked={connection.dataAccess}
+                    onCheckedChange={(enabled) => void setDataAccess(connection.id, enabled)}
+                    aria-label={`Allow viewing table data for ${connection.name}`}
+                  />
+                  <label
+                    htmlFor={`data-access-${connection.id}`}
+                    className="cursor-pointer text-xs text-muted-foreground"
+                  >
+                    Table data
+                  </label>
+                  {connection.dataAccess ? <Badge variant="outline">on</Badge> : null}
+                </div>
               </li>
             );
           })}

@@ -1,6 +1,6 @@
 # Plan: read-only data viewer
 
-Status: **M0, M1 and M2 done (2026-11-16).** The eight decisions are settled (section 12), the wording of the changed promises is agreed (Appendix A), the adapter layer is built and tested (section 15), and the server layer is built and tested (the setting, the service, two routes; section 16). **No screen reads rows yet**, so the product still shows none. Implementation continues at M3. M0 changed three things in the first draft (section 14); M1 and M2 found more (sections 15 and 16).
+Status: **M0 to M3 done (2026-11-16).** The eight decisions are settled (section 12), the wording of the changed promises is agreed (Appendix A), and the adapter layer, the server layer and the screens are built and tested (sections 15 to 17). The product can now show rows (opt-in, off by default), but **it is not released and its documentation still says it reads none**; those change at M5. Implementation continues at M4. M0 changed three things in the first draft (section 14); M1 to M3 found more (sections 15 to 17).
 
 ## 1. Goal
 
@@ -162,7 +162,7 @@ Sizes are relative (S, M, L), not time estimates.
 | M0  | **Decisions and wording**: settle section 12; agree the wording of the promises that will change (Appendix A). **Done 2026-11-16.**                                   | S    | The open decisions are answered and the new wording is agreed                                |
 | M1  | **Adapter**: model, `getRows` in the interface, PostgreSQL implementation, mock, contract and awkward-schema tests, matrix                                            | L    | All adapter tests pass on PostgreSQL 12 to 18 **Done 2026-11-16.**                           |
 | M2  | **Server**: `dataAccess` flag, service, routes, error codes, schemas, route and security rule tests                                                                   | M    | A disabled connection cannot read rows; no value reaches a log or error **Done 2026-11-16.** |
-| M3  | **UI v1**: opt-in flow, Data section, paging, masking and reveal, cell dialog, themes, Playwright tests                                                               | L    | The end-to-end flow passes; checked by eye in light and dark                                 |
+| M3  | **UI v1**: opt-in flow, Data section, paging, masking and reveal, cell dialog, themes, Playwright tests                                                               | L    | The end-to-end flow passes; checked by eye in light and dark **Done 2026-11-16.**            |
 | M4  | **Polish and extras**: sort and filter (composite keyset, timeout-aware), blur toggle, RLS notice, optional foreign-table support, performance and accessibility pass | M    | Performance numbers recorded; accessibility issues fixed                                     |
 | M5  | **Release**: docs, changelog, minor version, publish checklist                                                                                                        | S    | Release gate green; version bumped (1.2.0 suggested)                                         |
 
@@ -266,3 +266,13 @@ The paging cursor is plain ASCII (non-ASCII characters are escaped inside it), b
 4. **Order of writes when switching.** The saved profile is updated before the in-memory setting, so a disk failure leaves both unchanged and the screen cannot show "on" for something that was not remembered.
 5. **Concurrency is bounded, not unlimited.** One read runs, three wait, the rest get `429 rows_busy`. The numbers are constants in `rows-gate.ts` and are the ones the plan's "one read at a time" implies once a browser can pipeline requests.
 6. **Remembering a database that is already saved keeps the latest choice** (the saved profile was reused by `add` and kept its old flag until this was handled).
+
+## 17. What M3 found (screens, 2026-11-16)
+
+1. **A saved connection did not appear until a reload.** On `main`, connecting with "Save this connection" put the profile on disk but the sidebar's saved list was only read at page load, so closing a connection right after opening it showed no way to reconnect. The opt-in is remembered with the saved connection, so this mattered: the store now fetches the list when a connection is linked to a profile it has not seen. The existing end-to-end test had hidden it by reloading the page.
+2. **A grid of thousands of cells cannot have thousands of tab stops.** One cell is focusable at a time (roving tab index); arrow keys, Home, End and Page Up/Down move, Enter opens a value. The end-to-end test uses only the keyboard.
+3. **Previous is a stack, not a query.** The server's cursor only goes forward, so the browser keeps the cursors it has shown. Changing the page size starts again from the first page.
+4. **The hidden-column promise is testable in the page.** Because the server never reads a masked column, its value cannot be in the DOM; the browser test asserts it is absent from the page's HTML, and that revealing one column does not reveal another.
+5. **Rows are checked for in the browser's storage too.** After a disconnect the test reads `localStorage` and `sessionStorage` and asserts no value is there.
+6. **The safety rules must ignore comments.** A comment that says "never kept in localStorage" tripped the first version of the rule; it now reads code without comments.
+7. **Wording.** The connect dialog note changed with the checkbox, as the plan said. The per-tab statements ("no table rows are read" on Snapshots, Objects, Health and Overview) still say what they said and stay true; they are reworded to "this tab reads no table rows" at M5 with the product-wide text.

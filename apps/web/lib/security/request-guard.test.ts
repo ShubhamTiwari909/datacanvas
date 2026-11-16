@@ -17,7 +17,12 @@ import {
 } from "./request-guard";
 
 const TOKEN = "t".repeat(43);
-const config: SecurityConfig = { port: 4747, token: TOKEN, tokenRequired: true };
+const config: SecurityConfig = {
+  port: 4747,
+  token: TOKEN,
+  tokenRequired: true,
+  writesEnabled: false,
+};
 
 function facts(overrides: Partial<RequestFacts> = {}): RequestFacts {
   return {
@@ -103,12 +108,21 @@ describe("readSecurityConfig", () => {
       port: 4747,
       token: "abc",
       tokenRequired: true,
+      writesEnabled: false,
     });
   });
 
   it("requires a token in production even when none was configured (fail closed)", () => {
     const cfg = readSecurityConfig({ NODE_ENV: "production", PORT: "4747" });
-    expect(cfg).toEqual({ port: 4747, token: null, tokenRequired: true });
+    expect(cfg).toEqual({ port: 4747, token: null, tokenRequired: true, writesEnabled: false });
+  });
+
+  it("enables writes only for the exact value the CLI sets", () => {
+    expect(readSecurityConfig({ DATACANVAS_ENABLE_WRITES: "1" }).writesEnabled).toBe(true);
+    for (const value of ["true", "yes", "on", "0", "", " 1"]) {
+      expect(readSecurityConfig({ DATACANVAS_ENABLE_WRITES: value }).writesEnabled).toBe(false);
+    }
+    expect(readSecurityConfig({}).writesEnabled).toBe(false);
   });
 
   it("does not require a token in development or tests when none is set", () => {
@@ -177,12 +191,22 @@ describe("evaluateRequest", () => {
   });
 
   it("fails closed with 503 when a token is required but none is configured", () => {
-    const d = evaluateRequest(facts(), { port: 4747, token: null, tokenRequired: true });
+    const d = evaluateRequest(facts(), {
+      port: 4747,
+      token: null,
+      tokenRequired: true,
+      writesEnabled: false,
+    });
     expect(d).toMatchObject({ ok: false, status: 503 });
   });
 
   it("skips only the token check when no token is required", () => {
-    const open: SecurityConfig = { port: null, token: null, tokenRequired: false };
+    const open: SecurityConfig = {
+      port: null,
+      token: null,
+      tokenRequired: false,
+      writesEnabled: false,
+    };
     expect(evaluateRequest(facts({ cookieToken: null }), open).ok).toBe(true);
     expect(evaluateRequest(facts({ host: "evil.example:1" }), open).ok).toBe(false);
   });

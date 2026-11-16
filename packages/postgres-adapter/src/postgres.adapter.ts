@@ -11,10 +11,24 @@
  * nothing here reads table rows, and there is no way to run caller-supplied
  * SQL: every query is a fixed string, or a fixed shape built from catalog
  * names, with bound parameters.
+ *
+ * It also implements the separate WRITE capability (`WritableAdapter`,
+ * 1.4.0): a change is planned in a read-only transaction (`writes/`) and the
+ * planned statements are then run exactly as planned in a read-write one
+ * (`connection/write.ts`), with failures mapped to fixed messages
+ * (`mapWriteError`). Only the server's write service reaches those methods.
  */
 import {
   DatabaseError,
+  ROW_CHANGE_TIMEOUT_MS,
   ROWS_SORT_FILTER_TIMEOUT_MS,
+  STRUCTURE_CHANGE_TIMEOUT_MS,
+  WRITE_LOCK_TIMEOUT_MS,
+  type AppliedChange,
+  type Change,
+  type PlannedChange,
+  type TableEditInfo,
+  type WritableAdapter,
   type ColumnInfo,
   type ConstraintInfo,
   type DatabaseAdapter,
@@ -41,6 +55,8 @@ import {
 } from "./connection/config.js";
 import { mapPgError } from "./connection/errors.js";
 import { withReadOnlyTransaction, type Queryable } from "./connection/read-only.js";
+import { mapWriteError } from "./connection/write-errors.js";
+import { withWriteTransaction } from "./connection/write.js";
 import { listColumns } from "./introspection/columns.js";
 import { loadTablesDetails } from "./introspection/details.js";
 import { listConstraints } from "./introspection/constraints.js";
@@ -50,11 +66,13 @@ import { listIndexUsage } from "./introspection/index-usage.js";
 import { listObjects } from "./introspection/objects.js";
 import { readRows } from "./introspection/rows.js";
 import { listRelationships } from "./introspection/relationships.js";
+import { readRoleInfo } from "./introspection/role-info.js";
 import { listSchemas } from "./introspection/schemas.js";
 import { searchObjects } from "./introspection/search.js";
 import { listTables } from "./introspection/tables.js";
+import { describeForEdit, planChange, runPlan } from "./writes/index.js";
 
-export class PostgresAdapter implements DatabaseAdapter {
+export class PostgresAdapter implements DatabaseAdapter, WritableAdapter {
   private readonly connection: ResolvedPostgresConnection;
   private readonly options: ResolvedAdapterOptions;
   private pool: pg.Pool | undefined;
@@ -187,9 +205,38 @@ export class PostgresAdapter implements DatabaseAdapter {
     return this.read((db) => listIndexUsage(db));
   }
 
-  // TODO(E1): replaced by introspection/role-info.ts.
   getRoleInfo(): Promise<RoleInfo> {
-    return Promise.reject(new DatabaseError("unexpected"));
+    return this.read((db) => readRoleInfo(db));
+  }
+
+  // ------------------------------------------------------------- writes ---
+  // The write capability (WritableAdapter). Only the server's write service
+  // calls these, after the start-up flag, the local rule and the unlock.
+
+  describeForEdit(table: TableRef): Promise<TableEditInfo> {
+    return this.read((db) => describeForEdit(db, table));
+  }
+
+  /** Check the change and build its statements in a READ-ONLY transaction: nothing changes. */
+  previewChange(change: Change): Promise<PlannedChange> {
+    return this.read((db) => planChange(db, change));
+  }
+
+  /** Run exactly the planned statements in one read-write transaction (decisions 127 and 128). */
+  async applyChange(plan: PlannedChange): Promise<AppliedChange> {
+    const pool = this.pool;
+    if (!pool) throw new DatabaseError("not_connected");
+    const statementTimeoutMs =
+      plan.category === "row" ? ROW_CHANGE_TIMEOUT_MS : STRUCTURE_CHANGE_TIMEOUT_MS;
+    try {
+      return await withWriteTransaction(
+        pool,
+        { lockTimeoutMs: WRITE_LOCK_TIMEOUT_MS, statementTimeoutMs },
+        (db) => runPlan(db, plan),
+      );
+    } catch (error) {
+      throw mapWriteError(error);
+    }
   }
 
   /** Run `work` in a read-only transaction and translate any failure to a DatabaseError. */

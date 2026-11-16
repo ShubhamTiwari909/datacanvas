@@ -27,6 +27,8 @@ export const DATABASE_ERROR_CODES = [
   "invalid_request",
   /** The kind of table is not supported for this operation (for example reading rows of a foreign table). */
   "not_supported",
+  /** A read with a sort or a filter ran longer than its short time limit and was stopped. */
+  "too_slow",
   /** Anything we did not anticipate. */
   "unexpected",
 ] as const;
@@ -48,6 +50,8 @@ export const DEFAULT_ERROR_MESSAGES: Record<DatabaseErrorCode, string> = {
   invalid_request:
     "The request could not be used. The page size or the paging position is not valid for this table.",
   not_supported: "This kind of table cannot be read here (for example a foreign table).",
+  too_slow:
+    "This took longer than 5 seconds, so it was stopped. On a large table, sort or filter by a column that has an index, or narrow the filter.",
   unexpected: "An unexpected database error occurred.",
 };
 

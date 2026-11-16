@@ -29,10 +29,36 @@ import type {
   TableRef,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
-import { buildRowPage, isSensitiveColumnName, normalizeRowsOptions, type RawRow } from "../rows.js";
-import { ROWS_MAX_COLUMNS, ROWS_MAX_OFFSET } from "../models.js";
+import {
+  buildRowPage,
+  checkRowsSort,
+  isSensitiveColumnName,
+  normalizeRowsOptions,
+  type RawRow,
+} from "../rows.js";
+import {
+  ROWS_MAX_COLUMNS,
+  ROWS_MAX_OFFSET,
+  ROWS_MAX_SORT_VALUE_CHARS,
+  type RowColumnKind,
+  type RowSort,
+} from "../models.js";
 import { uniqueTableRefs } from "../table-refs.js";
 import { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";
+
+/** What the mock treats a column as, from the type name the sample data uses (the real adapter asks the catalog). */
+function kindOf(dataType: string): RowColumnKind {
+  if (/\[\]$/.test(dataType) || /^(json|jsonb|bytea|xml|point|tsvector)\b/.test(dataType)) {
+    return "other";
+  }
+  if (/^(text|character|varchar|char|name|citext)\b/.test(dataType)) return "text";
+  return "ordered";
+}
+
+/** The sort value as the adapter reads it: cut one character past what a cursor can carry. */
+function cutSortValue(value: string | null): string | null {
+  return value === null ? null : value.slice(0, ROWS_MAX_SORT_VALUE_CHARS + 1);
+}
 
 export interface MockAdapterOptions {
   /** Data to serve. Defaults to the sample shop database. */
@@ -176,7 +202,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
 
   async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {
     this.requireConnection();
-    const { pageSize, cursor, reveal } = normalizeRowsOptions(options);
+    const { pageSize, cursor, reveal, sort: requestedSort } = normalizeRowsOptions(options);
     const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
     if (!table) throw new DatabaseError("not_found");
     if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
@@ -187,6 +213,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       name: c.name,
       dataType: c.dataType,
       masked: isSensitiveColumnName(c.name) && !reveal.has(c.name),
+      kind: kindOf(c.dataType),
     }));
     // The sample role is not the owner of anything, so security that is on applies to it.
     const rowSecurity: RowSecurityState = this.data.objects.rowSecurity.some(
@@ -194,7 +221,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
     )
       ? "applies"
       : "off";
-    const empty = (order: RowOrder): RowPage =>
+    const empty = (order: RowOrder, sort: RowSort | null): RowPage =>
       buildRowPage({
         columns,
         hiddenColumns: all.length - shown.length,
@@ -203,6 +230,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         pageSize,
         offset: 0,
         rowSecurity,
+        sort,
       });
 
     const mapKey = `${ref.schema}.${ref.name}`;
@@ -210,7 +238,8 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
     const order: RowOrder = key
       ? { kind: key.kind, columns: key.columns }
       : { kind: "none", columns: [] };
-    if (all.length === 0) return empty(order);
+    const sort = checkRowsSort(requestedSort, columns, order);
+    if (all.length === 0) return empty(order, sort);
 
     const stored = Object.hasOwn(this.data.rows, mapKey) ? this.data.rows[mapKey]! : [];
     let rows = stored;
@@ -218,28 +247,44 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
     let offset = 0;
     let limit = pageSize;
     if (key) {
+      const keyOf = (row: Record<string, string | null>): string[] =>
+        key.columns.map((c) => row[c] ?? "");
       const byKey = (a: Record<string, string | null>, b: Record<string, string | null>): number =>
-        this.compareKeys(
-          mapKey,
-          key.columns.map((c) => a[c] ?? ""),
-          key.columns.map((c) => b[c] ?? ""),
-          key.columns,
-        );
-      rows = [...stored].sort(byKey);
+        this.compareKeys(mapKey, keyOf(a), keyOf(b), key.columns);
+      const sortType = sort
+        ? (all.find((c) => c.name === sort.column)?.dataType ?? "text")
+        : "text";
+      // The order the database gives: ascending puts NULL last, descending puts it first; the key breaks ties.
+      const bySort = (
+        a: Record<string, string | null>,
+        b: Record<string, string | null>,
+      ): number => {
+        if (!sort) return 0;
+        const x = a[sort.column] ?? null;
+        const y = b[sort.column] ?? null;
+        const ascending = this.compareValues(sortType, x, y);
+        return sort.direction === "asc" ? ascending : -ascending;
+      };
+      const ordered = (
+        a: Record<string, string | null>,
+        b: Record<string, string | null>,
+      ): number => bySort(a, b) || byKey(a, b);
+      rows = [...stored].sort(ordered);
       if (cursor) {
-        if (cursor.kind !== "keyset" || cursor.values.length !== key.columns.length) {
+        if (
+          cursor.kind !== "keyset" ||
+          cursor.values.length !== key.columns.length ||
+          (cursor.sort !== undefined) !== (sort !== null)
+        ) {
           throw new DatabaseError("invalid_request");
         }
-        const after = cursor.values;
-        start = rows.findIndex(
-          (r) =>
-            this.compareKeys(
-              mapKey,
-              key.columns.map((c) => r[c] ?? ""),
-              after,
-              key.columns,
-            ) > 0,
-        );
+        // A stand-in row for "the last row of the previous page".
+        const after: Record<string, string | null> = {};
+        if (sort && cursor.sort) after[sort.column] = cursor.sort.value;
+        key.columns.forEach((c, i) => {
+          after[c] = cursor.values[i] ?? "";
+        });
+        start = rows.findIndex((r) => ordered(r, after) > 0);
         if (start === -1) start = rows.length;
       }
     } else if (cursor) {
@@ -255,6 +300,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
     const rawRows: RawRow[] = rows.slice(start, start + limit + 1).map((row) => ({
       cells: shown.map((c) => row[c.name] ?? null),
       key: key ? key.columns.map((c) => row[c] ?? "") : null,
+      sortValue: sort ? cutSortValue(row[sort.column] ?? null) : undefined,
     }));
     return buildRowPage({
       columns,
@@ -264,6 +310,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       pageSize: limit,
       offset,
       rowSecurity,
+      sort,
     });
   }
 
@@ -281,6 +328,14 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         i.columns.every((name) => columns.find((c) => c.name === name)?.nullable === false),
     );
     return unique ? { kind: "unique_index", columns: [...unique.columns] } : null;
+  }
+
+  /** Compare two values of one column, ascending, with NULL after every value (as the database does). */
+  private compareValues(type: string, x: string | null, y: string | null): number {
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    const numeric = /^(smallint|integer|bigint|numeric|real|double precision)/.test(type);
+    const result = numeric ? Number(x) - Number(y) : x < y ? -1 : x > y ? 1 : 0;
+    return result < 0 ? -1 : result > 0 ? 1 : 0;
   }
 
   /** Compare two keys the way the database would: numbers as numbers, everything else as text. */

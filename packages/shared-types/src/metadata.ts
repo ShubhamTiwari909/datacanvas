@@ -102,7 +102,14 @@ export const indexUsageReportSchema = z.object({
 });
 
 export const rowPageSchema = z.object({
-  columns: z.array(z.object({ name: z.string(), dataType: z.string(), masked: z.boolean() })),
+  columns: z.array(
+    z.object({
+      name: z.string(),
+      dataType: z.string(),
+      masked: z.boolean(),
+      kind: z.enum(["text", "ordered", "other"]),
+    }),
+  ),
   rows: z.array(z.array(z.object({ value: z.string().nullable(), truncated: z.boolean() }))),
   nextCursor: z.string().nullable(),
   order: z.object({
@@ -113,6 +120,8 @@ export const rowPageSchema = z.object({
   cutBySize: z.boolean(),
   offsetCapped: z.boolean(),
   rowSecurity: z.enum(["off", "applies", "exempt"]),
+  sort: z.object({ column: z.string(), direction: z.enum(["asc", "desc"]) }).nullable(),
+  sortValueTooLong: z.boolean(),
 });
 
 // Inferred types are intentionally NOT exported: use the database-core types.

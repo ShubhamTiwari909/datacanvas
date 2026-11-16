@@ -3,16 +3,21 @@ import {
   ROWS_CELL_CHARS,
   ROWS_MAX_COLUMNS,
   ROWS_MAX_OFFSET,
+  ROWS_MAX_SORT_VALUE_CHARS,
   buildRowPage,
+  checkRowsSort,
   isSensitiveColumnName,
   normalizeRowsOptions,
   quoteIdentifier,
   quoteQualified,
   type RawRow,
   type RowColumn,
+  type RowColumnKind,
   type RowOrder,
   type RowPage,
   type RowSecurityState,
+  type RowSort,
+  type RowSortDirection,
   type RowsOptions,
   type TableRef,
 } from "@datacanvas/database-core";
@@ -87,6 +92,61 @@ export async function findRowKey(db: Queryable, ref: TableRef): Promise<RowOrder
     : { kind: "none", columns: [] };
 }
 
+// ------------------------------------------------------------ column kinds ---
+
+/**
+ * What can be done with each column's values (see `RowColumnKind`), from the
+ * catalog. A domain is followed down to its base type. "text" is the string
+ * category; "ordered" is a type with a default btree operator class (enums and
+ * ranges have one through a pseudo-type, so they are named), except `jsonb` and
+ * `bytea`, whose order means nothing to a person; everything else is "other".
+ * Arrays and composites have a btree class too, but over `anyarray` and
+ * `anyrecord`, which this test does not match, so they stay "other".
+ */
+const COLUMN_KINDS_SQL = `
+  WITH RECURSIVE cols AS (
+    SELECT a.attnum, a.attname::text AS name, a.atttypid AS typid
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
+  ), base(attnum, name, typid) AS (
+    SELECT attnum, name, typid FROM cols
+    UNION ALL
+    SELECT b.attnum, b.name, t.typbasetype
+    FROM base b JOIN pg_catalog.pg_type t ON t.oid = b.typid
+    WHERE t.typtype = 'd'
+  )
+  SELECT
+    b.name,
+    CASE
+      WHEN t.typcategory = 'S' THEN 'text'
+      WHEN t.oid IN ('pg_catalog.bytea'::regtype, 'pg_catalog.jsonb'::regtype) THEN 'other'
+      WHEN t.typtype IN ('e', 'r', 'm') THEN 'ordered'
+      WHEN EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_opclass oc
+        JOIN pg_catalog.pg_am am ON am.oid = oc.opcmethod
+        WHERE am.amname = 'btree' AND oc.opcdefault AND oc.opcintype = t.oid
+      ) THEN 'ordered'
+      ELSE 'other'
+    END AS kind
+  FROM base b
+  JOIN pg_catalog.pg_type t ON t.oid = b.typid
+  WHERE t.typtype <> 'd'
+`;
+
+export async function findColumnKinds(
+  db: Queryable,
+  ref: TableRef,
+): Promise<Map<string, RowColumnKind>> {
+  const { rows } = await db.query<{ name: string; kind: RowColumnKind }>(COLUMN_KINDS_SQL, [
+    ref.schema,
+    ref.name,
+  ]);
+  return new Map(rows.map((r) => [r.name, r.kind]));
+}
+
 // ------------------------------------------------------------ row security ---
 
 /**
@@ -132,6 +192,10 @@ export interface RowsQueryPlan {
   keyColumns: readonly string[];
   /** The key of the last row of the previous page, or null for the first page (keyed tables). */
   after: readonly string[] | null;
+  /** Sort by one column (keyed tables only); the key then breaks ties. Null for the key order. */
+  sort?: { column: string; direction: RowSortDirection } | null;
+  /** The sort column's value in the last row of the previous page (null value: SQL NULL); present exactly when `sort` and `after` are. */
+  afterSort?: { value: string | null } | null;
   /** Where to start (tables without a key). */
   offset: number;
   /** How many rows to fetch: the page size plus one, to learn whether there is more. */
@@ -155,36 +219,64 @@ export interface RowsQueryPlan {
  */
 export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unknown[] } {
   const values: unknown[] = [];
+  /** Bind a value and return its placeholder. */
+  const param = (value: unknown): string => {
+    values.push(value);
+    return `$${values.length}`;
+  };
   const select: string[] = ["1 AS r"];
   // The cell limit is a parameter only when some column uses it: PostgreSQL refuses a
   // statement with a parameter that is never referenced (42P18), which is what a table
   // whose every column is masked would otherwise be.
-  if (plan.shown.length > 0) values.push(ROWS_CELL_CHARS + 1);
+  const cut = plan.shown.length > 0 ? param(ROWS_CELL_CHARS + 1) : null;
   for (const column of plan.shown) {
-    select.push(`left(CAST(${quoteIdentifier(column.name)} AS text), $1) AS c${column.position}`);
+    select.push(
+      `left(CAST(${quoteIdentifier(column.name)} AS text), ${cut}) AS c${column.position}`,
+    );
   }
   plan.keyColumns.forEach((name, i) => {
     select.push(`CAST(${quoteIdentifier(name)} AS text) AS k${i}`);
   });
+  const keyed = plan.keyColumns.length > 0;
+  const sort = keyed ? (plan.sort ?? null) : null;
+  const sortName = sort ? quoteIdentifier(sort.column) : "";
+  // The sort value is read one character past what a cursor can carry, to tell a value that fits from one that does not.
+  if (sort) {
+    select.push(`left(CAST(${sortName} AS text), ${param(ROWS_MAX_SORT_VALUE_CHARS + 1)}) AS s0`);
+  }
 
   const parts = [`SELECT ${select.join(", ")}`, `FROM ${quoteQualified(plan.schema, plan.table)}`];
-  const keyed = plan.keyColumns.length > 0;
+  const keyList = plan.keyColumns.map(quoteIdentifier).join(", ");
   if (keyed && plan.after) {
-    const marks = plan.after.map((value) => {
-      values.push(value);
-      return `$${values.length}`;
-    });
+    const marks = plan.after.map((value) => param(value));
+    const afterKey = `ROW(${keyList}) > ROW(${marks.join(", ")})`;
+    if (!sort || !plan.afterSort) {
+      parts.push(`WHERE ${afterKey}`);
+    } else if (plan.afterSort.value === null) {
+      // The last row had NULL in the sort column. NULL comes last when ascending and first when descending.
+      parts.push(
+        sort.direction === "asc"
+          ? `WHERE (${sortName} IS NULL AND ${afterKey})`
+          : `WHERE ((${sortName} IS NULL AND ${afterKey}) OR ${sortName} IS NOT NULL)`,
+      );
+    } else {
+      const last = param(plan.afterSort.value);
+      parts.push(
+        sort.direction === "asc"
+          ? `WHERE (${sortName} > ${last} OR (${sortName} = ${last} AND ${afterKey}) OR ${sortName} IS NULL)`
+          : `WHERE (${sortName} < ${last} OR (${sortName} = ${last} AND ${afterKey}))`,
+      );
+    }
+  }
+  if (keyed) {
     parts.push(
-      `WHERE ROW(${plan.keyColumns.map(quoteIdentifier).join(", ")}) > ROW(${marks.join(", ")})`,
+      sort
+        ? `ORDER BY ${sortName} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyList}`
+        : `ORDER BY ${keyList}`,
     );
   }
-  if (keyed) parts.push(`ORDER BY ${plan.keyColumns.map(quoteIdentifier).join(", ")}`);
-  values.push(plan.limit);
-  parts.push(`LIMIT $${values.length}`);
-  if (!keyed) {
-    values.push(plan.offset);
-    parts.push(`OFFSET $${values.length}`);
-  }
+  parts.push(`LIMIT ${param(plan.limit)}`);
+  if (!keyed) parts.push(`OFFSET ${param(plan.offset)}`);
   return { text: parts.join(" "), values };
 }
 
@@ -204,7 +296,7 @@ export async function readRows(
   ref: TableRef,
   options: RowsOptions,
 ): Promise<RowPage> {
-  const { pageSize, cursor, reveal } = normalizeRowsOptions(options);
+  const { pageSize, cursor, reveal, sort: requestedSort } = normalizeRowsOptions(options);
 
   const [table] = await listTablesByRef(db, [ref]);
   if (!table) throw new DatabaseError("not_found");
@@ -213,15 +305,19 @@ export async function readRows(
 
   const all = await listColumns(db, ref.schema, ref.name);
   const shown = all.slice(0, ROWS_MAX_COLUMNS);
+  const kinds = await findColumnKinds(db, ref);
   const columns: RowColumn[] = shown.map((c) => ({
     name: c.name,
     dataType: c.dataType,
     masked: isSensitiveColumnName(c.name) && !reveal.has(c.name),
+    kind: kinds.get(c.name) ?? "other",
   }));
   const hiddenColumns = all.length - shown.length;
 
   const order = await findRowKey(db, ref);
   const rowSecurity = await findRowSecurity(db, ref);
+  // Which column, whether it is hidden, whether its type orders, whether the table has a key to break ties.
+  const sort: RowSort | null = checkRowsSort(requestedSort, columns, order);
   if (all.length === 0) {
     return buildRowPage({
       columns,
@@ -231,15 +327,24 @@ export async function readRows(
       pageSize,
       offset: 0,
       rowSecurity,
+      sort,
     });
   }
 
   const keyed = order.kind !== "none";
   let after: string[] | null = null;
+  let afterSort: { value: string | null } | null = null;
   let offset = 0;
   if (cursor) {
-    if (keyed && cursor.kind === "keyset" && cursor.values.length === order.columns.length) {
+    // A cursor carries the sort column's value exactly when the request sorts.
+    if (
+      keyed &&
+      cursor.kind === "keyset" &&
+      cursor.values.length === order.columns.length &&
+      (cursor.sort !== undefined) === (sort !== null)
+    ) {
       after = cursor.values;
+      afterSort = cursor.sort ?? null;
     } else if (!keyed && cursor.kind === "offset") {
       offset = cursor.offset;
     } else {
@@ -257,6 +362,8 @@ export async function readRows(
     shown: columns.flatMap((c, position) => (c.masked ? [] : [{ position, name: c.name }])),
     keyColumns: order.columns,
     after,
+    sort,
+    afterSort,
     offset,
     limit: effectiveSize + 1,
   });
@@ -274,6 +381,7 @@ export async function readRows(
   const rawRows: RawRow[] = result.rows.map((row) => ({
     cells: columns.map((c, position) => (c.masked ? null : (row[`c${position}`] ?? null))),
     key: keyed ? order.columns.map((_, i) => row[`k${i}`] ?? "") : null,
+    sortValue: sort ? (row.s0 ?? null) : undefined,
   }));
 
   return buildRowPage({
@@ -284,5 +392,6 @@ export async function readRows(
     pageSize: effectiveSize,
     offset,
     rowSecurity,
+    sort,
   });
 }

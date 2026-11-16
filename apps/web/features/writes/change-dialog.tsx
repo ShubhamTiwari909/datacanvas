@@ -28,7 +28,7 @@ import { BLUR_CLASSES, useBlurStore } from "@/features/data/blur-store";
 import type { ApiFailure } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { useWritesStore } from "@/stores/writes-store";
-import { applyChange, previewChange } from "./api";
+import { requestApply, requestPreview } from "./api";
 import { shownText, type BeforeAfterRow } from "./row-edit";
 
 export interface ChangeRequest {
@@ -88,7 +88,7 @@ export function ChangeDialog({
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
-    void previewChange(connectionId, request.change).then((result) => {
+    void requestPreview(connectionId, request.change).then((result) => {
       if (cancelled) return;
       setStored({
         request,
@@ -112,7 +112,7 @@ export function ChangeDialog({
   async function apply(current: ChangePreview) {
     if (!request) return;
     setStep({ kind: "applying", preview: current });
-    const result = await applyChange(connectionId, current.previewId);
+    const result = await requestApply(connectionId, current.previewId);
     if (!result.ok) {
       setStep({ kind: "failed", preview: current, error: result.error });
       // A failed change is in the session history too.

@@ -77,7 +77,7 @@ export async function getEditInfo(
 }
 
 /** Check a change and get the exact statement, its effect and warnings. Nothing is changed. */
-export async function previewChange(
+export async function requestPreview(
   connectionId: string,
   change: Change,
 ): Promise<ApiResult<ChangePreview>> {
@@ -90,7 +90,7 @@ export async function previewChange(
 }
 
 /** Run a previewed change, by its id only. */
-export async function applyChange(
+export async function requestApply(
   connectionId: string,
   previewId: string,
 ): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {

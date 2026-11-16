@@ -44,7 +44,7 @@ describe("the write UI keeps nothing", () => {
 
   it("applies a change by its preview id only, never by sending the change again", () => {
     const api = code(path.join(here, "api.ts"));
-    const apply = api.slice(api.indexOf("export async function applyChange"));
+    const apply = api.slice(api.indexOf("export async function requestApply"));
     expect(apply.slice(0, apply.indexOf("\n}\n"))).toMatch(/body: \{ previewId \}/);
   });
 });

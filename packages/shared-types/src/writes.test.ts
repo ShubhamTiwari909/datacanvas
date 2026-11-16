@@ -18,9 +18,7 @@ import {
 } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import type {
-  roleInfoSchema,
-  tableEditInfoSchema} from "./writes.js";
+import type { roleInfoSchema, tableEditInfoSchema } from "./writes.js";
 import {
   COLUMN_TYPE_NAME_LIST,
   WRITE_MAX_CHANGE_COLUMNS,

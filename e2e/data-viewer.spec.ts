@@ -4,6 +4,7 @@
  * table without a key, switching off, reconnecting a saved connection, and that
  * no row is left in the page once access is off or the connection is gone.
  */
+import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { expect, test, type TestDb } from "./fixtures";
 import type { Page } from "@playwright/test";
@@ -336,7 +337,8 @@ test.describe("data viewer", () => {
     database,
   }) => {
     const role = `dv_rls_${Math.random().toString(16).slice(2, 10)}`;
-    const password = "dv-rls-pw-1";
+    // Made up for this run only: the role is dropped again below.
+    const password = `pw${randomBytes(12).toString("hex")}`;
     const admin = new pg.Client({
       host: database.host,
       port: database.port,

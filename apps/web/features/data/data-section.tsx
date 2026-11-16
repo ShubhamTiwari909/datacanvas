@@ -15,6 +15,8 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { useBlurStore } from "./blur-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { describeRowEstimate } from "./cell-text";
 import { DataGrid } from "./data-grid";
@@ -116,6 +118,8 @@ function Rows({
   const view = useRows(connectionId, schema, table);
   const { page, paging, dispatch } = view;
   const estimate = describeRowEstimate(info?.estimatedRowCount ?? null);
+  const blurred = useBlurStore((s) => s.blurred);
+  const setBlurred = useBlurStore((s) => s.setBlurred);
 
   if (view.status === "error") {
     return (
@@ -162,22 +166,28 @@ function Rows({
             {estimate ? ` · ${estimate}` : ""}
           </span>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          Rows per page
-          <select
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-            value={paging.pageSize}
-            onChange={(event) =>
-              dispatch({ type: "pageSize", pageSize: Number(event.target.value) })
-            }
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={blurred} onCheckedChange={setBlurred} />
+            Blur values
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Rows per page
+            <select
+              className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+              value={paging.pageSize}
+              onChange={(event) =>
+                dispatch({ type: "pageSize", pageSize: Number(event.target.value) })
+              }
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {empty ? (

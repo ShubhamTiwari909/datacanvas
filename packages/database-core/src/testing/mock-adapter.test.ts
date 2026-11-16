@@ -33,6 +33,17 @@ describe("MockDatabaseAdapter specifics", () => {
     expect(second[0]!.name).toBe("active_users");
   });
 
+  it("reports row-level security for the tables that have it switched on", async () => {
+    const options = { pageSize: 50, cursor: null, revealColumns: [] };
+    // The sample data switches it on for orders and not for users.
+    expect((await adapter.getRows({ schema: "public", name: "orders" }, options)).rowSecurity).toBe(
+      "applies",
+    );
+    expect((await adapter.getRows({ schema: "public", name: "users" }, options)).rowSecurity).toBe(
+      "off",
+    );
+  });
+
   describe("objects and index usage", () => {
     it("need a connection, like every other data call", async () => {
       const idle = new MockDatabaseAdapter();

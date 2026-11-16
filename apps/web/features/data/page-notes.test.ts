@@ -13,10 +13,20 @@ const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   hiddenColumns: 0,
   cutBySize: false,
   offsetCapped: false,
+  rowSecurity: "off",
   ...overrides,
 });
 
 describe("pageNotes", () => {
+  it("warns about row-level security only when it applies to the connected role", () => {
+    expect(pageNotes(page({ rowSecurity: "applies" })).join(" ")).toContain("Row-level security");
+    expect(pageNotes(page({ rowSecurity: "applies" })).join(" ")).toContain("may not be seeing");
+    expect(pageNotes(page({ rowSecurity: "exempt" }))).toEqual([
+      "Ordered by id (the primary key).",
+    ]);
+    expect(pageNotes(page({ rowSecurity: "off" }))).toEqual(["Ordered by id (the primary key)."]);
+  });
+
   it("says how a table with a key is ordered", () => {
     expect(pageNotes(page())).toEqual(["Ordered by id (the primary key)."]);
     expect(pageNotes(page({ order: { kind: "unique_index", columns: ["a", "b"] } }))).toEqual([

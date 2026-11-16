@@ -112,6 +112,7 @@ export const rowPageSchema = z.object({
   hiddenColumns: z.number(),
   cutBySize: z.boolean(),
   offsetCapped: z.boolean(),
+  rowSecurity: z.enum(["off", "applies", "exempt"]),
 });
 
 // Inferred types are intentionally NOT exported: use the database-core types.

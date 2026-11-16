@@ -4,6 +4,7 @@
  * table without a key, switching off, reconnecting a saved connection, and that
  * no row is left in the page once access is off or the connection is gone.
  */
+import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { expect, test, type TestDb } from "./fixtures";
 import type { Page } from "@playwright/test";
@@ -48,13 +49,13 @@ async function connect(
   page: Page,
   database: TestDb,
   app: { link: string },
-  options: { dataAccess?: boolean } = {},
+  options: { dataAccess?: boolean; url?: string } = {},
 ): Promise<void> {
   await page.goto(app.link);
   await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
   await page.getByLabel("Connection name").fill("DV shop");
   await page.getByRole("tab", { name: /connection string/i }).click();
-  await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+  await page.getByRole("textbox", { name: "Connection string" }).fill(options.url ?? database.url);
   if (options.dataAccess) await page.getByLabel("Allow viewing table data").check();
   await page.getByRole("button", { name: /^Connect$/ }).click();
   await expect(page.getByRole("button", { name: "Disconnect DV shop" })).toBeVisible();
@@ -294,6 +295,89 @@ test.describe("data viewer", () => {
 
     await openTable(page, /^dv_people\b/);
     await expect(grid(page)).toBeVisible();
+  });
+
+  test("blurs every value on request, in the grid and in the dialog, and keeps it across tables", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await connect(page, database, app, { dataAccess: true });
+    await openTable(page, /^dv_people\b/);
+    await expect(grid(page)).toBeVisible();
+
+    const value = grid(page).getByText("Person 1", { exact: true });
+    await expect(value).toHaveCSS("filter", "none");
+
+    await page.getByRole("switch", { name: "Blur values" }).click();
+    await expect(value).toHaveCSS("filter", /blur\(/);
+    // What a cell says about itself (not a value) stays readable.
+    await expect(grid(page).getByText("NULL").first()).toHaveCSS("filter", "none");
+
+    // The dialog blurs too, and says why.
+    await grid(page).getByRole("gridcell", { name: "Person 1", exact: true }).click();
+    await expect(page.getByLabel("Value of name", { exact: true })).toHaveClass(/blur-sm/);
+    await expect(page.getByText("Values are blurred.")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Another table is blurred as well, without asking again.
+    await openTable(page, /^dv_nokey\b/);
+    await expect(grid(page).getByText("no key row 1", { exact: true })).toHaveCSS(
+      "filter",
+      /blur\(/,
+    );
+
+    await page.getByRole("switch", { name: "Blur values" }).click();
+    await expect(grid(page).getByText("no key row 1", { exact: true })).toHaveCSS("filter", "none");
+  });
+
+  test("warns that row-level security may hide rows, only for a role it applies to", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const role = `dv_rls_${Math.random().toString(16).slice(2, 10)}`;
+    // Made up for this run only: the role is dropped again below.
+    const password = `pw${randomBytes(12).toString("hex")}`;
+    const admin = new pg.Client({
+      host: database.host,
+      port: database.port,
+      user: database.user,
+      password: database.password,
+      database: database.name,
+    });
+    await admin.connect();
+    try {
+      await admin.query(`
+        CREATE TABLE public.dv_secured (id integer PRIMARY KEY, owner text);
+        INSERT INTO public.dv_secured VALUES (1, 'someone else'), (2, '${role}');
+        ALTER TABLE public.dv_secured ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY mine ON public.dv_secured USING (owner = current_user);
+        CREATE ROLE ${role} LOGIN PASSWORD '${password}';
+        GRANT CONNECT ON DATABASE "${database.name}" TO ${role};
+        GRANT USAGE ON SCHEMA public TO ${role};
+        GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${role};
+      `);
+
+      // The database's own user owns the table and is exempt: no warning, every row.
+      await connect(page, database, app, { dataAccess: true });
+      await openTable(page, /^dv_secured\b/);
+      await expect(grid(page).getByRole("gridcell", { name: "someone else" })).toBeVisible();
+      await expect(page.getByText(/Row-level security is on/)).toHaveCount(0);
+      await page.getByRole("button", { name: "Disconnect DV shop" }).click();
+
+      // A role the policy applies to sees one row, and is told that rows may be missing.
+      const url = `postgresql://${role}:${password}@${database.host}:${database.port}/${database.name}?sslmode=disable`;
+      await connect(page, database, app, { dataAccess: true, url });
+      await openTable(page, /^dv_secured\b/);
+      await expect(grid(page).getByRole("gridcell", { name: role, exact: true })).toBeVisible();
+      await expect(grid(page).getByRole("gridcell", { name: "someone else" })).toHaveCount(0);
+      await expect(page.getByText(/Row-level security is on for this table/)).toBeVisible();
+    } finally {
+      await admin.query(`DROP OWNED BY ${role}`).catch(() => undefined);
+      await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => undefined);
+      await admin.end();
+    }
   });
 
   test("works in dark mode", async ({ page, app, database }) => {

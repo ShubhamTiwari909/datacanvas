@@ -17,6 +17,7 @@ import {
   type RowColumn,
   type RowOrder,
   type RowPage,
+  type RowSecurityState,
   type RowsOptions,
 } from "./models.js";
 import { safeSlice } from "./objects.js";
@@ -199,6 +200,8 @@ export interface BuildRowPageInput {
   pageSize: number;
   /** Where an unordered page starts (0 for the first page). Ignored when the table has a key. */
   offset: number;
+  /** Row-level security as it applies to the connected role; `off` when not given. */
+  rowSecurity?: RowSecurityState;
 }
 
 /** Cut one raw value to the cell limit (the database already cut it; this keeps every adapter to the same limit). */
@@ -258,5 +261,6 @@ export function buildRowPage(input: BuildRowPageInput): RowPage {
     hiddenColumns: input.hiddenColumns,
     cutBySize,
     offsetCapped,
+    rowSecurity: input.rowSecurity ?? "off",
   };
 }

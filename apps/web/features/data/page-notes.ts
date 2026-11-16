@@ -29,6 +29,11 @@ export function pageNotes(page: RowPage): string[] {
       `${hidden === 1 ? "A column whose name looks sensitive was" : `${hidden} columns whose names look sensitive were`} not read. Show reveals one for this view only.`,
     );
   }
+  if (page.rowSecurity === "applies") {
+    notes.push(
+      "Row-level security is on for this table, so you may not be seeing every row: the database decides which rows this user can read.",
+    );
+  }
   if (page.cutBySize) {
     notes.push(
       "This page was shortened to keep the response small. Next continues after the last row shown.",

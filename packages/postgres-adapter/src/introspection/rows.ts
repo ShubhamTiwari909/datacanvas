@@ -12,6 +12,7 @@ import {
   type RowColumn,
   type RowOrder,
   type RowPage,
+  type RowSecurityState,
   type RowsOptions,
   type TableRef,
 } from "@datacanvas/database-core";
@@ -84,6 +85,40 @@ export async function findRowKey(db: Queryable, ref: TableRef): Promise<RowOrder
   return row && row.columns.length > 0
     ? { kind: row.primary ? "primary_key" : "unique_index", columns: row.columns }
     : { kind: "none", columns: [] };
+}
+
+// ------------------------------------------------------------ row security ---
+
+/**
+ * Is row-level security on for the table, and is the connected role subject to it?
+ * A superuser or a role with BYPASSRLS never is; the table's owner is not either,
+ * unless the table FORCEs it. Only catalog flags are read, never a policy or a row.
+ */
+const ROW_SECURITY_SQL = `
+  SELECT
+    c.relrowsecurity AS enabled,
+    c.relforcerowsecurity AS forced,
+    (r.rolsuper OR r.rolbypassrls) AS bypass,
+    pg_catalog.pg_has_role(current_user, c.relowner, 'USAGE') AS owner
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_catalog.pg_roles r ON r.rolname = current_user
+  WHERE n.nspname = $1 AND c.relname = $2
+`;
+
+interface RowSecurityRow {
+  enabled: boolean;
+  forced: boolean;
+  bypass: boolean;
+  owner: boolean;
+}
+
+export async function findRowSecurity(db: Queryable, ref: TableRef): Promise<RowSecurityState> {
+  const { rows } = await db.query<RowSecurityRow>(ROW_SECURITY_SQL, [ref.schema, ref.name]);
+  const row = rows[0];
+  if (!row || !row.enabled) return "off";
+  if (row.bypass || (row.owner && !row.forced)) return "exempt";
+  return "applies";
 }
 
 // ------------------------------------------------------------ the statement ---
@@ -186,8 +221,17 @@ export async function readRows(
   const hiddenColumns = all.length - shown.length;
 
   const order = await findRowKey(db, ref);
+  const rowSecurity = await findRowSecurity(db, ref);
   if (all.length === 0) {
-    return buildRowPage({ columns, hiddenColumns, order, rawRows: [], pageSize, offset: 0 });
+    return buildRowPage({
+      columns,
+      hiddenColumns,
+      order,
+      rawRows: [],
+      pageSize,
+      offset: 0,
+      rowSecurity,
+    });
   }
 
   const keyed = order.kind !== "none";
@@ -232,5 +276,13 @@ export async function readRows(
     key: keyed ? order.columns.map((_, i) => row[`k${i}`] ?? "") : null,
   }));
 
-  return buildRowPage({ columns, hiddenColumns, order, rawRows, pageSize: effectiveSize, offset });
+  return buildRowPage({
+    columns,
+    hiddenColumns,
+    order,
+    rawRows,
+    pageSize: effectiveSize,
+    offset,
+    rowSecurity,
+  });
 }

@@ -6,6 +6,7 @@
  *  3. No code sends CORS headers (other sites must not read our responses).
  *  4. The CLI never binds beyond loopback.
  *  5. Table rows are read only behind the data-access check, and are never logged.
+ *  6. In the browser, rows live in component state only: never stored, never saved.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -149,5 +150,64 @@ describe("table rows are read only behind the data-access check", () => {
       const code = readFileSync(path.join(root, file), "utf8");
       expect(code, file).not.toMatch(/rowPageSchema|RowPage|RowCell|rowsResponseSchema/);
     }
+  });
+});
+
+describe("rows in the browser live in component state only", () => {
+  const web = path.join(root, "apps/web");
+  const notTest = (f: string) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f);
+  const dataFiles = walk(path.join(web, "features/data")).filter(notTest);
+  /** The code of a file without its comments (a comment may say "never stored in localStorage"). */
+  const code = (file: string) =>
+    readFileSync(file, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("finds the data viewer files", () => {
+    expect(dataFiles.length).toBeGreaterThan(5);
+  });
+
+  it.each([
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "document.cookie",
+    "caches.",
+    "persist(",
+  ])("the data viewer never touches %s", (api) => {
+    for (const file of dataFiles) expect(code(file), rel(file)).not.toContain(api);
+  });
+
+  it("only the rows hook asks for rows, and it holds them in React state", () => {
+    const callers = walk(path.join(web, "features"))
+      .filter(notTest)
+      .filter((f) => /\bgetRows\(/.test(code(f)));
+    expect(callers.map(rel)).toEqual(
+      [
+        rel(path.join(web, "features/data/api.ts")),
+        rel(path.join(web, "features/data/use-rows.ts")),
+      ].sort(),
+    );
+    const hook = code(path.join(web, "features/data/use-rows.ts"));
+    expect(hook).toMatch(/useState|useReducer/);
+    expect(hook).not.toMatch(/zustand|create\(/);
+  });
+
+  it("the stores, the autosave and the saved layouts never see a page of rows", () => {
+    const places = [
+      ...walk(path.join(web, "stores")),
+      ...walk(path.join(web, "features/workspaces")),
+      ...walk(path.join(web, "features/canvas")),
+    ].filter(notTest);
+    expect(places.length).toBeGreaterThan(5);
+    for (const file of places) {
+      expect(code(file), rel(file)).not.toMatch(
+        /\bgetRows\b|\bRowPage\b|\bRowCell\b|rowsResponseSchema|features\/data\/use-rows/,
+      );
+    }
+  });
+
+  it("the data viewer does not write to the console", () => {
+    for (const file of dataFiles) expect(code(file), rel(file)).not.toMatch(/\bconsole\./);
   });
 });

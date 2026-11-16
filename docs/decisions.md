@@ -676,3 +676,51 @@ Follow-up decisions are 91 and 92.
 **Decision:** the published package keeps `engines.node >=20.9.0`. The repository's own `engines` is `^20.19.0 || >=22.12.0`, and the CI job `install-qa` builds on Node 22 and then runs the packed package on the Node version under test (20.9.0 and 22).
 
 **Why:** the `install-qa` jobs on Node 20.9.0 failed on every push, including on `main`, because `@tailwindcss/node` loads `magic-string` (ES module only since its 1.x line) with `require()`, which Node supports by default only from 20.19 and 22.12; the error is `ERR_REQUIRE_ESM` inside the PostCSS step of `next build`. The job exists to prove that users can install and run the prebuilt package on the oldest supported Node, and users never build, so building on 20.9.0 tested nothing a user does. **Trade-off:** contributors on Node 20.9 to 20.18 (and on Node 21) can no longer build from source; they get an `engines` warning and a failed build, and must upgrade Node. Users of the published package are unaffected. **How it was found:** reproduced locally by clearing `apps/web/.next` and building on Node 20.13.1 (the same error), and checked that `npm run verify:package` passes on Node 20.13.1 against a package built by Node 22 (22 checks). **A trap:** Next's persistent cache can store the failed PostCSS result, so a build on Node 22 right after a failed build on Node 20 fails too until `.next` is deleted; and a warm cache hides the failure entirely, which is why it passed locally for so long. **Not covered:** running the packed package on exactly 20.9.0 was not possible locally (only 20.13.1 was available); the CI matrix does that.
+
+## 108. Viewing table rows is opt-in per connection, off by default, and remembered with the saved connection
+
+**Decision:** `dataAccess` is a setting of the connection (not part of what is sent to the database). Off for every new connection and for every profile saved before it existed (the connections file moves to version 2 with a migration that turns it off); the person switches it on in the connect dialog, in the sidebar or in a table's Data section; a badge shows when it is on. It is saved in the profile as a non-secret flag. A version 2 file that lacks the flag is refused, not assumed. The profile is written before the in-memory setting, so a disk failure leaves both unchanged. The refusal is checked before anything about the table is looked up, so it answers the same for a table that exists and one that does not.
+
+**Why:** it matches how the other non-secret settings behave, and reconnecting already asks for the password. The project's pitch is "safe to point at anything", so the feature must be visible, off until asked for, and honest in the documents. **Left over:** anyone holding the session token can switch it on (same trust as before, higher stakes). **Full reasoning:** `docs/data-viewer-plan.md`.
+
+## 109. Masking of sensitive-looking columns happens on the server
+
+**Decision:** a column whose name looks sensitive (`password`, `token`, `secret`, `api_key`, `salt` and similar, matched after removing separators and case) is not selected at all. The server returns a marker, and the value never leaves the database. The person can reveal one column for the current view, which reads the page again with that column named; the choice lives in the browser's memory only.
+
+**Why:** hiding a value in the browser would mean the secret had already crossed to it, and made the default meaningless. **Not a security control:** names are only a hint (a column called `notes` can hold a password), and the documents say so in those words. A hidden column cannot be used to sort or filter (decided in `docs/data-sort-filter-plan.md`), because a filter would read it back letter by letter.
+
+## 110. Limits of one read of rows
+
+**Decision:** 50 rows per page by default (25, 50, 100 or 200), the first 100 columns, 200 characters shown in the grid and 2,000 fetched (a cell opens in a dialog), about 2 MB per response (a page is shortened and says so, and always keeps one row), the existing 15 second statement timeout, and one read at a time per connection (three more wait, then `429 rows_busy`). Rows are read by keyset paging on the primary key or a safe unique index; a table without one is paged by position and only to its first 10,000 rows; a materialized view is always read that way.
+
+**Why:** every limit stops one request from becoming an expensive scan or a huge response. No count is ever run (a count scans the table): the size shown is the planner's estimate. Values are cast to text and cut inside the database, so a very large value never travels. **Found by the tests:** a paging cursor built from a displayed (cut) value pages wrongly, so the key is selected a second time untruncated.
+
+## 111. Foreign tables are not read
+
+**Decision:** `getRows` refuses a foreign table with `not_supported`, and the screen says why.
+
+**Why:** a read goes to another server, can be slow, and uses credentials DataCanvas knows nothing about. Revisit later with a warning, if at all.
+
+## 112. Views and materialized views can be read
+
+**Decision:** allowed, including partitioned parents. A view can be slow; the timeout and the one-read rule protect the database.
+
+**Why:** people want to look at a view as much as at a table, and nothing about reading one is different in kind.
+
+## 113. Sort and filter were left out of the first release
+
+**Decision:** the first release reads rows in key order only. Sorting and filtering are designed in their own document (`docs/data-sort-filter-plan.md`, all decisions settled) and ship later (planned as 1.3.0).
+
+**Why:** they let the browser's choice of column and value shape the `SELECT`, need composite keyset paging, and can cause scans; they deserve their own review of the rules that keep "no text typed by the user becomes SQL" true.
+
+## 114. No export of rows
+
+**Decision:** there is no way to export rows; copying one cell's value is allowed. Rows are never in a diagram, workspace, snapshot or file, and a test fails if snapshot code calls `getRows`.
+
+**Why:** an export would turn a viewer into a data extraction tool and put rows on disk, which the privacy rules rule out.
+
+## 115. Version 1.2.0, and the wording of the changed promises
+
+**Decision:** the viewer is a new feature that changes a documented promise (by default only metadata is read; with data viewing on, rows too), so it is a minor version. The product-wide texts (README, SECURITY.md, the threat model, the guide, the connect dialog, the issue template) change in the same release; statements about one tab become "this tab reads no table rows". A rule test fails if a product-wide document says rows are never read.
+
+**Why:** a promise that is no longer true must not ship in the package, and a promise about one tab must not read as a claim about the whole product. **Order:** 1.2.0 is published first; sort and filter follow as 1.3.0 and editing (`docs/data-editing-plan.md`) as 1.4.0, so each release is small and the wording settles before it grows.

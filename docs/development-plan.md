@@ -62,7 +62,7 @@ How we guarantee this:
 
 - Database connections happen on the user's machine.
 - Credentials never leave the machine and are never sent to any DataCanvas server.
-- Raw table rows are never read or uploaded. Only metadata is read.
+- Raw table rows are never read or uploaded. Only metadata is read. _(Superseded in part by 1.2.0: rows can be viewed when a person switches data viewing on for a connection, and still are never uploaded or stored. See `docs/data-viewer-plan.md`.)_
 - Telemetry is off by default (and there is none in v1).
 - No account required.
 - Schema metadata can be sensitive, so export/share is always an explicit user action.
@@ -498,7 +498,7 @@ Real foreign keys only. Cardinality from constraints (e.g. FK column also unique
 
 - All metadata queries are fixed, parameterized, read-only and bounded.
 - Set `default_transaction_read_only` for the session where possible.
-- Never read table rows.
+- Never read table rows. _(Superseded in part by 1.2.0, see `docs/data-viewer-plan.md`: only with the per-connection opt-in.)_
 
 ## Suggested structure
 
@@ -707,7 +707,7 @@ Make the local-first design safe enough for a public release.
 
 ### 10.5 Documentation
 
-A transparent `SECURITY.md` and privacy page: where credentials live, what is read (metadata only), what is written to disk, what leaves the machine (nothing), and what to consider before exporting diagrams.
+A transparent `SECURITY.md` and privacy page: where credentials live, what is read (metadata only, as originally planned; rows too if data viewing is switched on, see `docs/data-viewer-plan.md`), what is written to disk, what leaves the machine (nothing), and what to consider before exporting diagrams.
 
 ## Concepts to Learn
 

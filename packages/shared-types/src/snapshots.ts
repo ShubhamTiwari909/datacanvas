@@ -3,8 +3,8 @@
  *
  * A snapshot is a copy of a database's structure (schemas, tables, columns,
  * constraints, indexes, foreign keys) at one moment, so it can be compared
- * with the database later, or with another snapshot. It contains no table
- * rows, no row estimates and no connection credentials (definitions are copied as written, so
+ * with the database later, or with another snapshot. It never contains table
+ * rows (whether or not data viewing is on), no row estimates and no connection credentials (definitions are copied as written, so
  * they can contain whatever someone typed into them), and it is only ever written by
  * the server from what the adapter read.
  *

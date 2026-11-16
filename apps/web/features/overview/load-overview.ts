@@ -1,7 +1,7 @@
 /**
  * Fetch what the overview needs and compute it.
  *
- * Reads only structure the app already knows how to read: the table list of
+ * This tab reads no table rows. It uses only structure the app already knows how to read: the table list of
  * every schema and the database's foreign keys (shared with the canvas through
  * the metadata cache, so opening the overview first makes the canvas faster,
  * and the other way round).

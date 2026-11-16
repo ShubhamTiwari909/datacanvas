@@ -5,8 +5,8 @@
  * It contains what the schema explorer reads (schemas, tables with their
  * columns, constraints and indexes, and the foreign keys) and deliberately NOT
  * the planner's row estimates: those change with every vacuum and would make
- * two snapshots of an unchanged database look different. No table rows are
- * ever part of it.
+ * two snapshots of an unchanged database look different. A structure never
+ * contains table rows, whether or not data viewing is on.
  *
  * Everything is sorted, so the same database always produces the same value
  * (and a snapshot file only changes when the structure does).

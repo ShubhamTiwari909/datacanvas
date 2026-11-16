@@ -4,6 +4,28 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-16
+
+### Added
+
+- **Viewing table data**, optional and **off by default**. Switch on **Allow viewing table data** for a connection (in the connect dialog, with the switch beside the connection in the left list, or in a table's new **Data** section) and DataCanvas shows the rows of the tables you open: read-only, one page at a time, never saved, logged, cached, or put in a snapshot, workspace or error message. A badge shows when it is on, and a saved connection remembers the choice.
+- The **Data** section: 50 rows per page by default (25, 50, 100 or 200) with Previous and Next, in primary-key order (or the order of a safe unique index; a table without a key, and a materialized view, have no guaranteed order and can be paged only through their first 10,000 rows). NULL is told apart from the empty string; a value over 200 characters opens in a dialog (up to its first 2,000 characters, with a copy button); wide tables show their first 100 columns. A real table with a caption, a sticky header and keyboard navigation (arrow keys, Home, End, Page Up, Page Down, Enter).
+- **Hidden columns**: a column whose name looks sensitive (`password`, `token`, `secret`, `api_key`, `salt` and similar) is not read at all until you press its **Show** button, so its value never reaches the browser by default. This is a convenience, not a security control: names are only a hint.
+- A **Blur values** switch that blurs the values in the grid and the value dialog, for screen sharing. It is held in memory only and changes nothing about what is read.
+- A note when **row-level security** applies to the connected database user and so may hide rows. It does not show for a superuser, a role that bypasses it, or the table's owner (unless the table forces it).
+- Every read has limits: rows, columns, characters per cell, about 2 MB per response, the 15 second statement timeout, and one read at a time per connection (three more wait, then the server answers `429`). Foreign tables are not read. Values are converted to text and cut inside the database, so a huge value never travels.
+- `POST /api/connections/:id/rows` and `PUT /api/connections/:id/data-access`. The connection summary and saved connections have a `dataAccess` field.
+- Rules that fail the build: rows are read only behind the data-access check and are never logged; in the browser they live in component state only (nothing in `localStorage`, `sessionStorage`, `indexedDB`, cookies or caches); a snapshot or a structure read never calls the row reader; and the README, SECURITY.md and the guide never go back to saying that rows are never read.
+
+### Changed
+
+- **The documents.** By default only metadata is read, as before; with data viewing on, rows are read too. `README.md`, `SECURITY.md`, `docs/threat-model.md` (a new asset, "table contents", and the ways rows could leak), `docs/getting-started.md` (a "Look at the rows" section) and the connect dialog say so. Statements about one tab (Overview, Health, Objects, Snapshots) now read "this tab reads no table rows" so they cannot be mistaken for a claim about the whole product. A snapshot never contains rows, whether or not data viewing is on.
+- **Saved connections file, format 2.** It adds `dataAccess` to every saved connection; files from earlier releases open as before, with data viewing off. A file saved by this release is refused by an earlier one, which asks you to update.
+
+### Fixed
+
+- A connection saved with "Save this connection" now appears in **Saved connections** right away. Before, it appeared only after reloading the page.
+
 ## [1.1.0] - 2026-11-14
 
 ### Changed

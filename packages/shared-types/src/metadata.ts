@@ -121,6 +121,24 @@ export const rowPageSchema = z.object({
   offsetCapped: z.boolean(),
   rowSecurity: z.enum(["off", "applies", "exempt"]),
   sort: z.object({ column: z.string(), direction: z.enum(["asc", "desc"]) }).nullable(),
+  filters: z.array(
+    z.object({
+      column: z.string(),
+      op: z.enum([
+        "eq",
+        "neq",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "contains",
+        "starts_with",
+        "is_null",
+        "is_not_null",
+      ]),
+      value: z.string().optional(),
+    }),
+  ),
   sortValueTooLong: z.boolean(),
 });
 

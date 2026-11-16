@@ -10,12 +10,18 @@ import { DatabaseError } from "./errors.js";
 import {
   ROWS_CELL_CHARS,
   ROWS_MAX_CURSOR_CHARS,
+  ROWS_MAX_FILTERS,
+  ROWS_MAX_FILTER_VALUE_CHARS,
   ROWS_MAX_OFFSET,
   ROWS_MAX_PAGE_SIZE,
   ROWS_MAX_RESPONSE_CHARS,
   ROWS_MAX_SORT_VALUE_CHARS,
+  ROW_FILTER_OPS,
   type RowCell,
   type RowColumn,
+  type RowColumnKind,
+  type RowFilter,
+  type RowFilterOp,
   type RowOrder,
   type RowPage,
   type RowSecurityState,
@@ -185,6 +191,7 @@ export interface NormalizedRowsOptions {
   cursor: RowsCursor | null;
   reveal: ReadonlySet<string>;
   sort: RowSort | null;
+  filters: RowFilter[];
 }
 
 /** Validate what the caller asked for. @throws DatabaseError `invalid_request` */
@@ -204,7 +211,64 @@ export function normalizeRowsOptions(options: RowsOptions): NormalizedRowsOption
     cursor: cursor === null ? null : decodeRowsCursor(cursor),
     reveal: new Set(revealColumns),
     sort: normalizeSort(options.sort),
+    filters: normalizeFilters(options.filters),
   };
+}
+
+/** The shape of the conditions (not yet whether the columns allow them: see `checkRowsFilters`). */
+function normalizeFilters(filters: readonly RowFilter[] | undefined): RowFilter[] {
+  if (filters === undefined) return [];
+  if (!Array.isArray(filters) || filters.length > ROWS_MAX_FILTERS) throw invalid();
+  return filters.map((filter) => {
+    if (typeof filter !== "object" || filter === null || Array.isArray(filter)) throw invalid();
+    if (Object.keys(filter).some((key) => key !== "column" && key !== "op" && key !== "value")) {
+      throw invalid();
+    }
+    const { column, op, value } = filter;
+    if (typeof column !== "string" || column.length === 0 || column.length > 255) throw invalid();
+    if (!(ROW_FILTER_OPS as readonly unknown[]).includes(op)) throw invalid();
+    if (op === "is_null" || op === "is_not_null") {
+      if (value !== undefined) throw invalid();
+      return { column, op };
+    }
+    if (typeof value !== "string" || value.length > ROWS_MAX_FILTER_VALUE_CHARS) throw invalid();
+    if (value.includes("\u0000")) throw invalid();
+    return { column, op, value };
+  });
+}
+
+const ORDERED_OPS: readonly RowFilterOp[] = [
+  "eq",
+  "neq",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "is_null",
+  "is_not_null",
+];
+
+/** The conditions a column of this kind can have. */
+export function filterOpsFor(kind: RowColumnKind): readonly RowFilterOp[] {
+  if (kind === "text") return [...ORDERED_OPS, "contains", "starts_with"];
+  if (kind === "ordered") return ORDERED_OPS;
+  return ["is_null", "is_not_null"];
+}
+
+/**
+ * Check the conditions against the columns that were read. A column that is not one of them, a hidden column
+ * (a condition on it would read it back one question at a time) or an operator the column's kind does not allow:
+ * `invalid_request`, with a fixed message that never repeats a name or a value.
+ */
+export function checkRowsFilters(
+  filters: readonly RowFilter[],
+  columns: readonly RowColumn[],
+): RowFilter[] {
+  for (const filter of filters) {
+    const column = columns.find((c) => c.name === filter.column);
+    if (!column || column.masked || !filterOpsFor(column.kind).includes(filter.op)) throw invalid();
+  }
+  return [...filters];
 }
 
 /** The shape of a sort request (not yet whether the table and column allow it: see `checkRowsSort`). */
@@ -273,6 +337,8 @@ export interface BuildRowPageInput {
   rowSecurity?: RowSecurityState;
   /** The sort the rows were read with; null or absent for the key order. */
   sort?: RowSort | null;
+  /** The conditions the rows were read with; absent for none. */
+  filters?: readonly RowFilter[];
 }
 
 /** Cut one raw value to the cell limit (the database already cut it; this keeps every adapter to the same limit). */
@@ -350,6 +416,7 @@ export function buildRowPage(input: BuildRowPageInput): RowPage {
     offsetCapped,
     rowSecurity: input.rowSecurity ?? "off",
     sort,
+    filters: [...(input.filters ?? [])],
     sortValueTooLong,
   };
 }

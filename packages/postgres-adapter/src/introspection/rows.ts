@@ -5,6 +5,7 @@ import {
   ROWS_MAX_OFFSET,
   ROWS_MAX_SORT_VALUE_CHARS,
   buildRowPage,
+  checkRowsFilters,
   checkRowsSort,
   isSensitiveColumnName,
   normalizeRowsOptions,
@@ -13,6 +14,8 @@ import {
   type RawRow,
   type RowColumn,
   type RowColumnKind,
+  type RowFilter,
+  type RowFilterOp,
   type RowOrder,
   type RowPage,
   type RowSecurityState,
@@ -196,6 +199,8 @@ export interface RowsQueryPlan {
   sort?: { column: string; direction: RowSortDirection } | null;
   /** The sort column's value in the last row of the previous page (null value: SQL NULL); present exactly when `sort` and `after` are. */
   afterSort?: { value: string | null } | null;
+  /** Conditions on columns, all required (AND). Already checked against the columns that were read. */
+  filters?: ReadonlyArray<{ column: string; op: RowFilterOp; value?: string | undefined }>;
   /** Where to start (tables without a key). */
   offset: number;
   /** How many rows to fetch: the page size plus one, to learn whether there is more. */
@@ -217,6 +222,37 @@ export interface RowsQueryPlan {
  * (`k0`...): the paging position must be the real key, not a shortened copy of
  * it. `1 AS r` keeps the select list from being empty when every column is masked.
  */
+/**
+ * One condition. The operator text comes from this table, chosen by the operator's name; the column is a
+ * quoted catalog name; the value, when there is one, is a bound parameter. `contains` and `starts with`
+ * avoid LIKE so that `%`, `_` and `\` in the value are ordinary characters and need no escaping.
+ */
+const FILTER_SQL: Record<RowFilterOp, (column: string, value: string | null) => string> = {
+  eq: (c, p) => `${c} = ${p}`,
+  neq: (c, p) => `${c} IS DISTINCT FROM ${p}`,
+  gt: (c, p) => `${c} > ${p}`,
+  gte: (c, p) => `${c} >= ${p}`,
+  lt: (c, p) => `${c} < ${p}`,
+  lte: (c, p) => `${c} <= ${p}`,
+  contains: (c, p) => `strpos(lower(CAST(${c} AS text)), lower(${p})) > 0`,
+  starts_with: (c, p) => `starts_with(lower(CAST(${c} AS text)), lower(${p}))`,
+  is_null: (c) => `${c} IS NULL`,
+  is_not_null: (c) => `${c} IS NOT NULL`,
+};
+
+function filterCondition(
+  filter: { column: string; op: RowFilterOp; value?: string | undefined },
+  param: (value: unknown) => string,
+): string {
+  // Own keys only: a plain object also answers to "toString", "constructor" and "__proto__".
+  if (!Object.hasOwn(FILTER_SQL, filter.op)) throw new DatabaseError("invalid_request");
+  const write = FILTER_SQL[filter.op];
+  const column = quoteIdentifier(filter.column);
+  if (filter.op === "is_null" || filter.op === "is_not_null") return write(column, null);
+  if (typeof filter.value !== "string") throw new DatabaseError("invalid_request");
+  return write(column, param(filter.value));
+}
+
 export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unknown[] } {
   const values: unknown[] = [];
   /** Bind a value and return its placeholder. */
@@ -247,27 +283,31 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
 
   const parts = [`SELECT ${select.join(", ")}`, `FROM ${quoteQualified(plan.schema, plan.table)}`];
   const keyList = plan.keyColumns.map(quoteIdentifier).join(", ");
+  // Every condition is required: the person's conditions first, then "after the last row" of the paging.
+  const conditions: string[] = [];
+  for (const filter of plan.filters ?? []) conditions.push(filterCondition(filter, param));
   if (keyed && plan.after) {
     const marks = plan.after.map((value) => param(value));
     const afterKey = `ROW(${keyList}) > ROW(${marks.join(", ")})`;
     if (!sort || !plan.afterSort) {
-      parts.push(`WHERE ${afterKey}`);
+      conditions.push(afterKey);
     } else if (plan.afterSort.value === null) {
       // The last row had NULL in the sort column. NULL comes last when ascending and first when descending.
-      parts.push(
+      conditions.push(
         sort.direction === "asc"
-          ? `WHERE (${sortName} IS NULL AND ${afterKey})`
-          : `WHERE ((${sortName} IS NULL AND ${afterKey}) OR ${sortName} IS NOT NULL)`,
+          ? `(${sortName} IS NULL AND ${afterKey})`
+          : `((${sortName} IS NULL AND ${afterKey}) OR ${sortName} IS NOT NULL)`,
       );
     } else {
       const last = param(plan.afterSort.value);
-      parts.push(
+      conditions.push(
         sort.direction === "asc"
-          ? `WHERE (${sortName} > ${last} OR (${sortName} = ${last} AND ${afterKey}) OR ${sortName} IS NULL)`
-          : `WHERE (${sortName} < ${last} OR (${sortName} = ${last} AND ${afterKey}))`,
+          ? `(${sortName} > ${last} OR (${sortName} = ${last} AND ${afterKey}) OR ${sortName} IS NULL)`
+          : `(${sortName} < ${last} OR (${sortName} = ${last} AND ${afterKey}))`,
       );
     }
   }
+  if (conditions.length > 0) parts.push(`WHERE ${conditions.join(" AND ")}`);
   if (keyed) {
     parts.push(
       sort
@@ -296,7 +336,13 @@ export async function readRows(
   ref: TableRef,
   options: RowsOptions,
 ): Promise<RowPage> {
-  const { pageSize, cursor, reveal, sort: requestedSort } = normalizeRowsOptions(options);
+  const {
+    pageSize,
+    cursor,
+    reveal,
+    sort: requestedSort,
+    filters: requestedFilters,
+  } = normalizeRowsOptions(options);
 
   const [table] = await listTablesByRef(db, [ref]);
   if (!table) throw new DatabaseError("not_found");
@@ -318,6 +364,7 @@ export async function readRows(
   const rowSecurity = await findRowSecurity(db, ref);
   // Which column, whether it is hidden, whether its type orders, whether the table has a key to break ties.
   const sort: RowSort | null = checkRowsSort(requestedSort, columns, order);
+  const filters: RowFilter[] = checkRowsFilters(requestedFilters, columns);
   if (all.length === 0) {
     return buildRowPage({
       columns,
@@ -328,6 +375,7 @@ export async function readRows(
       offset: 0,
       rowSecurity,
       sort,
+      filters,
     });
   }
 
@@ -364,6 +412,7 @@ export async function readRows(
     after,
     sort,
     afterSort,
+    filters,
     offset,
     limit: effectiveSize + 1,
   });
@@ -393,5 +442,6 @@ export async function readRows(
     offset,
     rowSecurity,
     sort,
+    filters,
   });
 }

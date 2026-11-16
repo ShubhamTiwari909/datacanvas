@@ -500,6 +500,126 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
           });
         });
 
+        describe("filtering", () => {
+          type Filter = NonNullable<Parameters<typeof adapter.getRows>[1]["filters"]>[number];
+          const ids = async (
+            filters: Filter[],
+            extra: object = {},
+          ): Promise<Array<string | null>> => {
+            const page = await adapter.getRows(users, { ...first, ...extra, filters });
+            return page.rows.map((row) => row[0]!.value);
+          };
+
+          it("keeps the rows that match: equals, not equals, contains and starts with", async () => {
+            expect(await ids([{ column: "email", op: "eq", value: "b@x.test" }])).toEqual(["2"]);
+            expect(await ids([{ column: "email", op: "neq", value: "b@x.test" }])).toEqual([
+              "1",
+              "3",
+            ]);
+            // Any case, and a part of the value is enough.
+            expect(await ids([{ column: "email", op: "contains", value: "B@X" }])).toEqual(["2"]);
+            expect(await ids([{ column: "email", op: "starts_with", value: "C@" }])).toEqual(["3"]);
+          });
+
+          it("compares numbers as numbers", async () => {
+            expect(await ids([{ column: "id", op: "gt", value: "1" }])).toEqual(["2", "3"]);
+            expect(await ids([{ column: "id", op: "gte", value: "2" }])).toEqual(["2", "3"]);
+            expect(await ids([{ column: "id", op: "lt", value: "3" }])).toEqual(["1", "2"]);
+            expect(await ids([{ column: "id", op: "lte", value: "1" }])).toEqual(["1"]);
+          });
+
+          it("treats NULL the way the database does", async () => {
+            // full_name is NULL in every row: is null matches all, equals matches none,
+            // and "not equals" still matches them (a NULL is distinct from any value).
+            expect(await ids([{ column: "full_name", op: "is_null" }])).toEqual(["1", "2", "3"]);
+            expect(await ids([{ column: "full_name", op: "is_not_null" }])).toEqual([]);
+            expect(await ids([{ column: "full_name", op: "eq", value: "x" }])).toEqual([]);
+            expect(await ids([{ column: "full_name", op: "neq", value: "x" }])).toEqual([
+              "1",
+              "2",
+              "3",
+            ]);
+            expect(await ids([{ column: "full_name", op: "gt", value: "a" }])).toEqual([]);
+          });
+
+          it("requires every condition, and keeps the columns when nothing matches", async () => {
+            expect(
+              await ids([
+                { column: "id", op: "gte", value: "2" },
+                { column: "email", op: "contains", value: "c" },
+              ]),
+            ).toEqual(["3"]);
+            const none = await adapter.getRows(users, {
+              ...first,
+              filters: [{ column: "email", op: "eq", value: "nobody" }],
+            });
+            expect(none.rows).toEqual([]);
+            expect(none.columns.map((c) => c.name)).toEqual([
+              "id",
+              "email",
+              "full_name",
+              "created_at",
+            ]);
+            expect(none.nextCursor).toBeNull();
+          });
+
+          it("has no wildcards: a % or _ in a value is just a character", async () => {
+            // As LIKE patterns both would match every row; as characters they match none (no email has one).
+            expect(await ids([{ column: "email", op: "contains", value: "%" }])).toEqual([]);
+            expect(await ids([{ column: "email", op: "contains", value: "_" }])).toEqual([]);
+            expect(await ids([{ column: "email", op: "starts_with", value: "%" }])).toEqual([]);
+          });
+
+          it("works with a sort and with paging, one row at a time", async () => {
+            const seen: Array<string | null> = [];
+            let cursor: string | null = null;
+            for (let guard = 0; guard < 10; guard += 1) {
+              const page: Awaited<ReturnType<typeof adapter.getRows>> = await adapter.getRows(
+                users,
+                {
+                  ...first,
+                  pageSize: 1,
+                  cursor,
+                  sort: { column: "email", direction: "desc" },
+                  filters: [{ column: "email", op: "neq", value: "b@x.test" }],
+                },
+              );
+              seen.push(...page.rows.map((row) => row[0]!.value));
+              cursor = page.nextCursor;
+              if (cursor === null) break;
+            }
+            expect(seen).toEqual(["3", "1"]);
+          });
+
+          it("echoes the conditions in the order given", async () => {
+            const filters: Filter[] = [
+              { column: "id", op: "gt", value: "1" },
+              { column: "email", op: "is_not_null" },
+            ];
+            const page = await adapter.getRows(users, { ...first, filters });
+            expect(page.filters).toEqual(filters);
+            expect((await adapter.getRows(users, first)).filters).toEqual([]);
+          });
+
+          it.each([
+            ["a column that does not exist", [{ column: "nope", op: "is_null" }]],
+            ["contains on a number", [{ column: "id", op: "contains", value: "1" }]],
+            [
+              "a value that is not a number, for a number",
+              [{ column: "id", op: "eq", value: "abc" }],
+            ],
+            ["a value on is_null", [{ column: "email", op: "is_null", value: "x" }]],
+            [
+              "more than three conditions",
+              Array(4).fill({ column: "email", op: "neq", value: "z" }),
+            ],
+          ])("refuses %s, with invalid_request", async (_name, filters) => {
+            await expect(
+              adapter.getRows(users, { ...first, filters: filters as Filter[] }),
+            ).rejects.toMatchObject({ code: "invalid_request" });
+          });
+        });
+
         it("gives an empty page for a table with no rows, with its columns", async () => {
           const page = await adapter.getRows({ schema: "public", name: "orders" }, first);
           expect(page.rows).toEqual([]);

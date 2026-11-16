@@ -166,11 +166,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async getRows(table: TableRef, options: RowsOptions): Promise<RowPage> {
-    // A plain page keeps the usual statement timeout. A read with a sort runs under a shorter one
+    // A plain page keeps the usual statement timeout. A read with a sort or a filter runs under a shorter one
     // (never longer than the usual), and a read it stops is reported as too slow, not as a timeout.
-    if (options.sort === undefined || options.sort === null) {
-      return this.read((db) => readRows(db, table, options));
-    }
+    const limited =
+      (options.sort !== undefined && options.sort !== null) || (options.filters?.length ?? 0) > 0;
+    if (!limited) return this.read((db) => readRows(db, table, options));
     const limit = Math.min(ROWS_SORT_FILTER_TIMEOUT_MS, this.options.statementTimeoutMs);
     try {
       return await this.read((db) => readRows(db, table, options), limit);

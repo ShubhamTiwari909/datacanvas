@@ -9,6 +9,7 @@ const details = {
   database: "shop",
   username: "alice",
   sslMode: "disable" as const,
+  dataAccess: false,
 };
 
 describe("ProfileService", () => {

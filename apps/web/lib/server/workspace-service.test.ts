@@ -102,6 +102,7 @@ describe("WorkspaceService.list / get / remove", () => {
       database: "shop",
       username: "u",
       sslMode: "disable",
+      dataAccess: false,
     });
 
     await workspaces.save("ws-oldoldol", input({ name: "Old", profileId: shop.id }));
@@ -147,6 +148,7 @@ describe("export and import", () => {
       database: "shop",
       username: "u",
       sslMode: "disable",
+      dataAccess: false,
     });
     await workspaces.save(
       "ws-aaaaaaaa",
@@ -170,6 +172,7 @@ describe("export and import", () => {
       database: "shop",
       username: "u",
       sslMode: "disable",
+      dataAccess: false,
     });
     await workspaces.save("ws-aaaaaaaa", input());
     const { content } = await workspaces.exportFile("ws-aaaaaaaa");

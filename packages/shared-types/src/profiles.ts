@@ -11,7 +11,7 @@ import { postgresConnectionSummarySchema } from "./postgres-connection.js";
 import { migrateToCurrent, type Migration } from "./versioned-file.js";
 
 export const CONNECTIONS_FILE_FORMAT = "datacanvas-connections";
-export const CURRENT_CONNECTIONS_FILE_VERSION = 1;
+export const CURRENT_CONNECTIONS_FILE_VERSION = 2;
 export const MAX_PROFILES = 100;
 
 export const connectionProfileSchema = postgresConnectionSummarySchema
@@ -31,7 +31,24 @@ export const connectionsFileSchema = z.object({
 });
 export type ConnectionsFile = z.infer<typeof connectionsFileSchema>;
 
-export const CONNECTIONS_MIGRATIONS: Readonly<Record<number, Migration>> = {};
+/**
+ * 1 -> 2: version 2 added `dataAccess` (viewing table rows) to every profile. A
+ * profile saved before it never allowed it, so every existing profile gets
+ * `false`: nothing that was read-only becomes readable by an upgrade.
+ */
+export const CONNECTIONS_MIGRATIONS: Readonly<Record<number, Migration>> = {
+  1: (data) => {
+    if (!Array.isArray(data.profiles)) return data;
+    return {
+      ...data,
+      profiles: data.profiles.map((profile: unknown) =>
+        typeof profile === "object" && profile !== null && !Array.isArray(profile)
+          ? { ...profile, dataAccess: false }
+          : profile,
+      ),
+    };
+  },
+};
 
 export type ParsedConnectionsFile =
   { ok: true; file: ConnectionsFile } | { ok: false; message: string };

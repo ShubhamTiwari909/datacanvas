@@ -14,6 +14,7 @@ const profile = (id: string, overrides: Partial<ConnectionProfile> = {}): Connec
   database: "shop",
   username: "alice",
   sslMode: "disable",
+  dataAccess: false,
   createdAt: "2026-11-13T10:00:00.000Z",
   ...overrides,
 });
@@ -40,7 +41,7 @@ describe("ProfileStorage", () => {
     const dir = createTestDataDir();
     await new ProfileStorage(dir).add(profile("profile-aaaaaaaa"));
     const text = await fs.readFile(path.join(dir, "connections.json"), "utf8");
-    expect(JSON.parse(text)).toMatchObject({ format: "datacanvas-connections", schemaVersion: 1 });
+    expect(JSON.parse(text)).toMatchObject({ format: "datacanvas-connections", schemaVersion: 2 });
     expect(text.toLowerCase()).not.toContain("password");
   });
 
@@ -101,5 +102,60 @@ describe("ProfileStorage", () => {
       .catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "storage_error" });
     expect(String((error as Error).message)).not.toContain(blocker); // no paths in messages
+  });
+
+  it("changes whether data access is allowed for one profile, and keeps the rest", async () => {
+    const storage = new ProfileStorage(createTestDataDir());
+    await storage.add(profile("aaaaaaaa"));
+    await storage.add(profile("bbbbbbbb"));
+
+    expect(await storage.setDataAccess("aaaaaaaa", true)).toBe(true);
+
+    const [a, b] = await storage.list();
+    expect(a).toMatchObject({ id: "aaaaaaaa", dataAccess: true });
+    expect(b).toMatchObject({ id: "bbbbbbbb", dataAccess: false });
+    expect(await storage.setDataAccess("aaaaaaaa", false)).toBe(true);
+    expect((await storage.list())[0]!.dataAccess).toBe(false);
+  });
+
+  it("returns false for a profile that does not exist, and changes nothing", async () => {
+    const storage = new ProfileStorage(createTestDataDir());
+    await storage.add(profile("aaaaaaaa"));
+    expect(await storage.setDataAccess("nope-nope-nope", true)).toBe(false);
+    expect((await storage.list())[0]!.dataAccess).toBe(false);
+  });
+
+  it("opens a file written by the previous release (version 1): every profile is read-only, and the file is upgraded on the next write", async () => {
+    const dir = createTestDataDir();
+    const file = path.join(dir, "connections.json");
+    const { dataAccess: _flag, ...old } = profile("aaaaaaaa");
+    await fs.writeFile(
+      file,
+      JSON.stringify({ format: "datacanvas-connections", schemaVersion: 1, profiles: [old] }),
+    );
+    const storage = new ProfileStorage(dir);
+
+    expect((await storage.list())[0]).toMatchObject({ id: "aaaaaaaa", dataAccess: false });
+    await storage.add(profile("bbbbbbbb"));
+    const written = JSON.parse(await fs.readFile(file, "utf8"));
+    expect(written.schemaVersion).toBe(2);
+    expect(written.profiles.map((p: { dataAccess: boolean }) => p.dataAccess)).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  it("never lets an upgrade switch data access on", async () => {
+    const dir = createTestDataDir();
+    const { dataAccess: _flag, ...old } = profile("aaaaaaaa");
+    await fs.writeFile(
+      path.join(dir, "connections.json"),
+      JSON.stringify({
+        format: "datacanvas-connections",
+        schemaVersion: 1,
+        profiles: [old, { ...old, id: "cccccccc" }],
+      }),
+    );
+    expect((await new ProfileStorage(dir).list()).every((p) => p.dataAccess === false)).toBe(true);
   });
 });

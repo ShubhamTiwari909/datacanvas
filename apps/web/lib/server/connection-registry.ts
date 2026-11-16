@@ -91,6 +91,17 @@ export class ConnectionRegistry {
     return entry.summary;
   }
 
+  /**
+   * Switch viewing table data on or off for a live connection.
+   * @throws ServiceError `connection_not_found`
+   */
+  setDataAccess(id: string, enabled: boolean): ConnectionSummary {
+    const entry = this.entries.get(id);
+    if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    entry.summary = { ...entry.summary, dataAccess: enabled };
+    return entry.summary;
+  }
+
   /** Detach every live connection from a profile that was forgotten. */
   clearProfile(profileId: string): void {
     for (const entry of this.entries.values()) {

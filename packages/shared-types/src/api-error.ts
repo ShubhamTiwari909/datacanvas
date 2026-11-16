@@ -41,6 +41,9 @@ export const API_ERROR_CODES = [
   "workspace_not_found",
   "workspace_limit_reached",
   "invalid_workspace_file",
+  // Viewing table data (rows).
+  "data_access_disabled",
+  "rows_busy",
   // Structure snapshots.
   "snapshot_not_found",
   "snapshot_limit_reached",

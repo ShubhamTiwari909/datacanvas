@@ -12,6 +12,7 @@ const details: Omit<ConnectionSummary, "id"> = {
   username: "alice",
   sslMode: "disable",
   hasPassword: true,
+  dataAccess: false,
   profileId: null,
 };
 
@@ -167,5 +168,23 @@ describe("ConnectionRegistry", () => {
     const { registry } = setup();
     registry.add(details, new MockDatabaseAdapter());
     expect(JSON.stringify(registry.list())).not.toMatch(/password":"/);
+  });
+
+  it("switches data access on and off for one connection only", () => {
+    const { registry } = setup();
+    const a = registry.add(details, new MockDatabaseAdapter());
+    const b = registry.add(details, new MockDatabaseAdapter());
+
+    expect(registry.setDataAccess(a.id, true).dataAccess).toBe(true);
+    expect(registry.getSummary(a.id)!.dataAccess).toBe(true);
+    expect(registry.getSummary(b.id)!.dataAccess).toBe(false);
+    expect(registry.setDataAccess(a.id, false).dataAccess).toBe(false);
+  });
+
+  it("rejects switching data access on an unknown connection", () => {
+    const { registry } = setup();
+    expect(() => registry.setDataAccess("missing", true)).toThrowError(
+      expect.objectContaining({ code: "connection_not_found" }) as Error,
+    );
   });
 });

@@ -9,6 +9,8 @@ export type ServiceErrorCode =
   | "workspace_not_found"
   | "workspace_limit_reached"
   | "invalid_workspace_file"
+  | "data_access_disabled"
+  | "rows_busy"
   | "snapshot_not_found"
   | "snapshot_limit_reached"
   | "snapshot_too_large"

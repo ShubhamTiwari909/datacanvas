@@ -38,6 +38,19 @@ export class ProfileStorage {
     });
   }
 
+  /** Change whether viewing table data is allowed for a profile. Returns false if there was no such profile. */
+  async setDataAccess(id: string, enabled: boolean): Promise<boolean> {
+    let found = false;
+    await this.update((file) => {
+      found = file.profiles.some((p) => p.id === id);
+      return {
+        ...file,
+        profiles: file.profiles.map((p) => (p.id === id ? { ...p, dataAccess: enabled } : p)),
+      };
+    });
+    return found;
+  }
+
   /** Remove a profile. Returns false if there was no such profile. */
   async remove(id: string): Promise<boolean> {
     let removed = false;

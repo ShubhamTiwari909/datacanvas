@@ -15,6 +15,7 @@ import {
   COLUMN_TYPE_NAMES,
   DEFAULT_LABEL,
   canBeIdentity,
+  columnFormPatch,
   columnProblems,
   columnTypeOf,
   defaultKindsFor,
@@ -182,6 +183,9 @@ export function ColumnFields({
   onRemove?: () => void;
 }) {
   const prefix = `Column ${index}`;
+  // A change of type resets a default the new type does not offer, so the select never shows
+  // "No default" while the form still holds `now()`.
+  const change = (next: Partial<ColumnForm>) => onChange(columnFormPatch(form, next));
   const type = columnTypeOf(form);
   const identityAllowed = canBeIdentity(type);
   const problems = form.name === "" ? [] : columnProblems(form);
@@ -195,10 +199,10 @@ export function ColumnFields({
             autoComplete="off"
             spellCheck={false}
             value={form.name}
-            onChange={(event) => onChange({ name: event.target.value })}
+            onChange={(event) => change({ name: event.target.value })}
           />
         </Field>
-        <TypeFields form={form} onChange={onChange} prefix={prefix} />
+        <TypeFields form={form} onChange={change} prefix={prefix} />
         {onRemove ? (
           <Button
             type="button"
@@ -220,7 +224,7 @@ export function ColumnFields({
               className={SELECT_CLASS}
               value={form.identity ?? "none"}
               onChange={(event) =>
-                onChange({
+                change({
                   identity:
                     event.target.value === "none"
                       ? null
@@ -238,7 +242,7 @@ export function ColumnFields({
           <>
             <DefaultFields
               form={form}
-              onChange={onChange}
+              onChange={change}
               prefix={prefix}
               kinds={defaultKindsFor(type)}
             />
@@ -246,7 +250,7 @@ export function ColumnFields({
               <input
                 type="checkbox"
                 checked={form.nullable}
-                onChange={(event) => onChange({ nullable: event.target.checked })}
+                onChange={(event) => change({ nullable: event.target.checked })}
               />
               Can be NULL
               <span className="sr-only"> ({prefix})</span>
@@ -261,7 +265,7 @@ export function ColumnFields({
           <Input
             aria-label={`${prefix} comment`}
             value={form.comment}
-            onChange={(event) => onChange({ comment: event.target.value })}
+            onChange={(event) => change({ comment: event.target.value })}
           />
         </Field>
       </div>

@@ -198,17 +198,28 @@ export interface InsertField {
   value: string;
 }
 
-/** What a column of a new row starts as. */
-export function initialInsertMode(column: EditableColumn): InsertMode {
-  if (column.generated || column.identity !== null || column.hasDefault) return "default";
-  return column.nullable ? "default" : "value";
+/** Can the database fill this column without a value from the person (a default, an identity, or NULL)? */
+function fillsItself(column: EditableColumn): boolean {
+  return column.generated || column.identity !== null || column.hasDefault;
 }
 
-/** The modes a column of a new row offers. A column the database fills offers only its default. */
+/** What a column of a new row starts as. A mode the form does not offer is never the start. */
+export function initialInsertMode(column: EditableColumn): InsertMode {
+  return insertModes(column)[0] ?? "default";
+}
+
+/**
+ * The modes a column of a new row offers, the first being where it starts.
+ * - A column the database fills, or one whose type cannot be edited here (bytea:
+ *   the planner refuses every value, NULL included), offers only its default.
+ * - A column that may be NULL offers default, NULL and a value.
+ * - A required column offers "default" only when it has a default or an
+ *   identity; otherwise omitting it would fail, so it must be given a value.
+ */
 export function insertModes(column: EditableColumn): InsertMode[] {
-  if (column.generated) return ["default"];
-  if (!column.editable) return column.nullable ? ["default", "null"] : ["default"];
-  return column.nullable ? ["default", "null", "value"] : ["default", "value"];
+  if (column.generated || !column.editable) return ["default"];
+  if (column.nullable) return ["default", "null", "value"];
+  return fillsItself(column) ? ["default", "value"] : ["value"];
 }
 
 export function buildInsert(table: TableRef, fields: readonly InsertField[]): InsertRowChange {

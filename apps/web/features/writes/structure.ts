@@ -9,6 +9,8 @@ import {
   IDENTITY_TYPES,
   LENGTH_TYPES,
   MAX_COMMENT_CHARS,
+  MAX_NUMERIC_PRECISION,
+  MAX_TYPE_LENGTH,
   isValidNewIdentifier,
   type Change,
   type ColumnDefault,
@@ -63,6 +65,28 @@ export function defaultKindsFor(type: ColumnType): DefaultKind[] {
   return kinds;
 }
 
+/**
+ * The default kinds an EXISTING column offers, from the type as the database
+ * prints it (`format_type`: "integer", "timestamp(3) with time zone", "uuid",
+ * "text[]"). Used by "Set default", where the column is chosen from the table
+ * rather than typed in a form. With no column chosen yet only the kinds that suit
+ * every type are offered.
+ */
+export function defaultKindsForDataType(dataType: string | undefined): DefaultKind[] {
+  if (dataType === undefined) return ["none", "literal"];
+  const text = dataType.trim().toLowerCase();
+  const array = text.endsWith("[]");
+  const base = text.replace(/\[\]$/, "").replace(/\(.*?\)/g, "");
+  let name: ColumnTypeName | "other" = "other";
+  if (/^timestamp\b.*with time zone$/.test(base)) name = "timestamptz";
+  else if (/^timestamp\b/.test(base)) name = "timestamp";
+  else if (base === "date") name = "date";
+  else if (base === "uuid") name = "uuid";
+  else if (base === "boolean") name = "boolean";
+  if (array || name === "other") return ["none", "literal"];
+  return defaultKindsFor({ name });
+}
+
 export function describeDefault(value: ColumnDefault): string {
   switch (value.kind) {
     case "none":
@@ -114,6 +138,27 @@ export interface ColumnForm {
   defaultBoolean: boolean;
   identity: IdentityKind | null;
   comment: string;
+}
+
+/**
+ * The form with its default put back to "none" when its type does not offer the
+ * kind it holds (a type change from timestamp to integer must not keep `now()`).
+ */
+export function withSupportedDefault(form: ColumnForm): ColumnForm {
+  return defaultKindsFor(columnTypeOf(form)).includes(form.defaultKind)
+    ? form
+    : { ...form, defaultKind: "none" };
+}
+
+/**
+ * What to change in a column's form for an edit: the edit itself, plus resetting
+ * the default when the edit made the type unable to carry it.
+ */
+export function columnFormPatch(form: ColumnForm, next: Partial<ColumnForm>): Partial<ColumnForm> {
+  const merged = withSupportedDefault({ ...form, ...next });
+  return merged.defaultKind === (next.defaultKind ?? form.defaultKind)
+    ? next
+    : { ...next, defaultKind: merged.defaultKind };
 }
 
 let counter = 0;
@@ -178,7 +223,8 @@ export function columnDefinitionOf(form: ColumnForm): ColumnDefinition {
     type,
     // An identity column is never NULL.
     nullable: identity === null ? form.nullable : false,
-    default: identity === null ? columnDefaultOf(form) : { kind: "none" },
+    // A default the type does not offer is never sent (it would only be refused).
+    default: identity === null ? columnDefaultOf(withSupportedDefault(form)) : { kind: "none" },
     identity,
     comment: form.comment.trim() === "" ? null : form.comment,
   };
@@ -190,15 +236,25 @@ export function columnProblems(form: ColumnForm): string[] {
   if (form.name === "") problems.push("A column needs a name.");
   else if (!isValidNewIdentifier(form.name))
     problems.push("A column name can be at most 63 bytes and cannot start or end with a space.");
-  if (takesLength(form.typeName) && form.length.trim() !== "" && whole(form.length) === undefined)
-    problems.push("The length must be a whole number.");
+  if (takesLength(form.typeName) && form.length.trim() !== "") {
+    const length = whole(form.length);
+    if (length === undefined) problems.push("The length must be a whole number.");
+    else if (length < 1 || length > MAX_TYPE_LENGTH)
+      problems.push(`The length must be between 1 and ${MAX_TYPE_LENGTH}.`);
+  }
   if (form.typeName === "char" && form.length.trim() === "") problems.push("char needs a length.");
   if (form.typeName === "numeric") {
     const precision = whole(form.precision);
     const scale = whole(form.scale);
     if (form.precision.trim() !== "" && precision === undefined)
       problems.push("The precision must be a whole number.");
-    if (form.scale.trim() !== "" && precision === undefined)
+    else if (precision !== undefined && (precision < 1 || precision > MAX_NUMERIC_PRECISION))
+      problems.push(`The precision must be between 1 and ${MAX_NUMERIC_PRECISION}.`);
+    if (form.scale.trim() !== "" && scale === undefined)
+      problems.push("The scale must be a whole number.");
+    else if (scale !== undefined && scale > MAX_NUMERIC_PRECISION)
+      problems.push(`The scale must be between 0 and ${MAX_NUMERIC_PRECISION}.`);
+    if (form.scale.trim() !== "" && form.precision.trim() === "")
       problems.push("A scale needs a precision.");
     if (precision !== undefined && scale !== undefined && scale > precision)
       problems.push("The scale cannot be larger than the precision.");
@@ -244,6 +300,30 @@ export function foreignKeyOf(form: ForeignKeyForm): ForeignKeyDefinition {
   };
 }
 
+/**
+ * What is wrong with one foreign key's choices, without the `Foreign key N:`
+ * prefix. `knownColumns` is the columns of the table that holds the key.
+ */
+export function foreignKeyProblems(
+  fk: Pick<ForeignKeyForm, "columns" | "table" | "referenced">,
+  knownColumns: ReadonlySet<string>,
+): string[] {
+  const problems: string[] = [];
+  if (fk.columns.some((c) => c === "" || !knownColumns.has(c)))
+    problems.push("choose columns of this table.");
+  if (fk.table === "") problems.push("choose the table it points at.");
+  if (fk.referenced.some((c) => c === "")) problems.push("choose the columns it points at.");
+  if (fk.columns.length !== fk.referenced.length)
+    problems.push("it needs as many referenced columns as columns.");
+  const repeats = (list: string[]) => {
+    const chosen = list.filter((c) => c !== "");
+    return new Set(chosen).size !== chosen.length;
+  };
+  if (repeats(fk.columns)) problems.push("a column of this table is chosen twice.");
+  if (repeats(fk.referenced)) problems.push("a referenced column is chosen twice.");
+  return problems;
+}
+
 export interface CreateTableForm {
   schema: string;
   name: string;
@@ -287,17 +367,84 @@ export function createTableProblems(form: CreateTableForm): string[] {
       problems.push(`Unique constraint ${index + 1} names a column that is not in the table.`);
   });
   form.foreignKeys.forEach((fk, index) => {
-    const label = `Foreign key ${index + 1}`;
-    if (fk.columns.some((c) => c === "" || !known.has(c)))
-      problems.push(`${label}: choose columns of this table.`);
-    if (fk.table === "") problems.push(`${label}: choose the table it points at.`);
-    if (fk.referenced.some((c) => c === ""))
-      problems.push(`${label}: choose the columns it points at.`);
-    if (fk.columns.length !== fk.referenced.length)
-      problems.push(`${label}: it needs as many referenced columns as columns.`);
+    for (const problem of foreignKeyProblems(fk, known))
+      problems.push(`Foreign key ${index + 1}: ${problem}`);
   });
   if (form.comment.length > MAX_COMMENT_CHARS) problems.push("The table comment is too long.");
   return problems;
+}
+
+// ------------------------------------------- keeping the form consistent ---
+
+const mapNames = (list: string[], from: string, to: string) =>
+  list.map((name) => (name === from ? to : name));
+
+/**
+ * Rename a column (by its stable id), and everything in the form that holds its
+ * name: the primary key, the unique constraints and the columns of foreign keys.
+ * Nothing is left pointing at a name that no longer exists.
+ */
+export function renameColumnIn(form: CreateTableForm, id: string, to: string): CreateTableForm {
+  const from = form.columns.find((c) => c.id === id)?.name;
+  if (from === undefined || from === to) return form;
+  // A key or unique set holds a blank only for a column whose name was cleared while typing, so
+  // it follows the column when the name comes back. A foreign key's blank means "not chosen yet"
+  // and must not be filled in by a rename.
+  const renameFk = (list: string[]) => (from === "" ? list : mapNames(list, from, to));
+  return {
+    ...form,
+    columns: form.columns.map((c) => (c.id === id ? { ...c, name: to } : c)),
+    primaryKey: mapNames(form.primaryKey, from, to),
+    unique: form.unique.map((set) => mapNames(set, from, to)),
+    foreignKeys: form.foreignKeys.map((fk) => ({ ...fk, columns: renameFk(fk.columns) })),
+  };
+}
+
+/**
+ * Remove a column (by its stable id), and every use of its name: the primary
+ * key, the unique constraints, and the foreign key pairs that start at it. A
+ * foreign key left with no pair keeps one blank pair, so its row stays on
+ * screen and says what to choose.
+ */
+export function removeColumnIn(form: CreateTableForm, id: string): CreateTableForm {
+  const removed = form.columns.find((c) => c.id === id);
+  if (!removed) return form;
+  const name = removed.name;
+  const without = (list: string[]) => (name === "" ? list : list.filter((n) => n !== name));
+  return {
+    ...form,
+    columns: form.columns.filter((c) => c.id !== id),
+    primaryKey: without(form.primaryKey),
+    unique: form.unique.map(without),
+    foreignKeys: form.foreignKeys.map((fk) => {
+      if (name === "" || !fk.columns.includes(name)) return fk;
+      const keep = fk.columns.map((c) => c !== name);
+      const columns = fk.columns.filter((_, i) => keep[i]);
+      const referenced = fk.referenced.filter((_, i) => keep[i]);
+      return columns.length > 0
+        ? { ...fk, columns, referenced }
+        : { ...fk, columns: [""], referenced: [""] };
+    }),
+  };
+}
+
+/**
+ * Rename the new table, and move a foreign key that points at the table itself
+ * with it. Otherwise the key would keep naming the old name and could silently
+ * point at an existing table of that name.
+ */
+export function renameTableIn(form: CreateTableForm, to: string): CreateTableForm {
+  if (form.name === to) return form;
+  return {
+    ...form,
+    name: to,
+    foreignKeys:
+      form.name === ""
+        ? form.foreignKeys
+        : form.foreignKeys.map((fk) =>
+            fk.schema === form.schema && fk.table === form.name ? { ...fk, table: to } : fk,
+          ),
+  };
 }
 
 // ------------------------------------------------------------- the labels ---

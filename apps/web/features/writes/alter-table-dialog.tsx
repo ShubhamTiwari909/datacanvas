@@ -31,7 +31,7 @@ import {
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
 import { ColumnFields, DefaultFields, SELECT_CLASS, TypeFields } from "./column-fields";
 import { ForeignKeyFields } from "./foreign-key-fields";
-import { CHANGE_LABEL } from "./structure";
+import { CHANGE_LABEL, columnFormPatch, defaultKindsForDataType } from "./structure";
 
 export interface TableStructure {
   columns: ColumnInfo[];
@@ -122,11 +122,30 @@ function AlterForm({
     setState((s) => ({ ...s, columnForm: { ...s.columnForm, ...next } }));
   const qualified = `${table.schema}.${table.name}`;
   const droppable = structure.constraints.filter((c) => c.kind !== "check");
-  const droppableIndexes = structure.indexes.filter((i) => !i.primary);
+  // An index that backs a constraint goes with the constraint ("drop the constraint instead").
+  const backing = new Set(
+    structure.constraints
+      .filter((c) => c.kind === "primary_key" || c.kind === "unique")
+      .map((c) => c.name),
+  );
+  const droppableIndexes = structure.indexes.filter((i) => !i.primary && !backing.has(i.name));
+  const defaultKinds = defaultKindsForDataType(
+    structure.columns.find((c) => c.name === state.column)?.dataType,
+  );
 
   const chooseColumn = (name: string) => {
     const info = structure.columns.find((c) => c.name === name);
-    set({ column: name, nullable: info?.nullable ?? true });
+    setState((s) => {
+      // The kinds offered depend on the column, so a kind the new column does not offer is dropped.
+      const kinds = defaultKindsForDataType(info?.dataType);
+      const keep = kinds.includes(s.columnForm.defaultKind);
+      return {
+        ...s,
+        column: name,
+        nullable: info?.nullable ?? true,
+        columnForm: keep ? s.columnForm : { ...s.columnForm, defaultKind: "none" },
+      };
+    });
   };
 
   const toggle = (name: string, on: boolean) =>
@@ -139,7 +158,13 @@ function AlterForm({
   let body: React.ReactNode = null;
   switch (state.op) {
     case "add_column":
-      body = <ColumnFields form={state.columnForm} index={1} onChange={setColumnForm} />;
+      body = (
+        <ColumnFields
+          form={state.columnForm}
+          index={1}
+          onChange={(next) => setColumnForm(columnFormPatch(state.columnForm, next))}
+        />
+      );
       break;
     case "rename_column":
     case "rename_table":
@@ -218,7 +243,7 @@ function AlterForm({
             form={state.columnForm}
             onChange={setColumnForm}
             prefix="New"
-            kinds={["none", "literal", "now", "current_date", "gen_random_uuid", "boolean"]}
+            kinds={defaultKinds}
           />
         </div>
       );

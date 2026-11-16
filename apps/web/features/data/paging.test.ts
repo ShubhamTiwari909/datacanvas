@@ -16,7 +16,7 @@ const run = (actions: PagingAction[], from: PagingState = initialPaging()): Pagi
 describe("paging", () => {
   it("starts on the first page, 50 rows, nothing revealed, with no cursor", () => {
     const state = initialPaging();
-    expect(state).toEqual({ pageSize: 50, trail: [null], reveal: [] });
+    expect(state).toEqual({ pageSize: 50, trail: [null], reveal: [], sort: null });
     expect(currentCursor(state)).toBeNull();
     expect(pageNumber(state)).toBe(1);
     expect(canGoBack(state)).toBe(false);
@@ -75,12 +75,82 @@ describe("paging", () => {
     expect(pagingReducer(shown, { type: "hide", column: "other" }).reveal).toEqual(["api_key"]);
   });
 
-  it("never holds row data: the state is only a size, cursors and column names", () => {
+  it("never holds row data: the state is only a size, cursors, a sort and column names", () => {
     const state = run([
       { type: "next", cursor: "c1" },
       { type: "reveal", column: "token" },
+      { type: "sort", sort: { column: "email", direction: "desc" } },
     ]);
-    expect(Object.keys(state).sort()).toEqual(["pageSize", "reveal", "trail"]);
+    expect(Object.keys(state).sort()).toEqual(["pageSize", "reveal", "sort", "trail"]);
     expect(state.trail.every((c) => c === null || typeof c === "string")).toBe(true);
+    expect(state.sort).toEqual({ column: "email", direction: "desc" });
+  });
+});
+
+describe("a sort in the paging state", () => {
+  const byEmail = { column: "email", direction: "asc" as const };
+
+  it("starts with none, and sets one", () => {
+    expect(initialPaging().sort).toBeNull();
+    expect(run([{ type: "sort", sort: byEmail }]).sort).toEqual(byEmail);
+  });
+
+  it("starts again from the first page, because a cursor from one order means nothing under another", () => {
+    const deep = run([
+      { type: "next", cursor: "c1" },
+      { type: "next", cursor: "c2" },
+    ]);
+    expect(pageNumber(deep)).toBe(3);
+    const sorted = pagingReducer(deep, { type: "sort", sort: byEmail });
+    expect(pageNumber(sorted)).toBe(1);
+    expect(currentCursor(sorted)).toBeNull();
+    // ... and removing the sort does too.
+    const again = pagingReducer(pagingReducer(sorted, { type: "next", cursor: "c9" }), {
+      type: "sort",
+      sort: null,
+    });
+    expect(again.sort).toBeNull();
+    expect(pageNumber(again)).toBe(1);
+  });
+
+  it("changes nothing, and keeps the page, when the same sort is asked for again", () => {
+    const sorted = run([
+      { type: "sort", sort: byEmail },
+      { type: "next", cursor: "c1" },
+    ]);
+    expect(pagingReducer(sorted, { type: "sort", sort: { ...byEmail } })).toBe(sorted);
+    expect(pagingReducer(initialPaging(), { type: "sort", sort: null })).toEqual(initialPaging());
+  });
+
+  it("keeps the sort when the page size changes, and the page size when the sort changes", () => {
+    const state = run([
+      { type: "sort", sort: byEmail },
+      { type: "pageSize", pageSize: 100 },
+    ]);
+    expect(state.sort).toEqual(byEmail);
+    expect(pagingReducer(state, { type: "sort", sort: null }).pageSize).toBe(100);
+  });
+
+  it("goes when its column is hidden again (a hidden column cannot be sorted), and starts again", () => {
+    const state = run([
+      { type: "reveal", column: "token" },
+      { type: "sort", sort: { column: "token", direction: "asc" } },
+      { type: "next", cursor: "c1" },
+    ]);
+    const hidden = pagingReducer(state, { type: "hide", column: "token" });
+    expect(hidden.sort).toBeNull();
+    expect(hidden.reveal).toEqual([]);
+    expect(pageNumber(hidden)).toBe(1);
+  });
+
+  it("stays, with its page, when another column is hidden again", () => {
+    const state = run([
+      { type: "reveal", column: "token" },
+      { type: "sort", sort: byEmail },
+      { type: "next", cursor: "c1" },
+    ]);
+    const hidden = pagingReducer(state, { type: "hide", column: "token" });
+    expect(hidden.sort).toEqual(byEmail);
+    expect(pageNumber(hidden)).toBe(2);
   });
 });

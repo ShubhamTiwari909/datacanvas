@@ -20,6 +20,37 @@ const page = (overrides: Partial<RowPage> = {}): RowPage => ({
   ...overrides,
 });
 
+describe("pageNotes with a sort", () => {
+  const sorted = (overrides: Partial<RowPage> = {}) =>
+    page({ sort: { column: "email", direction: "desc" }, ...overrides });
+
+  it("says how the page is ordered: the column, the direction, where NULL goes, and the tie-breaker", () => {
+    expect(pageNotes(sorted())).toEqual([
+      "Ordered by email (descending, NULL first), then by id (the primary key).",
+    ]);
+    expect(pageNotes(page({ sort: { column: "email", direction: "asc" } }))).toEqual([
+      "Ordered by email (ascending, NULL last), then by id (the primary key).",
+    ]);
+  });
+
+  it("names a unique index as the tie-breaker when there is no primary key", () => {
+    expect(pageNotes(sorted({ order: { kind: "unique_index", columns: ["a", "b"] } }))[0]).toBe(
+      "Ordered by email (descending, NULL first), then by a, b (a unique index).",
+    );
+  });
+
+  it("says paging stops, and what to do, when the sort value was too long to continue from", () => {
+    const notes = pageNotes(sorted({ sortValueTooLong: true }));
+    expect(notes.join(" ")).toContain("Paging stops here");
+    expect(notes.join(" ")).toContain("Sort by another column");
+  });
+
+  it("does not mention it on a page that was not sorted", () => {
+    expect(pageNotes(page()).join(" ")).not.toContain("Paging stops");
+    expect(pageNotes(page())).toEqual(["Ordered by id (the primary key)."]);
+  });
+});
+
 describe("pageNotes", () => {
   it("warns about row-level security only when it applies to the connected role", () => {
     expect(pageNotes(page({ rowSecurity: "applies" })).join(" ")).toContain("Row-level security");

@@ -22,6 +22,7 @@ import { describeRowEstimate } from "./cell-text";
 import { DataGrid } from "./data-grid";
 import { pageNotes } from "./page-notes";
 import { PAGE_SIZES, canGoBack, pageNumber } from "./paging";
+import { nextSort } from "./sorting";
 import { useRows } from "./use-rows";
 
 export function DataSection({
@@ -205,6 +206,8 @@ function Rows({
           revealed={paging.reveal}
           onReveal={(column) => dispatch({ type: "reveal", column })}
           onHide={(column) => dispatch({ type: "hide", column })}
+          sort={paging.sort}
+          onSort={(column) => dispatch({ type: "sort", sort: nextSort(paging.sort, column) })}
           busy={busy}
         />
       )}

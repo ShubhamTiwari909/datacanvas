@@ -317,6 +317,52 @@ describe("the documents tell the truth about rows", () => {
   });
 });
 
+describe("writes: the documents say what the promise now is", () => {
+  const flat = (file: string) =>
+    readFileSync(path.join(root, file), "utf8").replace(/\s+/g, " ").toLowerCase();
+
+  it("the README says DataCanvas never changes a database unless started with --enable-writes", () => {
+    const readme = flat("README.md");
+    expect(readme).toContain(
+      "never changes your database unless you start it with `--enable-writes`",
+    );
+    expect(readme).toContain("--enable-writes allow editing rows");
+  });
+
+  it("SECURITY.md names the three switches, what local cannot prove, and that a change cannot be undone", () => {
+    const security = flat("SECURITY.md");
+    expect(security).toContain("--enable-writes");
+    expect(security).toMatch(/on this machine/);
+    expect(security).toMatch(/typ(e|ing) its database name/);
+    expect(security).toMatch(/tunnel/);
+    expect(security).toMatch(/cannot be undone/);
+    expect(security).toMatch(/cascade/);
+  });
+
+  it("the threat model and the guide describe writes", () => {
+    const model = flat("docs/threat-model.md");
+    expect(model).toContain("changing the database (writes");
+    expect(model).toContain("no `cascade`");
+    const guide = flat("docs/getting-started.md");
+    expect(guide).toContain("--enable-writes");
+    expect(guide).toContain("cannot be undone");
+  });
+
+  it("no product document says DataCanvas only reads, without a qualifier beside it", () => {
+    // "DataCanvas only reads ..." was true until 1.4.0. It must now be said with its condition.
+    const claim = /datacanvas (only|never) (reads|writes|changes)\b/g;
+    const qualifier = /--enable-writes|by default|unless/;
+    for (const file of ["README.md", "SECURITY.md", "docs/getting-started.md"]) {
+      const content = flat(file);
+      for (const match of content.matchAll(claim)) {
+        const around = content.slice(Math.max(0, match.index - 160), match.index + 200);
+        expect(around, `${file}: "${match[0]}"`).toMatch(qualifier);
+      }
+      expect(content, file).not.toMatch(/there is no way to (change|modify|write)/);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Writes (1.4.0): editing rows and designing tables, docs/data-editing-plan.md.
 // ---------------------------------------------------------------------------

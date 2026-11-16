@@ -76,7 +76,7 @@ export function DataSection({
       <EmptyState
         icon={Lock}
         title="Table data is switched off"
-        description="Off by default. When on, DataCanvas reads and shows the rows of the tables you open, read-only, one page at a time. Rows are never saved."
+        description="Off by default. When on, DataCanvas reads and shows the rows of the tables you open, one page at a time. Rows are never saved."
       >
         <Button
           type="button"

@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-16
+
 ### Added
 
 - **Editing rows and designing tables**, off unless DataCanvas is started with the new **`--enable-writes`** flag, and only for a database on this machine (`localhost`, `127.0.0.0/8`, `::1` or a Unix socket). Unlock writes for a connection by typing its database name (viewing table data must be on); the unlock is kept in memory only and ends on disconnect, reconnect or restart, and a red **Writes on** badge shows while it lasts. Then:

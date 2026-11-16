@@ -8,8 +8,15 @@
  * before `connect()`, unknown schemas and tables throw `not_found`, and
  * failures are `DatabaseError`s.
  */
-import type { DatabaseAdapter } from "../adapter.js";
-import type { RoleInfo } from "../changes.js";
+import type { DatabaseAdapter, WritableAdapter } from "../adapter.js";
+import type {
+  AppliedChange,
+  Change,
+  PlannedChange,
+  RoleInfo,
+  StructureChange,
+  TableEditInfo,
+} from "../changes.js";
 import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
   ColumnInfo,
@@ -48,6 +55,7 @@ import {
 } from "../models.js";
 import { uniqueTableRefs } from "../table-refs.js";
 import { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";
+import { MockWrites } from "./mock-writes.js";
 
 /** What the mock treats a column as, from the type name the sample data uses (the real adapter asks the catalog). */
 function kindOf(dataType: string): RowColumnKind {
@@ -99,14 +107,16 @@ function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export class MockDatabaseAdapter implements DatabaseAdapter {
+export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter {
   private connected = false;
   private readonly data: MockDatabaseData;
   private readonly failConnectWith: DatabaseErrorCode | undefined;
   private readonly role: RoleInfo;
+  private readonly writes: MockWrites;
 
   constructor(options: MockAdapterOptions = {}) {
     this.data = options.data ?? createEcommerceData();
+    this.writes = new MockWrites(this.data);
     this.role = options.role ?? MOCK_ROLE;
     this.failConnectWith = options.failConnectWith;
   }
@@ -444,6 +454,28 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
   async getRoleInfo(): Promise<RoleInfo> {
     this.requireConnection();
     return copy(this.role);
+  }
+
+  // ---- WritableAdapter (see mock-writes.ts for what the mock does and does not check).
+
+  async describeForEdit(table: TableRef): Promise<TableEditInfo> {
+    this.requireConnection();
+    return copy(this.writes.describeForEdit(table));
+  }
+
+  async previewChange(change: Change): Promise<PlannedChange> {
+    this.requireConnection();
+    return copy(this.writes.previewChange(copy(change)));
+  }
+
+  async applyChange(plan: PlannedChange): Promise<AppliedChange> {
+    this.requireConnection();
+    return this.writes.applyChange(copy(plan));
+  }
+
+  /** Structure changes that were applied without changing the sample data (for tests). */
+  get appliedStructureChanges(): readonly StructureChange[] {
+    return this.writes.appliedStructure;
   }
 
   async disconnect(): Promise<void> {

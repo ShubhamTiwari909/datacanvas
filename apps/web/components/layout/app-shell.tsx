@@ -10,7 +10,11 @@ import { Sidebar } from "./sidebar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-screen flex-col">
+    // `relative` + `overflow-hidden`: the frame is exactly one screen tall and the page itself must never
+    // scroll. Screen-reader-only text (`sr-only`) is absolutely positioned; with no positioned ancestor it
+    // escapes the scroll areas inside (the table list, the rows grid) and stretches the whole document,
+    // so a long list let the page scroll and left a blank area under the canvas.
+    <div className="relative flex h-screen flex-col overflow-hidden">
       <Header />
       <div className="flex min-h-0 flex-1">
         <Sidebar />

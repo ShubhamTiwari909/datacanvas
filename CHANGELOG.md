@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- With a long list of tables (a database with many tables, such as a CMS schema), the page itself could scroll, which slid the app up and left a blank area under the canvas, and the table data below it looked missing. The page frame is now exactly one screen tall and never scrolls; the table list and the rows grid scroll inside it, as intended. The cause was the screen-reader-only labels in each row (an absolutely positioned element with no positioned ancestor escaped the scroll areas and stretched the whole page).
+
 ## [1.2.0] - 2026-11-16
 
 ### Added

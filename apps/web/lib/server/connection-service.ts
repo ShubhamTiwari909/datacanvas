@@ -204,6 +204,8 @@ export class ConnectionService {
             pageSize: request.pageSize,
             cursor: request.cursor,
             revealColumns: request.revealColumns,
+            sort: request.sort,
+            filters: request.filters,
           },
         ),
       ),

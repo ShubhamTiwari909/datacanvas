@@ -17,6 +17,8 @@ const request = (overrides: Partial<ParsedRowsRequest> = {}): ParsedRowsRequest 
   pageSize: 50,
   cursor: null,
   revealColumns: [],
+  sort: null,
+  filters: [],
   ...overrides,
 });
 
@@ -170,6 +172,59 @@ describe("ConnectionService.getRows", () => {
     );
     expect(second.rows.map((row) => row[0]!.value)).toEqual(["3"]);
     expect(second.nextCursor).toBeNull();
+  });
+
+  it("passes a sort and conditions to the adapter exactly as given, and nothing else", async () => {
+    const { connections, createdAdapters } = createTestContext();
+    const { id } = await connections.createConnection(input({ dataAccess: true }));
+    const spy = vi.spyOn(createdAdapters[0]!, "getRows");
+    const sort = { column: "email", direction: "desc" as const };
+    const filters = [
+      { column: "id", op: "gte" as const, value: "2" },
+      { column: "full_name", op: "is_null" as const },
+    ];
+
+    await connections.getRows(id, request({ sort, filters, pageSize: 7 }));
+
+    expect(spy).toHaveBeenCalledWith(
+      { schema: "public", name: "users" },
+      { pageSize: 7, cursor: null, revealColumns: [], sort, filters },
+    );
+  });
+
+  it("refuses before the database is touched, with a sort or conditions as without them", async () => {
+    const { connections, createdAdapters } = createTestContext();
+    const { id } = await connections.createConnection(input());
+    const spy = vi.spyOn(createdAdapters[0]!, "getRows");
+    for (const extra of [
+      { sort: { column: "email", direction: "asc" as const } },
+      { filters: [{ column: "email", op: "eq" as const, value: "x" }] },
+    ]) {
+      await expect(connections.getRows(id, request(extra))).rejects.toMatchObject({
+        name: "ServiceError",
+        code: "data_access_disabled",
+      });
+    }
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("sorts and filters once data access is on, and passes the adapter's refusals through", async () => {
+    const { connections } = createTestContext();
+    const { id } = await connections.createConnection(input({ dataAccess: true }));
+    const page = await connections.getRows(
+      id,
+      request({
+        sort: { column: "email", direction: "desc" },
+        filters: [{ column: "id", op: "lt", value: "3" }],
+      }),
+    );
+    expect(page.rows.map((row) => row[0]!.value)).toEqual(["2", "1"]);
+    await expect(
+      connections.getRows(id, request({ sort: { column: "nope", direction: "asc" } })),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      connections.getRows(id, request({ filters: [{ column: "id", op: "contains", value: "1" }] })),
+    ).rejects.toMatchObject({ code: "invalid_request" });
   });
 
   it("passes the adapter's own errors through unchanged", async () => {

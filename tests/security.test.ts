@@ -7,7 +7,9 @@
  *  4. The CLI never binds beyond loopback.
  *  5. Table rows are read only behind the data-access check, and are never logged.
  *  6. In the browser, rows live in component state only: never stored, never saved.
- *  7. The product-wide documents never claim that rows are not read (they can be,
+ *  7. A sort and the conditions of a read are structured data, strict all the way
+ *     down, and never become SQL text; they are never saved or kept in a store.
+ *  8. The product-wide documents never claim that rows are not read (they can be,
  *     when a person switches data viewing on), and they do mention data viewing.
  */
 import { readdirSync, readFileSync } from "node:fs";
@@ -136,11 +138,62 @@ describe("table rows are read only behind the data-access check", () => {
       "apps/web/app/api/connections/[id]/rows/route.ts",
       "apps/web/app/api/connections/[id]/data-access/route.ts",
       "packages/postgres-adapter/src/introspection/rows.ts",
+      "packages/postgres-adapter/src/postgres.adapter.ts",
       "packages/database-core/src/rows.ts",
     ];
     for (const file of files) {
       expect(readFileSync(path.join(root, file), "utf8"), file).not.toMatch(/\bconsole\./);
     }
+  });
+
+  it("keeps a sort and conditions out of everything that is saved", () => {
+    for (const file of [
+      "packages/shared-types/src/workspace.ts",
+      "packages/shared-types/src/snapshots.ts",
+      "packages/shared-types/src/profiles.ts",
+    ]) {
+      const code = readFileSync(path.join(root, file), "utf8");
+      expect(code, file).not.toMatch(/RowFilter|RowSort|rowFilterSchema|rowSortSchema|ROW_FILTER/);
+    }
+  });
+});
+
+describe("a sort and conditions never become SQL text", () => {
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+
+  it("the request schema is strict all the way down: the request, the sort and every condition", () => {
+    const code = read("packages/shared-types/src/connections.ts");
+    expect(code).toMatch(/rowsRequestSchema = z\s*\.strictObject/);
+    expect(code).toMatch(/rowSortSchema = z\s*\.strictObject/);
+    expect(code).toMatch(/rowFilterSchema = z\s*\.strictObject/);
+    // The operator is one of a fixed list, never free text.
+    expect(code).toMatch(/op: z\.enum\(ROW_FILTER_OPERATORS\)/);
+  });
+
+  it("the service passes both to the adapter untouched: structured data, no text is built from them", () => {
+    const code = stripComments(read("apps/web/lib/server/connection-service.ts"));
+    const start = code.indexOf("getRows(id: string");
+    const end = code.indexOf("unlinkProfile(", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = code.slice(start, end);
+    expect(body).toContain("sort: request.sort");
+    expect(body).toContain("filters: request.filters");
+    expect(body).not.toMatch(/`|JSON\.stringify|\.join\(|\+ *request\./);
+  });
+
+  it("the statement writes each operator from a fixed table, by its own keys, and never uses LIKE", () => {
+    const raw = read("packages/postgres-adapter/src/introspection/rows.ts");
+    const code = stripComments(raw);
+    // Own keys only: a plain object also answers to "toString" and "__proto__".
+    expect(code).toContain("Object.hasOwn(FILTER_SQL");
+    // LIKE would make a % or _ in a value a wildcard; contains and starts with are strpos and starts_with.
+    expect(code).not.toMatch(/\b(I?LIKE|SIMILAR TO)\b/i);
+    expect(code).not.toMatch(/~\*?\s/); // no regular-expression operator either
+    // Every value of a condition goes through the parameter function.
+    expect(code).toMatch(/write\(column, param\(filter\.value\)\)/);
   });
 
   it("keeps rows out of everything that is saved: workspaces, snapshots and profiles have no place for them", () => {
@@ -204,7 +257,7 @@ describe("rows in the browser live in component state only", () => {
     expect(places.length).toBeGreaterThan(5);
     for (const file of places) {
       expect(code(file), rel(file)).not.toMatch(
-        /\bgetRows\b|\bRowPage\b|\bRowCell\b|rowsResponseSchema|features\/data\/use-rows/,
+        /\bgetRows\b|\bRowPage\b|\bRowCell\b|rowsResponseSchema|features\/data\/use-rows|\bRowFilter\b|\bRowSort\b|rowFilterSchema|rowSortSchema/,
       );
     }
   });

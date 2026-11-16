@@ -768,3 +768,9 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** sort and filter, with a layout fix (the page itself could scroll with a long table list and leave a blank area under the canvas), are a minor version after the viewer's 1.2.0. The editing plan's suggested version moves from 1.3.0 to 1.4.0.
 
 **Why:** each release stays small and the viewer's wording settles before it grows. Documents changed with the feature: the guide, the threat model, SECURITY.md and the README.
+
+## 123. Version 1.4.0 also adds a table search in the sidebar
+
+**Decision:** besides editing rows and designing tables, 1.4.0 includes a search box at the top of the sidebar's schema tree that narrows it to the tables and views whose name contains the text. It is planned in `docs/sidebar-table-search-plan.md` (T0) and independent of the editing milestones, so it can be built first.
+
+**Why:** the tree loads one schema at a time, so finding a table means opening schemas and scrolling, and the only search (in the canvas toolbar) works on the canvas. Names only, no new route, and no change to what is read. **Open:** where the names come from (the plan recommends loading every schema's table list and filtering in the browser, subject to a measurement on a large database).

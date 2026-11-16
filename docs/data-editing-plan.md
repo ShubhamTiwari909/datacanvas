@@ -1,6 +1,6 @@
 # Plan: editing rows and designing tables
 
-Status: **proposal, nothing built.** This builds on `docs/data-viewer-plan.md` (the read-only data viewer) and is the "editing" work that plan deliberately left out (its section 13). The decisions already made are in section 3; the open ones, each with a recommendation, are in section 13.
+Status: **proposal, nothing built.** This builds on `docs/data-viewer-plan.md` (the read-only data viewer) and is the "editing" work that plan deliberately left out (its section 13). The decisions already made are in section 3; the open ones, each with a recommendation, are in section 13. Version 1.4.0 also carries a small, independent feature, **searching tables from the sidebar** (`docs/sidebar-table-search-plan.md`), which is not part of this plan's milestones.
 
 ## 1. Goal
 

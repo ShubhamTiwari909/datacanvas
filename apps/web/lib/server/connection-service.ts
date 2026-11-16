@@ -19,6 +19,7 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type RelationshipInfo,
+  type RoleInfo,
   type RowPage,
   type SchemaInfo,
   type SearchHit,
@@ -264,6 +265,11 @@ export class ConnectionService {
   /** Usage counters of the indexes (statistics, not rows). */
   getIndexUsage(id: string): Promise<IndexUsageReport> {
     return this.connections.use(id, (adapter) => adapter.getIndexUsage());
+  }
+
+  /** What the connected role can do, and the server's address (catalog only, read-only). */
+  getRoleInfo(id: string): Promise<RoleInfo> {
+    return this.connections.use(id, (adapter) => adapter.getRoleInfo());
   }
 
   /** Views, types, sequences, functions, triggers, extensions and policies of the database. */

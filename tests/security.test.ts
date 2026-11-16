@@ -316,3 +316,251 @@ describe("the documents tell the truth about rows", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Writes (1.4.0): editing rows and designing tables, docs/data-editing-plan.md.
+// ---------------------------------------------------------------------------
+
+/** The text of a source file without its comments, so a rule reads code and not prose. */
+function codeOf(file: string): string {
+  return readFileSync(path.join(root, file), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+const writeRoutes = routeFiles.filter(
+  (f) => f.includes(`${path.sep}writes${path.sep}`) || f.includes(`${path.sep}role${path.sep}`),
+);
+
+describe("writes: every route is guarded, JSON only and never cached", () => {
+  it("finds the eight routes", () => {
+    expect(writeRoutes.map(rel).sort()).toEqual(
+      [
+        "apps/web/app/api/connections/[id]/role/route.ts",
+        "apps/web/app/api/connections/[id]/writes/apply/route.ts",
+        "apps/web/app/api/connections/[id]/writes/edit-info/route.ts",
+        "apps/web/app/api/connections/[id]/writes/history/route.ts",
+        "apps/web/app/api/connections/[id]/writes/lock/route.ts",
+        "apps/web/app/api/connections/[id]/writes/preview/route.ts",
+        "apps/web/app/api/connections/[id]/writes/route.ts",
+        "apps/web/app/api/connections/[id]/writes/unlock/route.ts",
+      ].sort(),
+    );
+  });
+
+  it.each(writeRoutes.map((f) => [rel(f)]))(
+    "%s uses handleRoute and no-store, and has no console",
+    (file) => {
+      const source = codeOf(file as string);
+      expect(source).toMatch(/handleRoute\(\s*request\b/);
+      expect(source).toContain("jsonResponse"); // Cache-Control: no-store
+      expect(source).not.toMatch(/\bconsole\./);
+      expect(source).not.toMatch(/Response\.json|new Response\(/); // always through jsonResponse
+    },
+  );
+
+  it("a route either reads (GET) or takes a strict JSON body (POST), and nothing else", () => {
+    for (const file of writeRoutes) {
+      const source = codeOf(rel(file));
+      const isRead = /export function GET\b/.test(source);
+      const isPost = /export function POST\b/.test(source);
+      expect(isRead !== isPost, rel(file)).toBe(true);
+      expect(source, rel(file)).not.toMatch(/export (async )?function (PUT|PATCH|DELETE|HEAD)\b/);
+      if (isPost) expect(source, rel(file)).toMatch(/parseJsonBody\(\s*request,\s*\w*Schema/);
+    }
+  });
+
+  it("preview and apply use the strict request schemas", () => {
+    expect(codeOf("apps/web/app/api/connections/[id]/writes/apply/route.ts")).toContain(
+      "applyChangeRequestSchema",
+    );
+    expect(codeOf("apps/web/app/api/connections/[id]/writes/preview/route.ts")).toContain(
+      "previewChangeRequestSchema",
+    );
+  });
+});
+
+describe("writes: only the write service reaches the write capability", () => {
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const writeService = "apps/web/lib/server/write-service.ts";
+
+  it("is used in apps/web by lib/server/write-service.ts alone", () => {
+    const users = appCode.filter((f) =>
+      /\b(WritableAdapter|isWritableAdapter|previewChange|applyChange)\b/.test(codeOf(rel(f))),
+    );
+    expect(users.map(rel)).toEqual([writeService]);
+  });
+
+  it("the UI never imports the write service", () => {
+    for (const file of appCode.filter((f) => /\/(features|components|stores)\//.test(f))) {
+      expect(codeOf(rel(file)), rel(file)).not.toMatch(/write-service|WriteService/);
+    }
+  });
+
+  it("snapshots, structure capture and every read path never plan or apply a change", () => {
+    for (const file of [
+      "apps/web/lib/server/snapshot-service.ts",
+      "apps/web/lib/server/connection-service.ts",
+      "apps/web/lib/server/workspace-service.ts",
+      "apps/web/lib/server/profile-service.ts",
+      "apps/web/lib/server/rows-gate.ts",
+      "packages/database-core/src/structure.ts",
+      "packages/database-core/src/diff.ts",
+      "packages/database-core/src/rows.ts",
+    ]) {
+      expect(codeOf(file), file).not.toMatch(
+        /\b(previewChange|applyChange|describeForEdit|WritableAdapter|isWritableAdapter)\b/,
+      );
+    }
+  });
+
+  it("checks the switches in order: the flag, a local database, data viewing, then the name", () => {
+    const source = codeOf(writeService);
+    // The three switches are checked in one method, in this order ...
+    const start = source.indexOf("private requireSwitches(");
+    const switches = source.slice(start, source.indexOf("private requireUnlocked(", start));
+    const order = ["writes_not_enabled", "writes_not_allowed_here", "data_access_disabled"].map(
+      (name) => switches.indexOf(`"${name}"`),
+    );
+    expect(start).toBeGreaterThan(-1);
+    expect(order.every((index) => index > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    // ... and the unlock checks the name only after all of them.
+    const unlock = source.slice(source.indexOf("  unlock("), source.indexOf("  lock("));
+    expect(unlock.indexOf("this.requireSwitches(")).toBeGreaterThan(-1);
+    expect(unlock.indexOf('"wrong_database_name"')).toBeGreaterThan(
+      unlock.indexOf("this.requireSwitches("),
+    );
+    // Every operation re-checks the switches rather than trusting an earlier answer.
+    expect(source.match(/requireUnlocked\(|requireSwitches\(/g)!.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("takes the preview out of the store before it runs, so it can be used once", () => {
+    const source = codeOf(writeService);
+    const take = source.indexOf("this.previews.take(");
+    const run = source.indexOf("applyChange(plan)");
+    expect(take).toBeGreaterThan(-1);
+    expect(run).toBeGreaterThan(take);
+  });
+
+  it("the flag reaches the server only from the CLI's environment, never from a request", () => {
+    expect(codeOf("apps/web/lib/security/request-guard.ts")).toContain(
+      'env[ENABLE_WRITES_ENV] === "1"',
+    );
+    for (const file of appCode.filter((f) => /app\/api/.test(rel(f)))) {
+      expect(codeOf(rel(file)), rel(file)).not.toMatch(/writesEnabled|ENABLE_WRITES/);
+    }
+    // The CLI drops a value inherited from the shell: only the flag can turn writes on.
+    expect(codeOf("packages/cli/src/web-server.ts")).toMatch(/delete rest\[ENABLE_WRITES_ENV\]/);
+  });
+
+  it("the unlock is memory only: no saved or shared type has a place for it", () => {
+    for (const file of [
+      "packages/shared-types/src/profiles.ts",
+      "packages/shared-types/src/workspace.ts",
+      "packages/shared-types/src/snapshots.ts",
+      "packages/shared-types/src/postgres-connection.ts",
+      "packages/shared-types/src/connections.ts",
+    ]) {
+      expect(codeOf(file), file).not.toMatch(/unlock|writeUnlocked/i);
+    }
+  });
+});
+
+describe("writes: no value of a change is ever logged or recorded", () => {
+  /** The write path: the files that see a change and its values. */
+  const writePath = [
+    "apps/web/lib/server/write-service.ts",
+    "apps/web/lib/server/preview-store.ts",
+    "packages/database-core/src/changes.ts",
+    "packages/database-core/src/testing/mock-writes.ts",
+    "packages/shared-types/src/writes.ts",
+    // The PostgreSQL adapter's write code, once it exists.
+    ...walk(path.join(root, "packages/postgres-adapter/src"))
+      .map(rel)
+      .filter((f) => /\/writes\//.test(f) || /role-info\.ts$/.test(f))
+      .filter((f) => !/\.test\.ts$/.test(f)),
+  ];
+
+  it.each(writePath.map((f) => [f]))("%s never writes to the console", (file) => {
+    expect(codeOf(file as string)).not.toMatch(/\bconsole\./);
+  });
+
+  it("the history entry has no field that could hold a value", () => {
+    const source = codeOf("packages/shared-types/src/writes.ts");
+    const start = source.indexOf("export const historyEntrySchema");
+    const end = source.indexOf("});", start);
+    expect(start).toBeGreaterThan(-1);
+    const keys = [...source.slice(start, end).matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+    expect(keys).toEqual([
+      "id",
+      "at",
+      "kind",
+      "table",
+      "columns",
+      "statement",
+      "outcome",
+      "errorCode",
+    ]);
+  });
+
+  it("the service records a change by its kind, table, column names and outcome only", () => {
+    const source = codeOf("apps/web/lib/server/write-service.ts");
+    const start = source.indexOf("private record(");
+    const body = source.slice(start, source.indexOf("return entry;", start));
+    expect(start).toBeGreaterThan(-1);
+    // Nothing of the change's values is read when the entry is made.
+    expect(body).not.toMatch(/change\.(values|set|expected|key)\b/);
+    expect(body).not.toMatch(/\.statements\b|\.value\b/);
+    // The SQL (which holds `$1`, never a value) is kept for a change of structure only.
+    expect(body).toMatch(/category === "structure"/);
+  });
+
+  it("the preview answer carries the statement text and no parameters", () => {
+    const source = codeOf("apps/web/lib/server/write-service.ts");
+    const start = source.indexOf("async preview(");
+    const body = source.slice(start, source.indexOf("expiresAt: new Date", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(body).toContain("statementText(plan)");
+    expect(body).not.toMatch(/\.values\b/);
+  });
+});
+
+describe("writes: no request carries SQL", () => {
+  const source = codeOf("packages/shared-types/src/writes.ts");
+
+  it("no schema has a key named sql, where, expression, using, returning or query", () => {
+    expect([...source.matchAll(/\b(sql|where|expression|using|returning|query)\s*:/g)]).toEqual([]);
+  });
+
+  it("every object in a request is strict", () => {
+    // Everything before the first response schema is a request or a part of one.
+    const requests = source.slice(0, source.indexOf("export const writesStatusSchema"));
+    expect(requests.length).toBeGreaterThan(1000);
+    expect(requests).not.toMatch(/\bz\.object\(/);
+    expect(requests).toMatch(/z\.strictObject\(/);
+  });
+
+  it("the change kinds are a closed list of structured operations", () => {
+    const kinds = [...source.matchAll(/kind:\s*z\.literal\("(\w+)"\)/g)].map((m) => m[1]!);
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        "update_row",
+        "insert_row",
+        "delete_row",
+        "create_table",
+        "drop_table",
+        "drop_column",
+      ]),
+    );
+    for (const kind of kinds) expect(kind).not.toMatch(/sql|query|exec|raw|run/);
+  });
+
+  it("the statement code puts values in the parameter list and never matches with LIKE", () => {
+    const mock = codeOf("packages/database-core/src/testing/mock-writes.ts");
+    expect(mock).toMatch(/values\.push\(value\)/);
+    expect(mock).not.toMatch(/\b(LIKE|ILIKE|SIMILAR TO)\b/);
+  });
+});

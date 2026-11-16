@@ -189,15 +189,15 @@ New capability: **changing and destroying data and structure.** The previous wor
 
 Sizes are relative (S, M, L), not time estimates. **Prerequisite: the data viewer (its M1 to M3) is built**, because editing reuses its key discovery, row display and paging.
 
-|     | Milestone                                                                                                                                | Size | Done when                                                                             |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------- |
-| E0  | **Decisions and wording:** settle section 13, confirm S3, agree Appendix A                                                               | S    | Open decisions answered, wording agreed                                               |
-| E1  | **Plumbing:** CLI flag, config, local rule, `getRoleInfo` and warnings, `WritableAdapter`, `withWriteTransaction`, preview store, unlock | M    | Without the flag or the unlock, no write can run; role info passes on 12 to 18        |
-| E2  | **Row changes, server and adapter:** update, insert, delete, conflict check, fixed errors, tests on 12 to 18                             | L    | Every case in section 9 passes; no value reaches a log or an error                    |
-| E3  | **Row changes, UI:** unlock dialog, badge, editors, preview, history, Playwright                                                         | L    | The end-to-end flow passes; checked by eye in light and dark                          |
-| E4  | **Create table:** builder, preview, allow-lists, tests                                                                                   | M    | A table created from the form matches what was previewed                              |
-| E5  | **Alter table:** operations, lock warnings, dependents, refusals, tests                                                                  | L    | Every operation previewed and applied; destructive ones refused when dependents exist |
-| E6  | **Release:** docs, changelog, minor version, publish checklist                                                                           | S    | Release gate green; version bumped (1.3.0 suggested, after 1.2.0 for the viewer)      |
+|     | Milestone                                                                                                                                | Size | Done when                                                                                                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------- |
+| E0  | **Decisions and wording:** settle section 13, confirm S3, agree Appendix A                                                               | S    | Open decisions answered, wording agreed                                                                        |
+| E1  | **Plumbing:** CLI flag, config, local rule, `getRoleInfo` and warnings, `WritableAdapter`, `withWriteTransaction`, preview store, unlock | M    | Without the flag or the unlock, no write can run; role info passes on 12 to 18                                 |
+| E2  | **Row changes, server and adapter:** update, insert, delete, conflict check, fixed errors, tests on 12 to 18                             | L    | Every case in section 9 passes; no value reaches a log or an error                                             |
+| E3  | **Row changes, UI:** unlock dialog, badge, editors, preview, history, Playwright                                                         | L    | The end-to-end flow passes; checked by eye in light and dark                                                   |
+| E4  | **Create table:** builder, preview, allow-lists, tests                                                                                   | M    | A table created from the form matches what was previewed                                                       |
+| E5  | **Alter table:** operations, lock warnings, dependents, refusals, tests                                                                  | L    | Every operation previewed and applied; destructive ones refused when dependents exist                          |
+| E6  | **Release:** docs, changelog, minor version, publish checklist                                                                           | S    | Release gate green; version bumped (1.4.0 suggested, after 1.2.0 for the viewer and 1.3.0 for sort and filter) |
 
 Each milestone ends with `npm run check`, the browser tests and the tarball test, and is a separate commit.
 
@@ -232,7 +232,7 @@ For each: the question, the options, and a recommendation.
 7. **Is the unlock remembered in a saved profile?** _Recommendation: never._
 8. **Does writing require data viewing on?** _Recommendation: yes_ (guardrail 3).
 9. **Check constraints and `CREATE INDEX CONCURRENTLY`.** _Recommendation: neither in the first release._
-10. **Version number.** _Recommendation: 1.3.0_, after the viewer's 1.2.0.
+10. **Version number.** _Recommendation: 1.4.0_, after the viewer's 1.2.0 and sort and filter's 1.3.0 (`docs/data-sort-filter-plan.md`, decision 7).
 
 ## Appendix A. Wording to agree in E0
 

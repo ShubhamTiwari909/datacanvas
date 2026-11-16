@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-16
+
+### Added
+
+- **Sorting** in the Data section. Click a column header to sort by it: ascending, then descending, then back to the key order. NULL comes last when ascending and first when descending (the database's own order, so a plain index can serve it), and rows that tie are ordered by the table's key, so paging through a sorted table shows every row exactly once. The note under the grid says how the page is ordered. A column that cannot be sorted has no button and a tooltip that says why: it is hidden (show it first), the table has no primary key or unique index to break ties, or its type has no useful order (`json`, `jsonb`, arrays, `bytea` and similar).
+- **Filtering**, from a **Filter** button above the grid. Choose a column, a condition and a value; up to three conditions can be in force, all of which must match, shown as removable chips with **Clear all**. Conditions: equals, does not equal, is greater than, is at least, is less than, is at most, contains, starts with, is NULL and is not NULL, offered by the kind of column (text columns have them all; numbers, dates, booleans and enums have the comparisons; every column has the two NULL tests; `json` and arrays have only those). Values are compared as the column's type (9 comes before 10; an enum in its declared order); a value that does not fit says so in plain words and the filter can be removed. **contains** and **starts with** ignore case and take the value literally (`%` and `_` are ordinary characters; there are no patterns). **does not equal** also matches NULL. Filtering works on tables without a key. While a filter is on, the page says "filtered" instead of the size estimate. A hidden column can be sorted or filtered once you reveal it; hiding it again removes its sort and filters.
+- A read with a sort or a filter is **stopped after 5 seconds** (a plain page keeps the usual limit) with a plain sentence and an offer to remove the filters or the sort; the API answers `422` with the code `too_slow`.
+- `POST /api/connections/:id/rows` takes two optional keys, `sort` (`{ column, direction }`) and `filters` (up to three `{ column, op, value? }`). The request, the sort and every condition are strict objects, the operator is a fixed list, and a value is at most 200 characters. The page answers with the `sort` and `filters` that were applied, whether the sort value was too long to page past (`sortValueTooLong`), and each column's `kind`.
+- Rules that fail the build: the request is strict at every level; the service builds no text from a sort or a condition; the statement code never uses `LIKE`, `ILIKE`, `SIMILAR TO` or a regular-expression operator, and passes every value as a parameter; no sort or condition type appears in a saved file or a store. A generated test of 400 hostile requests checks the statement's grammar.
+
+### Changed
+
+- **The documents** describe sorting and filtering: `docs/getting-started.md`, `docs/threat-model.md` (new rows for reading a hidden column through a condition, injection through a sort or condition, the load of a heavy read, and the value of a condition) and `SECURITY.md` (what a sort or condition can and cannot do, and its limits). A sort or a condition on a hidden column is refused until the column is revealed, because it would read it back one comparison at a time.
+- The rows response has new fields (`sort`, `filters`, `sortValueTooLong` and a `kind` on each column). Nothing else about the API or the saved files changed.
+
 ### Fixed
 
 - With a long list of tables (a database with many tables, such as a CMS schema), the page itself could scroll, which slid the app up and left a blank area under the canvas, and the table data below it looked missing. The page frame is now exactly one screen tall and never scrolls; the table list and the rows grid scroll inside it, as intended. The cause was the screen-reader-only labels in each row (an absolutely positioned element with no positioned ancestor escaped the scroll areas and stretched the whole page).

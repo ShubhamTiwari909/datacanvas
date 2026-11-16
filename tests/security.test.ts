@@ -295,6 +295,19 @@ describe("the documents tell the truth about rows", () => {
     },
   );
 
+  it("the guide and the threat model describe sorting and filtering, and SECURITY.md says what they cost", () => {
+    for (const file of ["docs/getting-started.md", "docs/threat-model.md"]) {
+      const content = text(file).toLowerCase();
+      expect(content, file).toContain("sort");
+      expect(content, file).toContain("filter");
+    }
+    const security = text("SECURITY.md").replace(/\s+/g, " ");
+    // A heavy sort or condition is bounded, and the document says by how much.
+    expect(security).toMatch(/5 seconds/);
+    // A condition on a hidden column would read it back, so the document says it is refused.
+    expect(security.toLowerCase()).toMatch(/hidden column is refused/);
+  });
+
   it("the README and SECURITY.md say it is off by default and that rows are never saved", () => {
     for (const file of ["README.md", "SECURITY.md"]) {
       const content = text(file).replace(/\s+/g, " ").toLowerCase();

@@ -21,7 +21,7 @@ Set `DATACANVAS_HOME` to use a different folder.
 
 By default, only **metadata**: schema, table and column names, types, keys, indexes, constraints, comments, definitions of views, functions and policies, usage counters and row-count estimates. Every query runs in a read-only transaction, and there is no way to run your own SQL.
 
-If you switch on **data viewing** for a connection (off by default, shown by a badge, remembered with the saved connection), DataCanvas also reads **rows**: a fixed `SELECT` on a table you open, in the same read-only transaction, with limits on rows, columns, cell length, response size and time. Rows go from the database to the local server to your browser and nowhere else; they are never written to a file, logged, cached, or included in an error message, a snapshot or a workspace. Columns whose names look sensitive (`password`, `token`, `secret`, ...) are not sent unless you reveal them; this is a convenience, not a security control, because names are only a hint. Anyone who holds the session token can switch data viewing on, so treat the printed link like a password.
+If you switch on **data viewing** for a connection (off by default, shown by a badge, remembered with the saved connection), DataCanvas also reads **rows**: a `SELECT` on a table you open, in the same read-only transaction, with limits on rows, columns, cell length, response size and time. It has a small set of fixed shapes: a sort and up to three conditions are structured choices from the screen (a column, a fixed operator, a value), never text you write, and every value is sent to the database as a parameter, so there is still no way to run your own SQL. A sort or a condition on a hidden column is refused until you reveal it, because it would reveal the column one question at a time. Rows go from the database to the local server to your browser and nowhere else; they are never written to a file, logged, cached, or included in an error message, a snapshot or a workspace. Columns whose names look sensitive (`password`, `token`, `secret`, ...) are not sent unless you reveal them; this is a convenience, not a security control, because names are only a hint. Anyone who holds the session token can switch data viewing on, so treat the printed link like a password.
 
 ## How the local server is protected
 
@@ -56,6 +56,8 @@ The Data section is not exported or saved. If you share your screen, a screensho
 - Hiding columns by name is a hint, not a control. A column called `notes` can hold a password; one called `token_count` is harmless. Use a database user that cannot read what DataCanvas should not show.
 - Browser extensions with access to the page can read what the page shows, including rows.
 - Row-level security can silently return fewer rows; the Data section says so only when it applies to your database user.
+- A sort or a condition can make the database scan a whole table. Such reads are stopped after 5 seconds, one runs at a time per connection, and the page says so, but each try can still cost the database up to 5 seconds of work. Use a database user with the limits you want.
+- A condition's value is held in memory and sent in a request body; like the rows, it is never saved, logged, or put in an error message.
 - Two DataCanvas processes sharing one data folder are not coordinated.
 
 The full reasoning is in [docs/threat-model.md](docs/threat-model.md).

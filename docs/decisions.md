@@ -709,6 +709,8 @@ Follow-up decisions are 91 and 92.
 
 ## 113. Sort and filter were left out of the first release
 
+_(Shipped in 1.3.0: see decisions 116 to 122.)_
+
 **Decision:** the first release reads rows in key order only. Sorting and filtering are designed in their own document (`docs/data-sort-filter-plan.md`, all decisions settled) and ship later (planned as 1.3.0).
 
 **Why:** they let the browser's choice of column and value shape the `SELECT`, need composite keyset paging, and can cause scans; they deserve their own review of the rules that keep "no text typed by the user becomes SQL" true.
@@ -724,3 +726,45 @@ Follow-up decisions are 91 and 92.
 **Decision:** the viewer is a new feature that changes a documented promise (by default only metadata is read; with data viewing on, rows too), so it is a minor version. The product-wide texts (README, SECURITY.md, the threat model, the guide, the connect dialog, the issue template) change in the same release; statements about one tab become "this tab reads no table rows". A rule test fails if a product-wide document says rows are never read.
 
 **Why:** a promise that is no longer true must not ship in the package, and a promise about one tab must not read as a claim about the whole product. **Order:** 1.2.0 is published first; sort and filter follow as 1.3.0 and editing (`docs/data-editing-plan.md`) as 1.4.0, so each release is small and the wording settles before it grows.
+
+## 116. Sorting and filtering are structured choices, not text: one sort column, up to three conditions, a fixed list of operators
+
+**Decision:** a read can be sorted by one column (the table's key breaks ties) and narrowed by up to three conditions, all required, each a column, an operator from a fixed list (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `starts_with`, `is_null`, `is_not_null`) and a value of at most 200 characters. The request, the sort and each condition are strict objects, the operator is an enum, column names come from the catalog and are quoted, and every value is a bound parameter. Sort was built before filters so it could ship alone if the filters took much longer; they shipped together, in 1.3.0.
+
+**Why:** "no text typed by the user becomes SQL" is the promise that keeps the viewer safe to point at anything. A sort and conditions let the browser's choice shape the statement, so the statement became a small written family of shapes, and a generated test of 400 hostile requests (names such as `"; DROP TABLE users; --`, `$1`, emoji and 63-byte names) checks it. **Not done:** several sort columns, OR groups, regular expressions, JSON paths, saved filters, a count of the matches (it would scan the table). **Full reasoning:** `docs/data-sort-filter-plan.md`.
+
+## 117. A read with a sort or a condition has a shorter time limit, not a cost estimate
+
+**Decision:** these reads run under a 5 second statement timeout (the adapter's own if smaller); a plain page keeps the usual limit. A read the limit stops is `422 too_slow` with a fixed sentence.
+
+**Why:** measured on 5 million rows (965 MB): indexed reads about 1 ms, an unindexed sort about 230 ms, `contains` on a wide text column nearly 4 seconds. The planner's estimate cannot be trusted to refuse a read: for a filter that matches nothing it estimated a cost of 9 for a read that scanned the whole table, because it assumes the `LIMIT` is reached early. Time measures reality, needs no catalog rules and reuses the existing one-read-at-a-time limit. **Left over:** each try can cost up to 5 seconds of the database's work.
+
+## 118. No "try anyway" button after a read is stopped
+
+**Decision:** a stopped read says why and offers to remove the filters or the sort; there is no override.
+
+**Why:** the 15 second limit already exists for every other read, and an override invites repeated heavy reads against a database the person may not own.
+
+## 119. A table without a key can be filtered but not sorted
+
+**Decision:** sorting needs a primary key or a unique index (the tie-breaker that makes the order total and stable); a table without one, and a materialized view (which is always read unordered), can be filtered and is paged by position as before.
+
+**Why:** without a tie-breaker a page boundary can skip or repeat rows. The header says why a column cannot be sorted.
+
+## 120. A hidden column can be neither sorted nor filtered until it is revealed
+
+**Decision:** the adapter refuses a sort or a condition on a hidden column (every operator, even the null tests); the browser does not offer it; hiding a column again removes its filters and any sort on it.
+
+**Why:** a condition on a column the viewer masked is an oracle: "starts with a", "starts with b" reads the secret one letter at a time without ever showing it. This is a security rule rather than a preference, and it is tested at every layer.
+
+## 121. Text matching ignores case and has no wildcards; "does not equal" matches NULL; NULL goes where the database puts it
+
+**Decision:** `contains` and `starts with` are `strpos(lower(...))` and `starts_with(lower(...))`, not `LIKE`, so `%`, `_` and `\` in a value are ordinary characters and nothing is escaped; equality is exact and typed (9 before 10, an enum in its declared order); "does not equal" is `IS DISTINCT FROM`; ascending sorts put NULL last and descending first.
+
+**Why:** a person typing `50%` means those characters. A plain `<>` would drop every NULL silently, which is not what "not Ann" means. The database's own NULL placement lets a plain index serve a sort. A rule test fails on `LIKE`, `ILIKE`, `SIMILAR TO` or a regular-expression operator in the statement code.
+
+## 122. Version 1.3.0, after 1.2.0; editing becomes 1.4.0
+
+**Decision:** sort and filter, with a layout fix (the page itself could scroll with a long table list and leave a blank area under the canvas), are a minor version after the viewer's 1.2.0. The editing plan's suggested version moves from 1.3.0 to 1.4.0.
+
+**Why:** each release stays small and the viewer's wording settles before it grows. Documents changed with the feature: the guide, the threat model, SECURITY.md and the README.

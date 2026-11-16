@@ -3,6 +3,7 @@ import { isWritableAdapter } from "../adapter.js";
 import type { Change } from "../changes.js";
 import type { DatabaseError } from "../errors.js";
 import { MockDatabaseAdapter } from "./mock-adapter.js";
+import { createEcommerceData } from "./ecommerce-fixture.js";
 
 const users = { schema: "public", name: "users" };
 
@@ -119,6 +120,10 @@ describe("the mock adapter's write side", () => {
     expect(await emails()).toEqual(["a@x.test", "b@x.test", "c@x.test", "d@x.test"]);
     const page = await adapter.getRows(users, { pageSize: 10, cursor: null, revealColumns: [] });
     expect(page.rows[3]?.[0]?.value).toBe("4");
+    // The column left out gets its default (created_at defaults to now()), not NULL.
+    const created = page.columns.findIndex((c) => c.name === "created_at");
+    expect(created).toBeGreaterThan(-1);
+    expect(page.rows[3]?.[created]?.value).toBe("2026-11-16 12:00:00+00");
     await expect(
       adapter.previewChange({
         kind: "update_row",
@@ -211,7 +216,149 @@ describe("the mock adapter's write side", () => {
     const { adapter, emails } = await setup();
     const plan = await adapter.previewChange(update("new@x.test"));
     plan.statements.length = 0;
-    await adapter.applyChange(await adapter.previewChange(update("new@x.test")));
+    // A fresh plan is unaffected by what was done to the first one.
+    const fresh = await adapter.previewChange(update("new@x.test"));
+    expect(fresh.statements).toHaveLength(1);
+    await adapter.applyChange(fresh);
     expect(await emails()).toEqual(["new@x.test", "b@x.test", "c@x.test"]);
+  });
+  it("previews a literal default with the column's own type, not text", async () => {
+    const { adapter } = await setup();
+    const plan = await adapter.previewChange({
+      kind: "set_default",
+      table: { schema: "public", name: "order_items" },
+      column: "quantity",
+      default: { kind: "literal", value: "7" },
+    });
+    expect(plan.statements[0]?.text).toContain("SET DEFAULT CAST('7' AS integer)");
+  });
+
+  it("puts the chosen ON DELETE and ON UPDATE in a foreign key statement", async () => {
+    const { adapter } = await setup();
+    const fk = {
+      columns: ["user_id"],
+      references: { schema: "public", table: "users", columns: ["id"] },
+      onDelete: "cascade" as const,
+      onUpdate: "set_null" as const,
+    };
+    const added = await adapter.previewChange({
+      kind: "add_foreign_key",
+      table: { schema: "public", name: "orders" },
+      foreignKey: fk,
+    });
+    expect(added.statements[0]?.text).toContain("ON DELETE CASCADE ON UPDATE SET NULL");
+    const created = await adapter.previewChange({
+      kind: "create_table",
+      schema: "public",
+      name: "audit",
+      columns: [
+        {
+          name: "user_id",
+          type: { name: "integer" },
+          nullable: true,
+          default: { kind: "none" },
+          identity: null,
+          comment: null,
+        },
+      ],
+      primaryKey: [],
+      unique: [],
+      foreignKeys: [fk],
+      comment: null,
+    });
+    expect(created.statements[0]?.text).toContain("ON DELETE CASCADE ON UPDATE SET NULL");
+  });
+
+  it("removes a dropped table's foreign keys from the catalog", async () => {
+    const { adapter, run } = await setup();
+    const touching = (rels: Awaited<ReturnType<typeof adapter.getRelationships>>) =>
+      rels.filter((r) => r.source.table === "order_items" || r.target.table === "order_items");
+    expect(touching(await adapter.getRelationships()).length).toBeGreaterThan(0);
+    await run({
+      kind: "drop_table",
+      table: { schema: "public", name: "order_items" },
+      confirm: "order_items",
+    });
+    expect(touching(await adapter.getRelationships())).toEqual([]);
+  });
+
+  it("does not write into a fixture it was given, nor into another adapter using it", async () => {
+    const data = createEcommerceData();
+    const before = JSON.stringify(data);
+    const a = new MockDatabaseAdapter({ data });
+    const b = new MockDatabaseAdapter({ data });
+    await a.connect();
+    await b.connect();
+    await a.applyChange(await a.previewChange(update("changed@x.test")));
+    const emailsOf = async (adapter: MockDatabaseAdapter) =>
+      (await adapter.getRows(users, { pageSize: 10, cursor: null, revealColumns: [] })).rows.map(
+        (row) => row[1]?.value,
+      );
+    expect((await emailsOf(a))[0]).toBe("changed@x.test");
+    expect((await emailsOf(b))[0]).toBe("a@x.test");
+    expect(JSON.stringify(data)).toBe(before);
+  });
+
+  it("keeps defaults, identity and unique keys of a table it creates", async () => {
+    const { adapter, run } = await setup();
+    const col = (
+      name: string,
+      type: "integer" | "text",
+      extra: Partial<Parameters<typeof run>[0] & object> & Record<string, unknown> = {},
+    ) => ({
+      name,
+      type: { name: type },
+      nullable: true,
+      default: { kind: "none" as const },
+      identity: null,
+      comment: null,
+      ...extra,
+    });
+    await run({
+      kind: "create_table",
+      schema: "public",
+      name: "made",
+      columns: [
+        col("id", "integer", { identity: "always", nullable: false }),
+        col("code", "text"),
+        col("label", "text", { default: { kind: "literal", value: "it's new" } }),
+        col("qty", "integer", { default: { kind: "literal", value: "3" } }),
+      ],
+      primaryKey: ["id"],
+      unique: [["code"]],
+      foreignKeys: [],
+      comment: null,
+    });
+    const made = { schema: "public", name: "made" };
+    const info = await adapter.describeForEdit(made);
+    expect(info.key).toEqual(["id"]);
+    // An identity ALWAYS column is filled by the database: not editable, but it has a default.
+    expect(info.columns.find((c) => c.name === "id")).toMatchObject({
+      identity: "always",
+      generated: true,
+      editable: false,
+      hasDefault: true,
+      nullable: false,
+    });
+    expect(info.columns.find((c) => c.name === "label")).toMatchObject({ hasDefault: true });
+
+    const insert = (code: string): Change => ({
+      kind: "insert_row",
+      table: made,
+      values: [{ column: "code", value: code }],
+    });
+    await run(insert("one"));
+    await run(insert("two"));
+    const page = await adapter.getRows(made, { pageSize: 10, cursor: null, revealColumns: [] });
+    const cell = (row: number, name: string) =>
+      page.rows[row]?.[page.columns.findIndex((c) => c.name === name)]?.value;
+    expect([cell(0, "id"), cell(1, "id")]).toEqual(["1", "2"]);
+    expect(cell(0, "label")).toBe("it's new");
+    expect(cell(0, "qty")).toBe("3");
+    // The unique key is enforced, with a message that holds no value.
+    await expect(run(insert("one"))).rejects.toMatchObject({
+      code: "unique_violation",
+      message: expect.not.stringContaining("one"),
+    });
   });
 });

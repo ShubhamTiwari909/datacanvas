@@ -115,7 +115,8 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter {
   private readonly writes: MockWrites;
 
   constructor(options: MockAdapterOptions = {}) {
-    this.data = options.data ?? createEcommerceData();
+    // A fixture passed in is copied: writes must not leak into it, or into another adapter using it.
+    this.data = options.data ? copy(options.data) : createEcommerceData();
     this.writes = new MockWrites(this.data);
     this.role = options.role ?? MOCK_ROLE;
     this.failConnectWith = options.failConnectWith;

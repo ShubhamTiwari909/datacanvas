@@ -1,6 +1,6 @@
 # Plan: sorting and filtering rows in the data viewer
 
-Status: **design settled 2026-11-16 (all seven recommendations accepted, section 8). S1a (sorting), S1b (filters) and S2 (the server) are built, S3a (the sort screens) and S3b (the filter panel). Left: the documents and the release (S4).** This is the part of milestone M4 that `docs/data-viewer-plan.md` (decision 6, section 5.3) left for its own design, because it lets the browser's choice of column and value shape the `SELECT`. The decisions are in section 8. Numbers in section 2 were measured on 2026-11-16 on one machine; they show shape, not guarantees.
+Status: **design settled 2026-11-16 (all seven recommendations accepted, section 8). S1a (sorting), S1b (filters), S2 (the server), S3a (the sort screens) and S3b (the filter panel) are built, and S4 (the documents and version 1.3.0) is prepared. Publishing is the owner's step.** This is the part of milestone M4 that `docs/data-viewer-plan.md` (decision 6, section 5.3) left for its own design, because it lets the browser's choice of column and value shape the `SELECT`. The decisions are in section 8. Numbers in section 2 were measured on 2026-11-16 on one machine; they show shape, not guarantees.
 
 ## 1. Goal and non-goals
 

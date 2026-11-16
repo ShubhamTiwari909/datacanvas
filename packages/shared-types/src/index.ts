@@ -19,3 +19,4 @@ export * from "./versioned-file.js";
 export * from "./profiles.js";
 export * from "./workspace.js";
 export * from "./snapshots.js";
+export * from "./writes.js";

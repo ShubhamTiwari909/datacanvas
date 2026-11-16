@@ -34,6 +34,20 @@ export const API_ERROR_CODES = [
   "not_supported",
   "too_slow",
   "unexpected",
+  // Writes (1.4.0): database-side refusals with fixed messages.
+  "row_changed",
+  "not_editable",
+  "invalid_change",
+  "unique_violation",
+  "foreign_key_violation",
+  "not_null_violation",
+  "check_violation",
+  "invalid_value",
+  "locked",
+  "retry",
+  "write_denied",
+  "has_dependents",
+  "already_exists",
   // Connection registry problems.
   "connection_not_found",
   "connection_limit_reached",
@@ -51,6 +65,13 @@ export const API_ERROR_CODES = [
   "snapshot_too_large",
   "invalid_snapshot_file",
   "storage_error",
+  // Writes (1.4.0): the three switches and the preview.
+  "writes_not_enabled",
+  "writes_not_allowed_here",
+  "write_not_unlocked",
+  "wrong_database_name",
+  "preview_expired",
+  "write_busy",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

@@ -9,6 +9,7 @@
  * failures are `DatabaseError`s.
  */
 import type { DatabaseAdapter } from "../adapter.js";
+import type { RoleInfo } from "../changes.js";
 import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
   ColumnInfo,
@@ -67,7 +68,23 @@ function cutSortValue(value: string | null): string | null {
   return value === null ? null : value.slice(0, ROWS_MAX_SORT_VALUE_CHARS + 1);
 }
 
+/** The sample role: an ordinary owner of a local development database. */
+export const MOCK_ROLE: RoleInfo = {
+  roleName: "shop_owner",
+  superuser: false,
+  createRole: false,
+  createDb: false,
+  bypassRls: false,
+  powerfulRoles: [],
+  canCreateInDatabase: true,
+  schemasWithCreate: 1,
+  writableTables: 4,
+  serverAddress: "127.0.0.1",
+};
+
 export interface MockAdapterOptions {
+  /** What `getRoleInfo()` answers. Defaults to `MOCK_ROLE`. */
+  role?: RoleInfo;
   /** Data to serve. Defaults to the sample shop database. */
   data?: MockDatabaseData;
   /** Make `connect()` and `testConnection()` fail with this error, to test error handling. */
@@ -86,9 +103,11 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
   private connected = false;
   private readonly data: MockDatabaseData;
   private readonly failConnectWith: DatabaseErrorCode | undefined;
+  private readonly role: RoleInfo;
 
   constructor(options: MockAdapterOptions = {}) {
     this.data = options.data ?? createEcommerceData();
+    this.role = options.role ?? MOCK_ROLE;
     this.failConnectWith = options.failConnectWith;
   }
 
@@ -420,6 +439,11 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
   async getIndexUsage(): Promise<IndexUsageReport> {
     this.requireConnection();
     return copy(this.data.indexUsage);
+  }
+
+  async getRoleInfo(): Promise<RoleInfo> {
+    this.requireConnection();
+    return copy(this.role);
   }
 
   async disconnect(): Promise<void> {

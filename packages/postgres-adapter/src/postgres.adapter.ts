@@ -23,6 +23,7 @@ import {
   type IndexUsageReport,
   type RowPage,
   type RowsOptions,
+  type RoleInfo,
   type RelationshipInfo,
   type SchemaInfo,
   type SearchHit,
@@ -184,6 +185,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   getIndexUsage(): Promise<IndexUsageReport> {
     return this.read((db) => listIndexUsage(db));
+  }
+
+  // TODO(E1): replaced by introspection/role-info.ts.
+  getRoleInfo(): Promise<RoleInfo> {
+    return Promise.reject(new DatabaseError("unexpected"));
   }
 
   /** Run `work` in a read-only transaction and translate any failure to a DatabaseError. */

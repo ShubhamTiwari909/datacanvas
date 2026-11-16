@@ -12,6 +12,7 @@ import type {
   IndexInfo,
   IndexUsageReport,
   RelationshipInfo,
+  RowPage,
   SchemaInfo,
   SearchHit,
   TableDetailsEntry,
@@ -35,6 +36,7 @@ import type {
   indexInfoSchema,
   indexUsageReportSchema,
   relationshipInfoSchema,
+  rowPageSchema,
   searchHitSchema,
   tableDetailsEntrySchema,
 } from "./metadata.js";
@@ -54,6 +56,7 @@ assertType<Same<z.infer<typeof relationshipInfoSchema>, RelationshipInfo>>();
 assertType<Same<z.infer<typeof tableDetailsEntrySchema>, TableDetailsEntry>>();
 assertType<Same<z.infer<typeof searchHitSchema>, SearchHit>>();
 assertType<Same<z.infer<typeof indexUsageReportSchema>, IndexUsageReport>>();
+assertType<Same<z.infer<typeof rowPageSchema>, RowPage>>();
 // Every database error code must be a valid API error code.
 assertType<[DatabaseErrorCode] extends [ApiErrorCode] ? true : false>();
 
@@ -111,6 +114,7 @@ describe("connectionSummarySchema", () => {
     username: "alice",
     sslMode: "disable",
     hasPassword: true,
+    dataAccess: false,
     profileId: null,
   };
 

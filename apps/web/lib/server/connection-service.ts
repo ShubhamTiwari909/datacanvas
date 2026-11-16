@@ -19,6 +19,7 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type RelationshipInfo,
+  type RowPage,
   type SchemaInfo,
   type SearchHit,
   type DatabaseStructure,
@@ -33,12 +34,14 @@ import {
   resolvePostgresConnection,
   summarizePostgresConnection,
   type ConnectionSummary,
+  type ParsedRowsRequest,
   type SnapshotSource,
   type PostgresConnectionInput,
   type ResolvedPostgresConnection,
 } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
 import type { ProfileService } from "./profile-service";
+import { RowsGate } from "./rows-gate";
 import { ServiceError } from "./service-error";
 
 /** Connection details each provider needs. Only PostgreSQL for now. */
@@ -68,6 +71,7 @@ function profileDetails(
     database: summary.database,
     username: summary.username,
     sslMode: summary.sslMode,
+    dataAccess: summary.dataAccess,
   };
 }
 
@@ -78,6 +82,8 @@ export class ConnectionService {
   private readonly adapters: AdapterRegistry<ProviderConfigs>;
   private readonly connections: ConnectionRegistry;
   private readonly profiles: ProfileService;
+  /** Row reads, one page at a time per connection. */
+  private readonly rowsGate = new RowsGate();
 
   constructor(dependencies: ConnectionServiceDependencies) {
     this.adapters = dependencies.adapters;
@@ -111,17 +117,27 @@ export class ConnectionService {
   async createConnection(input: PostgresConnectionInput): Promise<ConnectionSummary> {
     const resolved = resolvePostgresConnection(input);
     // Cheap check first: do not open a database connection for a profile that is gone.
-    let profileId: string | null = input.profileId
-      ? (await this.profiles.get(input.profileId)).id
-      : null;
+    const linked = input.profileId ? await this.profiles.get(input.profileId) : null;
+    let profileId: string | null = linked?.id ?? null;
+    // Viewing table data is off unless asked for; a reconnected profile brings its own setting back.
+    const dataAccess = input.dataAccess ?? linked?.dataAccess ?? false;
 
     const adapter = this.adapters.create("postgresql", resolved);
     await adapter.connect(); // throws DatabaseError on failure: nothing registered yet
     try {
       // The summary has no password; the password stays inside `adapter`.
-      const details = { ...summarizePostgresConnection(resolved), provider: "postgresql" as const };
+      const details = {
+        ...summarizePostgresConnection(resolved, dataAccess),
+        provider: "postgresql" as const,
+      };
       if (profileId === null && input.remember) {
-        profileId = (await this.profiles.add(profileDetails(details))).id;
+        const saved = await this.profiles.add(profileDetails(details));
+        profileId = saved.id;
+        // The same database may already be saved: keep the choice just made.
+        if (saved.dataAccess !== dataAccess)
+          await this.profiles.setDataAccess(saved.id, dataAccess);
+      } else if (linked && input.dataAccess !== undefined && linked.dataAccess !== dataAccess) {
+        await this.profiles.setDataAccess(linked.id, dataAccess);
       }
       return this.connections.add({ ...details, profileId }, adapter);
     } catch (error) {
@@ -144,6 +160,56 @@ export class ConnectionService {
     return this.connections.setProfileId(id, profile.id);
   }
 
+  /**
+   * Switch viewing table data on or off for a live connection, and remember the
+   * choice with its saved profile, if it has one.
+   * @throws ServiceError `connection_not_found`
+   */
+  async setDataAccess(id: string, enabled: boolean): Promise<ConnectionSummary> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    // The saved copy first: if the disk fails, nothing changed.
+    if (summary.profileId !== null) await this.profiles.setDataAccess(summary.profileId, enabled);
+    return this.connections.setDataAccess(id, enabled);
+  }
+
+  /**
+   * One page of a table's ROWS. The only place rows are read for the browser, and
+   * it refuses unless viewing table data is switched on for this connection: that
+   * check comes first, before the database is touched.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `not_found`, `not_supported`, `invalid_request`, `permission_denied`, ...
+   */
+  getRows(id: string, request: ParsedRowsRequest): Promise<RowPage> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) =>
+        adapter.getRows(
+          { schema: request.schema, name: request.table },
+          {
+            pageSize: request.pageSize,
+            cursor: request.cursor,
+            revealColumns: request.revealColumns,
+          },
+        ),
+      ),
+    );
+  }
+
   /** Called when a saved profile is forgotten, so no live connection keeps pointing at it. */
   unlinkProfile(profileId: string): void {
     this.connections.clearProfile(profileId);
@@ -155,6 +221,7 @@ export class ConnectionService {
 
   /** Disconnect and forget a connection (and its credentials). */
   deleteConnection(id: string): Promise<void> {
+    this.rowsGate.forget(id);
     return this.connections.remove(id);
   }
 

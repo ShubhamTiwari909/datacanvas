@@ -5,6 +5,7 @@
  *  2. There is never an arbitrary-SQL endpoint.
  *  3. No code sends CORS headers (other sites must not read our responses).
  *  4. The CLI never binds beyond loopback.
+ *  5. Table rows are read only behind the data-access check, and are never logged.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -73,6 +74,80 @@ describe("loopback only", () => {
       // Comments may warn about it; code must not use it.
       const withoutComments = code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
       expect(withoutComments, rel(file)).not.toContain("0.0.0.0");
+    }
+  });
+});
+
+describe("table rows are read only behind the data-access check", () => {
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const rowsRoute = path.join(root, "apps/web/app/api/connections/[id]/rows/route.ts");
+
+  it("calls getRows only in the connection service, and in the one route that asks the service", () => {
+    const callers = appCode.filter((f) => /\.getRows\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel).sort()).toEqual([rel(rowsRoute), rel(service)].sort());
+    // The route asks the SERVICE (which checks the setting); it never holds an adapter.
+    const route = readFileSync(rowsRoute, "utf8");
+    expect(route).toMatch(/connections\.getRows\(/);
+    expect(route).not.toMatch(/adapter/i);
+  });
+
+  it("refuses when data access is off before it uses the adapter", () => {
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("getRows(id: string");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start);
+    const refusal = body.indexOf("data_access_disabled");
+    const use = body.indexOf("this.connections.use(");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(use).toBeGreaterThan(-1);
+    expect(refusal).toBeLessThan(use);
+    // ... and the check is on the connection's own setting.
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+  });
+
+  it("serves rows only through a JSON POST, never cached", () => {
+    const code = readFileSync(rowsRoute, "utf8");
+    expect(code).toMatch(/export function POST\b/);
+    expect(code).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(code).toContain("jsonResponse"); // no-store
+    expect(code).toContain("rowsRequestSchema"); // the strict schema: no where, orderBy or sql
+  });
+
+  it("switches data access only with a PUT of a strict body", () => {
+    const code = readFileSync(
+      path.join(root, "apps/web/app/api/connections/[id]/data-access/route.ts"),
+      "utf8",
+    );
+    expect(code).toMatch(/export function PUT\b/);
+    expect(code).not.toMatch(/export (async )?function (GET|POST|PATCH|DELETE)\b/);
+    expect(code).toContain("dataAccessRequestSchema");
+  });
+
+  it("has no code in the row path that writes to the console", () => {
+    const files = [
+      "apps/web/lib/server/connection-service.ts",
+      "apps/web/lib/server/rows-gate.ts",
+      "apps/web/app/api/connections/[id]/rows/route.ts",
+      "apps/web/app/api/connections/[id]/data-access/route.ts",
+      "packages/postgres-adapter/src/introspection/rows.ts",
+      "packages/database-core/src/rows.ts",
+    ];
+    for (const file of files) {
+      expect(readFileSync(path.join(root, file), "utf8"), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("keeps rows out of everything that is saved: workspaces, snapshots and profiles have no place for them", () => {
+    for (const file of [
+      "packages/shared-types/src/workspace.ts",
+      "packages/shared-types/src/snapshots.ts",
+      "packages/shared-types/src/profiles.ts",
+    ]) {
+      const code = readFileSync(path.join(root, file), "utf8");
+      expect(code, file).not.toMatch(/rowPageSchema|RowPage|RowCell|rowsResponseSchema/);
     }
   });
 });

@@ -42,6 +42,8 @@ const SERVICE_ERROR_STATUS = {
   workspace_not_found: 404,
   workspace_limit_reached: 409,
   invalid_workspace_file: 400,
+  data_access_disabled: 403,
+  rows_busy: 429,
   snapshot_not_found: 404,
   snapshot_limit_reached: 409,
   snapshot_too_large: 413,

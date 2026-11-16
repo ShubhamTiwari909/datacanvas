@@ -250,6 +250,12 @@ export function parsePostgresConnectionString(raw: string): ParseResult<ParsedCo
 const persistenceFields = {
   remember: z.boolean().optional(),
   profileId: profileIdSchema.optional(),
+  /**
+   * Allow viewing table data (rows) for this connection. Off unless asked for. When
+   * a saved profile is reconnected and this is omitted, the profile's own setting
+   * applies. It is a setting of DataCanvas, never sent to the database.
+   */
+  dataAccess: z.boolean().optional(),
 };
 
 /** Mode "fields": every part supplied separately. Unknown keys are rejected (strictObject). */
@@ -314,7 +320,14 @@ export function resolvePostgresConnection(
   input: PostgresConnectionInput,
 ): ResolvedPostgresConnection {
   if (input.mode === "fields") {
-    const { mode: _mode, sslMode, remember: _remember, profileId: _profileId, ...rest } = input;
+    const {
+      mode: _mode,
+      sslMode,
+      remember: _remember,
+      profileId: _profileId,
+      dataAccess: _dataAccess,
+      ...rest
+    } = input;
     return { ...rest, sslMode: sslMode ?? defaultSslMode(input.host) };
   }
   const parsed = parsePostgresConnectionString(input.connectionString);
@@ -334,6 +347,8 @@ export const postgresConnectionSummarySchema = z.object({
   username: z.string(),
   sslMode: sslModeSchema,
   hasPassword: z.boolean(),
+  /** Table data (rows) may be viewed on this connection. Off by default; remembered with a saved connection. */
+  dataAccess: z.boolean(),
 });
 
 export type PostgresConnectionSummary = z.infer<typeof postgresConnectionSummarySchema>;
@@ -341,7 +356,8 @@ export type PostgresConnectionSummary = z.infer<typeof postgresConnectionSummary
 /** Drop the password, keeping only whether one was provided. */
 export function summarizePostgresConnection(
   connection: ResolvedPostgresConnection,
+  dataAccess = false,
 ): PostgresConnectionSummary {
   const { password, ...rest } = connection;
-  return { ...rest, hasPassword: password !== "" };
+  return { ...rest, hasPassword: password !== "", dataAccess };
 }

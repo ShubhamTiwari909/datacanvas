@@ -66,6 +66,13 @@ export class ProfileService {
    * Forget a profile and delete the workspaces saved for it.
    * @throws ServiceError `profile_not_found`
    */
+  /** Remember whether viewing table data is allowed for a saved connection. */
+  async setDataAccess(id: string, enabled: boolean): Promise<void> {
+    if (!(await this.profiles.setDataAccess(id, enabled))) {
+      throw new ServiceError("profile_not_found", "This saved connection does not exist.");
+    }
+  }
+
   async remove(id: string): Promise<void> {
     if (!(await this.profiles.remove(id))) {
       throw new ServiceError("profile_not_found", "This saved connection does not exist.");

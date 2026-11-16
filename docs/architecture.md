@@ -822,3 +822,24 @@ Tests: the queries against a real PostgreSQL (`postgres.adapter.objects.test.ts`
 **No value in an error.** PostgreSQL's own message for a bad value contains the value, so a SQLSTATE class 22 error becomes `invalid_request` with a fixed message, and `permission_denied` keeps its fixed text. Tests forge a cursor with a distinctive value and assert it appears nowhere in the error. **Found by the tests:** a statement with a parameter nothing refers to is refused by PostgreSQL (42P18), which is what a table whose every column is masked produced until the cell limit stopped being passed when no column uses it.
 
 Tests: the shared contract (mock and PostgreSQL), exact statement text, every type in the plan's list, truncation (including a surrogate pair at the cut and 2,000 against 2,001 characters), composite and long keys, every kind of key and non-key, masking and reveal, a table with no columns, 301 columns, awkward names, a view, a materialized view, a partitioned table, a foreign table, row-level security and a role without `SELECT`, the awkward-schema fixture read table by table, and two guards that no snapshot or structure capture ever calls `getRows`.
+
+### The server layer for rows (data viewer M2)
+
+Two routes and one service method sit in front of `getRows`. **Still no screen uses them** (M3), so the product shows no rows yet and the README and SECURITY.md are unchanged.
+
+| Method and path                        | Purpose                                                                              | Success                |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------- |
+| `POST /api/connections/:id/rows`       | one page of a table's rows (`{ schema, table, pageSize?, cursor?, revealColumns? }`) | `{ page }`, `no-store` |
+| `PUT /api/connections/:id/data-access` | switch viewing table data on or off (`{ enabled }`)                                  | `{ connection }`       |
+
+**The setting.** `dataAccess` is a boolean on the connection summary: **off unless asked for**, set when connecting (`dataAccess` in the connect request, which is never sent to the database and is stripped from the resolved connection) or later through the route, and **remembered with a saved connection**. The saved-connections file is now version 2; the 1 to 2 migration gives every existing profile `dataAccess: false`, so an upgrade never makes anything readable, and a version 2 file without the flag is refused (it is never assumed on). Reopening a saved connection brings its setting back unless the request says otherwise. Switching it saves the profile **first** and the in-memory setting second, so a disk failure changes nothing.
+
+**The refusal comes first.** `ConnectionService.getRows` checks the connection's own `dataAccess` **before it touches the database or even resolves the table**, so a switched-off connection cannot be used to learn whether a table exists; it answers `403 data_access_disabled` with a fixed message. It is the only place an adapter's `getRows` is called for the browser. Rules in `tests/security.test.ts` fail if any other app file calls `getRows`, if the refusal moves after the adapter is used, if the rows route accepts anything but a JSON `POST` or loses `no-store`, if the settings route accepts anything but a `PUT`, or if any file in the row path (service, gate, routes, adapter, core helpers) mentions `console.`. Workspaces, snapshots and profiles have no schema that could hold a page.
+
+**One page at a time per connection** (`RowsGate`): a read runs, up to three more wait their turn, and further requests are refused with `429 rows_busy`, so rapid paging cannot crowd the connection pool or queue without limit. A failed read never blocks the ones behind it.
+
+**The request is strict.** `rowsRequestSchema` is a strict object: there is no `where`, `orderBy`, `limit`, `offset`, `columns` or `sql` key, so the shape of the query never depends on the caller (every one of those is tested to be refused). A page size is 1 to 200 (default 50), a cursor at most 4,096 characters, at most 100 names to reveal.
+
+**No value in a log or an error.** The route tests make the adapter throw an error whose message and `cause` contain a distinctive value and assert it appears in neither the response nor any `console` call; a forged cursor is never echoed back; a successful read writes nothing to the console.
+
+New error codes: `data_access_disabled` (403), `rows_busy` (429); the adapter's `invalid_request` and `not_supported` map to 400.

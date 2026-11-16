@@ -11,6 +11,7 @@ import {
   indexInfoSchema,
   indexUsageReportSchema,
   relationshipInfoSchema,
+  rowPageSchema,
   schemaInfoSchema,
   searchHitSchema,
   tableDetailsEntrySchema,
@@ -89,3 +90,31 @@ export const searchResponseSchema = z.object({ hits: z.array(searchHitSchema) })
 
 /** `GET /api/connections/:id/index-usage`: usage counters of the indexes (statistics, not rows). */
 export const indexUsageResponseSchema = z.object({ usage: indexUsageReportSchema });
+
+// --- Table data (rows) ------------------------------------------------------
+
+/**
+ * `POST /api/connections/:id/rows`: one page of a table's rows. A POST with a JSON
+ * body, so table names and paging positions never appear in a URL, the history or
+ * a log. Strict: any other key (a `where`, an `orderBy`, a `sql`) is refused.
+ */
+export const rowsRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  /** 1 to 200 (the server's page-size limit). */
+  pageSize: z.number().int().min(1).max(200).default(50),
+  /** The `nextCursor` of the previous page; opaque and untrusted. */
+  cursor: z.string().min(1).max(4096).nullable().default(null),
+  /** Columns that look sensitive are not read unless named here. */
+  revealColumns: z.array(identifierSchema).max(100).default([]),
+});
+/** What a client may send (defaults are optional). */
+export type RowsRequest = z.input<typeof rowsRequestSchema>;
+/** What the server works with, after validation (defaults applied). */
+export type ParsedRowsRequest = z.output<typeof rowsRequestSchema>;
+
+export const rowsResponseSchema = z.object({ page: rowPageSchema });
+
+/** `PUT /api/connections/:id/data-access`: switch viewing table data on or off for this connection. */
+export const dataAccessRequestSchema = z.strictObject({ enabled: z.boolean() });
+export type DataAccessRequest = z.infer<typeof dataAccessRequestSchema>;

@@ -1,6 +1,6 @@
 # Plan: read-only data viewer
 
-Status: **M0 and M1 done (2026-11-16).** The eight decisions are settled (section 12), the wording of the changed promises is agreed (Appendix A), and the adapter layer is built and tested (`getRows`, the shared helpers, the PostgreSQL implementation; section 15). **No route or screen reads rows yet**, so the product still reads none. Implementation continues at M2. M0 changed three things in the first draft (section 14); M1 found four more (section 15).
+Status: **M0, M1 and M2 done (2026-11-16).** The eight decisions are settled (section 12), the wording of the changed promises is agreed (Appendix A), the adapter layer is built and tested (section 15), and the server layer is built and tested (the setting, the service, two routes; section 16). **No screen reads rows yet**, so the product still shows none. Implementation continues at M3. M0 changed three things in the first draft (section 14); M1 and M2 found more (sections 15 and 16).
 
 ## 1. Goal
 
@@ -157,14 +157,14 @@ The threat model gains an "asset: table rows" entry, the new attacker attempts a
 
 Sizes are relative (S, M, L), not time estimates.
 
-|     | Milestone                                                                                                                                                             | Size | Done when                                                               |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------- |
-| M0  | **Decisions and wording**: settle section 12; agree the wording of the promises that will change (Appendix A). **Done 2026-11-16.**                                   | S    | The open decisions are answered and the new wording is agreed           |
-| M1  | **Adapter**: model, `getRows` in the interface, PostgreSQL implementation, mock, contract and awkward-schema tests, matrix                                            | L    | All adapter tests pass on PostgreSQL 12 to 18 **Done 2026-11-16.**      |
-| M2  | **Server**: `dataAccess` flag, service, routes, error codes, schemas, route and security rule tests                                                                   | M    | A disabled connection cannot read rows; no value reaches a log or error |
-| M3  | **UI v1**: opt-in flow, Data section, paging, masking and reveal, cell dialog, themes, Playwright tests                                                               | L    | The end-to-end flow passes; checked by eye in light and dark            |
-| M4  | **Polish and extras**: sort and filter (composite keyset, timeout-aware), blur toggle, RLS notice, optional foreign-table support, performance and accessibility pass | M    | Performance numbers recorded; accessibility issues fixed                |
-| M5  | **Release**: docs, changelog, minor version, publish checklist                                                                                                        | S    | Release gate green; version bumped (1.2.0 suggested)                    |
+|     | Milestone                                                                                                                                                             | Size | Done when                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | -------------------------------------------------------------------------------------------- |
+| M0  | **Decisions and wording**: settle section 12; agree the wording of the promises that will change (Appendix A). **Done 2026-11-16.**                                   | S    | The open decisions are answered and the new wording is agreed                                |
+| M1  | **Adapter**: model, `getRows` in the interface, PostgreSQL implementation, mock, contract and awkward-schema tests, matrix                                            | L    | All adapter tests pass on PostgreSQL 12 to 18 **Done 2026-11-16.**                           |
+| M2  | **Server**: `dataAccess` flag, service, routes, error codes, schemas, route and security rule tests                                                                   | M    | A disabled connection cannot read rows; no value reaches a log or error **Done 2026-11-16.** |
+| M3  | **UI v1**: opt-in flow, Data section, paging, masking and reveal, cell dialog, themes, Playwright tests                                                               | L    | The end-to-end flow passes; checked by eye in light and dark                                 |
+| M4  | **Polish and extras**: sort and filter (composite keyset, timeout-aware), blur toggle, RLS notice, optional foreign-table support, performance and accessibility pass | M    | Performance numbers recorded; accessibility issues fixed                                     |
+| M5  | **Release**: docs, changelog, minor version, publish checklist                                                                                                        | S    | Release gate green; version bumped (1.2.0 suggested)                                         |
 
 Each milestone ends with `npm run check`, the browser tests and the tarball test, and each is a separate commit.
 
@@ -257,3 +257,12 @@ Use it for the Snapshots, Objects, Health and Overview headers and in the matchi
 4. **Row comparison needs no casts.** `ROW("k1", "k2") > ROW($2, $3)` with untyped text parameters pages correctly for every key type tested (bigint, text longer than the cell limit, composite keys), so section 5.2's rule of binding values without cast text holds.
 
 The paging cursor is plain ASCII (non-ASCII characters are escaped inside it), because `database-core` has no text-encoding dependency; section 5.3 said only that it is opaque.
+
+## 16. What M2 found (server layer, 2026-11-16)
+
+1. **The refusal must not depend on the table.** The check runs before anything is resolved, so a connection with data access off answers the same for a table that exists and one that does not. A test pins this.
+2. **The profile file needed a real migration, and a strict reader.** Version 1 files get `dataAccess: false` for every profile; a version 2 file that lacks the flag is refused instead of assumed, so nothing can become readable by a damaged or hand-edited file.
+3. **`dataAccess` is a setting of the connection, not part of it.** It is accepted in the connect request next to `remember` and `profileId`, stripped before the connection is resolved (a test checks the resolved object has no such key), and never sent to the database. `ResolvedPostgresConnection` still holds only what the database needs.
+4. **Order of writes when switching.** The saved profile is updated before the in-memory setting, so a disk failure leaves both unchanged and the screen cannot show "on" for something that was not remembered.
+5. **Concurrency is bounded, not unlimited.** One read runs, three wait, the rest get `429 rows_busy`. The numbers are constants in `rows-gate.ts` and are the ones the plan's "one read at a time" implies once a browser can pipeline requests.
+6. **Remembering a database that is already saved keeps the latest choice** (the saved profile was reused by `add` and kept its old flag until this was handled).

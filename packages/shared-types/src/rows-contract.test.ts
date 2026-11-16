@@ -2,8 +2,16 @@
  * The request and response contracts for viewing table data (rows), and the
  * `dataAccess` setting of a connection: bounded, strict, and off by default.
  */
+import {
+  ROWS_MAX_FILTERS,
+  ROWS_MAX_FILTER_VALUE_CHARS,
+  ROW_FILTER_OPS,
+} from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_ROW_FILTERS,
+  MAX_ROW_FILTER_VALUE_CHARS,
+  ROW_FILTER_OPERATORS,
   connectionSummarySchema,
   dataAccessRequestSchema,
   rowsRequestSchema,
@@ -24,6 +32,8 @@ describe("rowsRequestSchema", () => {
       pageSize: 50,
       cursor: null,
       revealColumns: [],
+      sort: null,
+      filters: [],
     });
   });
 
@@ -158,5 +168,111 @@ describe("dataAccess on a connection", () => {
     };
     expect(connectionSummarySchema.safeParse(summary).success).toBe(false);
     expect(connectionSummarySchema.safeParse({ ...summary, dataAccess: false }).success).toBe(true);
+  });
+});
+
+describe("a sort and conditions in the rows request", () => {
+  it("are optional, and a request without them means the key order and no conditions", () => {
+    const parsed = rowsRequestSchema.parse(base);
+    expect(parsed.sort).toBeNull();
+    expect(parsed.filters).toEqual([]);
+    expect(rowsRequestSchema.parse({ ...base, sort: null, filters: [] })).toEqual(parsed);
+  });
+
+  it("accept a sort and up to three conditions, and keep them as given", () => {
+    const request = {
+      ...base,
+      sort: { column: "email", direction: "desc" },
+      filters: [
+        { column: "email", op: "contains", value: "x" },
+        { column: "id", op: "gte", value: "2" },
+        { column: "full_name", op: "is_null" },
+      ],
+    };
+    const parsed = rowsRequestSchema.parse(request);
+    expect(parsed.sort).toEqual(request.sort);
+    expect(parsed.filters).toEqual(request.filters);
+  });
+
+  it("allow an empty value, which is a value", () => {
+    expect(
+      rowsRequestSchema.parse({ ...base, filters: [{ column: "a", op: "eq", value: "" }] }).filters,
+    ).toEqual([{ column: "a", op: "eq", value: "" }]);
+  });
+
+  it("use the same operators and limits as the core, so the two cannot drift apart", () => {
+    expect([...ROW_FILTER_OPERATORS]).toEqual([...ROW_FILTER_OPS]);
+    expect(MAX_ROW_FILTERS).toBe(ROWS_MAX_FILTERS);
+    expect(MAX_ROW_FILTER_VALUE_CHARS).toBe(ROWS_MAX_FILTER_VALUE_CHARS);
+    for (const op of ROW_FILTER_OPS) {
+      const nullary = op === "is_null" || op === "is_not_null";
+      const filter = nullary ? { column: "a", op } : { column: "a", op, value: "v" };
+      expect(rowsRequestSchema.safeParse({ ...base, filters: [filter] }).success, op).toBe(true);
+    }
+  });
+
+  it("accept the limits: three conditions, a value of 200 characters, a column name of 255", () => {
+    const filter = {
+      column: "c".repeat(255),
+      op: "eq",
+      value: "v".repeat(ROWS_MAX_FILTER_VALUE_CHARS),
+    };
+    expect(
+      rowsRequestSchema.safeParse({ ...base, filters: Array(ROWS_MAX_FILTERS).fill(filter) })
+        .success,
+    ).toBe(true);
+    expect(
+      rowsRequestSchema.safeParse({ ...base, sort: { column: "c".repeat(255), direction: "asc" } })
+        .success,
+    ).toBe(true);
+  });
+
+  const one = { column: "a", op: "eq", value: "x" };
+  it.each([
+    ["a sort that is text", { sort: "email" }],
+    ["a sort without a direction", { sort: { column: "email" } }],
+    ["a sort with another direction", { sort: { column: "email", direction: "up" } }],
+    ["a sort with an empty column", { sort: { column: "", direction: "asc" } }],
+    [
+      "a sort with a column over 255 characters",
+      { sort: { column: "c".repeat(256), direction: "asc" } },
+    ],
+    ["a sort with an extra key", { sort: { column: "email", direction: "asc", nulls: "first" } }],
+    ["a sort as a list", { sort: [{ column: "email", direction: "asc" }] }],
+    ["filters that are not a list", { filters: one }],
+    ["four conditions", { filters: Array(ROWS_MAX_FILTERS + 1).fill(one) }],
+    ["an unknown operator", { filters: [{ ...one, op: "like" }] }],
+    ["an operator that is not text", { filters: [{ ...one, op: 1 }] }],
+    ["a condition with no column", { filters: [{ op: "eq", value: "x" }] }],
+    ["a condition with an empty column", { filters: [{ ...one, column: "" }] }],
+    [
+      "a value over 200 characters",
+      { filters: [{ ...one, value: "v".repeat(ROWS_MAX_FILTER_VALUE_CHARS + 1) }] },
+    ],
+    ["a value that is not text", { filters: [{ ...one, value: 5 }] }],
+    ["a missing value on an operator that needs one", { filters: [{ column: "a", op: "eq" }] }],
+    ["a missing value on contains", { filters: [{ column: "a", op: "contains" }] }],
+    ["a value on is_null", { filters: [{ column: "a", op: "is_null", value: "x" }] }],
+    ["an empty value on is_not_null", { filters: [{ column: "a", op: "is_not_null", value: "" }] }],
+    ["a condition with an extra key", { filters: [{ ...one, where: "1 = 1" }] }],
+    ["a condition that is a string", { filters: ["id > 0"] }],
+  ])("refuse %s", (_name, extra) => {
+    expect(rowsRequestSchema.safeParse({ ...base, ...extra }).success).toBe(false);
+  });
+
+  it("still have no place for a where, orderBy, sql or filter text", () => {
+    for (const key of [
+      "where",
+      "orderBy",
+      "order",
+      "filter",
+      "sql",
+      "query",
+      "limit",
+      "offset",
+      "columns",
+    ]) {
+      expect(rowsRequestSchema.safeParse({ ...base, [key]: "id > 0" }).success, key).toBe(false);
+    }
   });
 });

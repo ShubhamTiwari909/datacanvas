@@ -3,6 +3,7 @@
  * value ever ends up in an error, a response it should not be in, or a log.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DatabaseError } from "@datacanvas/database-core";
 import { setServerContextForTests } from "@/lib/server/context";
 import { createTestContext, fieldsInput, type TestContext } from "@/lib/server/test-support";
 import { POST as createConnection } from "./connections/route";
@@ -166,6 +167,187 @@ describe("POST /connections/:id/rows", () => {
       (await rows(id, users)).text,
       (await rows(id, { ...users, table: "missing" })).text,
       (await toggle(id, { enabled: true })).text,
+    ];
+    for (const text of texts) expect(text).not.toContain("s3cret-pw");
+  });
+});
+
+describe("a sort and conditions in POST /connections/:id/rows", () => {
+  const ids = (result: { body: Json }): string[] =>
+    result.body.page.rows.map((r: Json) => r[0].value);
+
+  it("sorts by a column and says what it did", async () => {
+    const id = await connect({ dataAccess: true });
+    const result = await rows(id, { ...users, sort: { column: "email", direction: "desc" } });
+    expect(result.status).toBe(200);
+    expect(ids(result)).toEqual(["3", "2", "1"]);
+    expect(result.body.page.sort).toEqual({ column: "email", direction: "desc" });
+    expect(result.body.page.order).toEqual({ kind: "primary_key", columns: ["id"] });
+    expect(result.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("pages a sorted read by its cursor, which carries the sort value", async () => {
+    const id = await connect({ dataAccess: true });
+    const sort = { column: "email", direction: "desc" };
+    const first = await rows(id, { ...users, sort, pageSize: 2 });
+    expect(ids(first)).toEqual(["3", "2"]);
+    const second = await rows(id, {
+      ...users,
+      sort,
+      pageSize: 2,
+      cursor: first.body.page.nextCursor,
+    });
+    expect(ids(second)).toEqual(["1"]);
+    expect(second.body.page.nextCursor).toBeNull();
+  });
+
+  it("narrows by conditions and echoes them in the order given", async () => {
+    const id = await connect({ dataAccess: true });
+    const filters = [
+      { column: "id", op: "gte", value: "2" },
+      { column: "email", op: "contains", value: "C@" },
+    ];
+    const result = await rows(id, { ...users, filters });
+    expect(ids(result)).toEqual(["3"]);
+    expect(result.body.page.filters).toEqual(filters);
+    expect((await rows(id, users)).body.page.filters).toEqual([]);
+  });
+
+  it("combines a sort, conditions and a cursor", async () => {
+    const id = await connect({ dataAccess: true });
+    const body = {
+      ...users,
+      sort: { column: "email", direction: "desc" },
+      filters: [{ column: "email", op: "neq", value: "b@x.test" }],
+      pageSize: 1,
+    };
+    const first = await rows(id, body);
+    expect(ids(first)).toEqual(["3"]);
+    const second = await rows(id, { ...body, cursor: first.body.page.nextCursor });
+    expect(ids(second)).toEqual(["1"]);
+  });
+
+  it("answers the same refusal while data access is off, with or without them, and for any table", async () => {
+    const id = await connect();
+    const plain = await rows(id, users);
+    for (const body of [
+      { ...users, sort: { column: "email", direction: "asc" } },
+      { ...users, filters: [{ column: "email", op: "is_null" }] },
+      { ...users, table: "no_such_table", sort: { column: "x", direction: "asc" } },
+    ]) {
+      const result = await rows(id, body);
+      expect(result.status).toBe(403);
+      expect(result.body).toEqual(plain.body);
+    }
+  });
+
+  it.each([
+    ["a sort that is text", { sort: "email" }],
+    ["a sort with another direction", { sort: { column: "email", direction: "up" } }],
+    ["a sort with an extra key", { sort: { column: "email", direction: "asc", nulls: "first" } }],
+    ["four conditions", { filters: Array(4).fill({ column: "email", op: "neq", value: "z" }) }],
+    ["an operator that does not exist", { filters: [{ column: "email", op: "like", value: "%" }] }],
+    ["a missing value", { filters: [{ column: "email", op: "eq" }] }],
+    ["a value on is_null", { filters: [{ column: "email", op: "is_null", value: "x" }] }],
+    [
+      "a value over 200 characters",
+      { filters: [{ column: "email", op: "eq", value: "v".repeat(201) }] },
+    ],
+    [
+      "a condition with a where inside",
+      { filters: [{ column: "id", op: "eq", value: "1", where: "1=1" }] },
+    ],
+    ["a condition written as text", { filters: ["id > 0"] }],
+  ])("refuses %s with 400 validation_error", async (_name, extra) => {
+    const id = await connect({ dataAccess: true });
+    const result = await rows(id, { ...users, ...extra });
+    expect(result).toMatchObject({ status: 400, body: { error: { code: "validation_error" } } });
+  });
+
+  const FORGED_COLUMN = "forged_column_name_98765";
+  const FORGED_VALUE = "FORGED-FILTER-VALUE-98765";
+  it.each([
+    [
+      "a sort by a column that does not exist",
+      { sort: { column: FORGED_COLUMN, direction: "asc" } },
+    ],
+    [
+      "a condition on a column that does not exist",
+      { filters: [{ column: FORGED_COLUMN, op: "is_null" }] },
+    ],
+    ["contains on a number", { filters: [{ column: "id", op: "contains", value: FORGED_VALUE }] }],
+    [
+      "a value that does not fit the column",
+      { filters: [{ column: "id", op: "eq", value: FORGED_VALUE }] },
+    ],
+  ])(
+    "answers %s with 400 invalid_request, never repeating the name or the value",
+    async (_name, extra) => {
+      const id = await connect({ dataAccess: true });
+      const result = await rows(id, { ...users, ...extra });
+      expect(result).toMatchObject({ status: 400, body: { error: { code: "invalid_request" } } });
+      expect(result.text).not.toContain(FORGED_COLUMN);
+      expect(result.text).not.toContain(FORGED_VALUE);
+      expect(JSON.stringify(logged)).not.toContain(FORGED_VALUE);
+    },
+  );
+
+  it("answers a cursor from a different sort with 400 invalid_request", async () => {
+    const id = await connect({ dataAccess: true });
+    const plain = await rows(id, { ...users, pageSize: 1 });
+    const result = await rows(id, {
+      ...users,
+      cursor: plain.body.page.nextCursor,
+      sort: { column: "email", direction: "asc" },
+    });
+    expect(result).toMatchObject({ status: 400, body: { error: { code: "invalid_request" } } });
+  });
+
+  it("answers a read that was stopped for taking too long with 422 and a fixed message", async () => {
+    const id = await connect({ dataAccess: true });
+    context.createdAdapters[0]!.getRows = async () => {
+      throw new DatabaseError("too_slow", {
+        cause: new Error("canceling statement: FORGED-FILTER-VALUE-98765"),
+      });
+    };
+    const result = await rows(id, { ...users, sort: { column: "email", direction: "asc" } });
+    expect(result.status).toBe(422);
+    expect(result.body.error.code).toBe("too_slow");
+    expect(result.body.error.message).toMatch(/longer than 5 seconds/);
+    expect(result.text).not.toContain("FORGED-FILTER-VALUE-98765");
+    expect(JSON.stringify(logged)).not.toContain("FORGED-FILTER-VALUE-98765");
+  });
+
+  it("writes nothing to the console, and the value of a condition is in no response but the page's echo", async () => {
+    const id = await connect({ dataAccess: true });
+    const value = "CONDITION-VALUE-NEVER-LOGGED";
+    const ok = await rows(id, { ...users, filters: [{ column: "email", op: "contains", value }] });
+    expect(ok.status).toBe(200);
+    expect(ok.body.page.rows).toEqual([]);
+    expect(logged).toEqual([]);
+    // Other routes never see it.
+    const other = await toggle(id, { enabled: true });
+    expect(other.text).not.toContain(value);
+  });
+
+  it("an unexpected failure that mentions the value of a condition is logged by name only", async () => {
+    const id = await connect({ dataAccess: true });
+    const value = "CONDITION-VALUE-IN-A-DRIVER-MESSAGE";
+    context.createdAdapters[0]!.getRows = async () => {
+      throw new Error(`invalid input syntax for type integer: "${value}"`);
+    };
+    const result = await rows(id, { ...users, filters: [{ column: "id", op: "eq", value }] });
+    expect(result.status).toBe(500);
+    expect(result.body.error.code).toBe("unexpected");
+    expect(result.text).not.toContain(value);
+    expect(JSON.stringify(logged)).not.toContain(value);
+  });
+
+  it("never contains the connection's password", async () => {
+    const id = await connect({ dataAccess: true });
+    const texts = [
+      (await rows(id, { ...users, sort: { column: "email", direction: "asc" } })).text,
+      (await rows(id, { ...users, filters: [{ column: "nope", op: "is_null" }] })).text,
     ];
     for (const text of texts) expect(text).not.toContain("s3cret-pw");
   });

@@ -1,14 +1,17 @@
 /**
  * POST /api/connections/:id/rows
  *
- * Body: `{ schema, table, pageSize?, cursor?, revealColumns? }`. One bounded page
- * of a table's ROWS, read-only. Refused (403 `data_access_disabled`) unless
+ * Body: `{ schema, table, pageSize?, cursor?, revealColumns?, sort?, filters? }`. One
+ * bounded page of a table's ROWS, read-only, optionally sorted by one column and
+ * narrowed by up to three conditions. Refused (403 `data_access_disabled`) unless
  * viewing table data was switched on for this connection.
  *
  * This is the one route that returns table data, so: the body is JSON (names and
  * paging positions never appear in a URL, the history or a log), the schema is
- * strict (no `where`, `orderBy` or `sql` key exists), the response is `no-store`,
- * and no value is ever logged or echoed in an error.
+ * strict (no `where`, `orderBy` or `sql` key exists; a sort and conditions are
+ * structured and every value in them stays a value), the response is `no-store`,
+ * and no value (a cell, a paging position or the value of a condition) is ever
+ * logged or echoed in an error.
  */
 import { rowsRequestSchema } from "@datacanvas/shared-types";
 import { getServerContext } from "@/lib/server/context";

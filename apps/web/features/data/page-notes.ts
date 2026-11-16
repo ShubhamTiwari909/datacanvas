@@ -4,12 +4,15 @@
  * could otherwise miss, and nothing here touches a value.
  */
 import { ROWS_MAX_OFFSET, type RowPage } from "@datacanvas/database-core";
+import { describeSort } from "./sorting";
 
 const number = (n: number): string => new Intl.NumberFormat().format(n);
 
 export function pageNotes(page: RowPage): string[] {
   const notes: string[] = [];
-  if (page.order.kind === "primary_key") {
+  if (page.sort !== null && page.order.kind !== "none") {
+    notes.push(`Ordered by ${describeSort(page.sort, page.order)}.`);
+  } else if (page.order.kind === "primary_key") {
     notes.push(`Ordered by ${page.order.columns.join(", ")} (the primary key).`);
   } else if (page.order.kind === "unique_index") {
     notes.push(`Ordered by ${page.order.columns.join(", ")} (a unique index).`);
@@ -32,6 +35,11 @@ export function pageNotes(page: RowPage): string[] {
   if (page.rowSecurity === "applies") {
     notes.push(
       "Row-level security is on for this table, so you may not be seeing every row: the database decides which rows this user can read.",
+    );
+  }
+  if (page.sortValueTooLong) {
+    notes.push(
+      "Paging stops here: the value in the sort column is too long to continue from. Sort by another column to go further.",
     );
   }
   if (page.cutBySize) {

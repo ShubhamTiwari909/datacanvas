@@ -7,13 +7,14 @@
 "use client";
 
 import { memo, useCallback, useRef, useState, type KeyboardEvent } from "react";
-import { Eye, EyeOff, Lock } from "lucide-react";
-import type { RowCell, RowColumn, RowPage } from "@datacanvas/database-core";
+import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock } from "lucide-react";
+import type { RowCell, RowColumn, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { CellDialog, type OpenCell } from "./cell-dialog";
 import { describeCell, hasMoreToShow } from "./cell-text";
+import { sortActionLabel, sortStateOf, whyNotSortable, type SortState } from "./sorting";
 
 const CELL_BASE =
   "max-w-xs truncate px-3 py-1.5 align-top font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -24,6 +25,8 @@ export function DataGrid({
   revealed,
   onReveal,
   onHide,
+  sort,
+  onSort,
   busy,
 }: {
   page: RowPage;
@@ -32,6 +35,9 @@ export function DataGrid({
   revealed: readonly string[];
   onReveal: (column: string) => void;
   onHide: (column: string) => void;
+  /** The sort the person chose (null: the key order), and what activating a column's header asks for. */
+  sort: RowSort | null;
+  onSort: (column: string) => void;
   /** The next page is loading: this one is dimmed, not replaced. */
   busy: boolean;
 }) {
@@ -111,6 +117,9 @@ export function DataGrid({
                   revealed={revealed.includes(column.name)}
                   onReveal={onReveal}
                   onHide={onHide}
+                  sort={sort}
+                  whyNot={whyNotSortable(column, page.order)}
+                  onSort={onSort}
                 />
               ))}
             </tr>
@@ -204,24 +213,61 @@ const GridRow = memo(function GridRow({
   );
 });
 
+function SortIcon({ state }: { state: SortState }) {
+  const Icon = state === "ascending" ? ArrowUp : state === "descending" ? ArrowDown : ArrowUpDown;
+  return (
+    <Icon
+      aria-hidden="true"
+      className={cn("size-3", state === "none" ? "text-muted-foreground" : "text-foreground")}
+    />
+  );
+}
+
 function HeaderCell({
   column,
   revealed,
   onReveal,
   onHide,
+  sort,
+  whyNot,
+  onSort,
 }: {
   column: RowColumn;
   revealed: boolean;
   onReveal: (column: string) => void;
   onHide: (column: string) => void;
+  sort: RowSort | null;
+  /** Why this column cannot be sorted (a tooltip), or null when it can. */
+  whyNot: string | null;
+  onSort: (column: string) => void;
 }) {
+  const state = sortStateOf(sort, column.name);
   return (
-    <th scope="col" className="px-3 py-2 align-bottom font-medium whitespace-nowrap">
+    <th
+      scope="col"
+      aria-sort={whyNot === null ? state : undefined}
+      className="px-3 py-2 align-bottom font-medium whitespace-nowrap"
+    >
       <div className="flex items-center gap-1.5">
         {column.masked ? (
           <Lock className="size-3 text-muted-foreground" aria-hidden="true" />
         ) : null}
-        <span className="font-mono text-xs">{column.name}</span>
+        {whyNot === null ? (
+          <button
+            type="button"
+            onClick={() => onSort(column.name)}
+            aria-label={`Sort by ${column.name}`}
+            title={sortActionLabel(sort, column.name)}
+            className="inline-flex items-center gap-1 rounded-sm font-mono text-xs outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {column.name}
+            <SortIcon state={state} />
+          </button>
+        ) : (
+          <span className="font-mono text-xs" title={whyNot}>
+            {column.name}
+          </span>
+        )}
         {column.masked ? (
           <Button
             type="button"

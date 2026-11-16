@@ -42,7 +42,7 @@ export function useRows(connectionId: string, schema: string, table: string): Ro
   const [stored, setStored] = useState<Stored | null>(null);
 
   const cursor = currentCursor(paging);
-  const { pageSize, reveal } = paging;
+  const { pageSize, reveal, sort } = paging;
   // Everything that decides WHICH page is wanted. A result is only shown for the key it was asked for.
   const key = JSON.stringify([
     connectionId,
@@ -51,6 +51,7 @@ export function useRows(connectionId: string, schema: string, table: string): Ro
     cursor,
     pageSize,
     [...reveal].sort(),
+    sort,
     attempt,
   ]);
 
@@ -62,6 +63,7 @@ export function useRows(connectionId: string, schema: string, table: string): Ro
       pageSize,
       cursor,
       revealColumns: reveal,
+      sort,
     }).then((result) => {
       if (cancelled) return; // a newer request replaced this one, or the view went away
       setStored((previous) => ({

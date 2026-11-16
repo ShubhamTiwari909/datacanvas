@@ -3,11 +3,11 @@
  *
  * The server pages by an opaque cursor that only goes FORWARD, so to offer
  * "Previous" the browser keeps the cursors of the pages it has already shown (the
- * trail). The state also holds the page size and the names of masked columns the
- * person chose to reveal. It holds NO row data: rows live in the component that
- * shows them and are dropped with it.
+ * trail). The state also holds the page size, the sort, and the names of masked
+ * columns the person chose to reveal. It holds NO row data: rows live in the
+ * component that shows them and are dropped with it.
  */
-import { ROWS_DEFAULT_PAGE_SIZE } from "@datacanvas/database-core";
+import { ROWS_DEFAULT_PAGE_SIZE, type RowSort } from "@datacanvas/database-core";
 
 export const PAGE_SIZES = [25, 50, 100, 200] as const;
 
@@ -17,6 +17,8 @@ export interface PagingState {
   trail: Array<string | null>;
   /** Masked columns to read for this view (kept in memory only, forgotten with the view). */
   reveal: string[];
+  /** Sort by one column; null for the key order. */
+  sort: RowSort | null;
 }
 
 export type PagingAction =
@@ -25,12 +27,14 @@ export type PagingAction =
   | { type: "first" }
   | { type: "pageSize"; pageSize: number }
   | { type: "reveal"; column: string }
-  | { type: "hide"; column: string };
+  | { type: "hide"; column: string }
+  | { type: "sort"; sort: RowSort | null };
 
 export const initialPaging = (pageSize = ROWS_DEFAULT_PAGE_SIZE): PagingState => ({
   pageSize,
   trail: [null],
   reveal: [],
+  sort: null,
 });
 
 export function pagingReducer(state: PagingState, action: PagingAction): PagingState {
@@ -51,10 +55,23 @@ export function pagingReducer(state: PagingState, action: PagingAction): PagingS
       return state.reveal.includes(action.column)
         ? state
         : { ...state, reveal: [...state.reveal, action.column] };
-    case "hide":
-      return { ...state, reveal: state.reveal.filter((c) => c !== action.column) };
+    case "hide": {
+      const reveal = state.reveal.filter((c) => c !== action.column);
+      // A hidden column cannot be sorted by, so a sort on it goes with it; the order changes, so start again.
+      return state.sort?.column === action.column
+        ? { ...state, reveal, sort: null, trail: [null] }
+        : { ...state, reveal };
+    }
+    case "sort":
+      // A cursor made for one order means nothing under another: begin again from the first page.
+      return sameSort(state.sort, action.sort)
+        ? state
+        : { ...state, sort: action.sort, trail: [null] };
   }
 }
+
+const sameSort = (a: RowSort | null, b: RowSort | null): boolean =>
+  a === b || (a !== null && b !== null && a.column === b.column && a.direction === b.direction);
 
 /** The cursor of the page being shown. */
 export const currentCursor = (state: PagingState): string | null =>

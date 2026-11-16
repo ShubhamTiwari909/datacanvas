@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **Find a table** in the sidebar: a search box at the top of the schema list narrows it to the tables and views whose name contains the text, in every schema (including those not yet opened), with the matching part marked and a count of the matches. Clicking a result does what clicking a table in the list does. **Escape** or the clear button brings the list back as it was. The text is matched in the browser and never sent anywhere.
+
 ## [1.3.0] - 2026-11-16
 
 ### Added

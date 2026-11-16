@@ -75,3 +75,56 @@ test("1000 tables: load the canvas, auto-layout, stay responsive", async ({
   console.info(`[perf] hierarchical layout + menu response: ${layoutMs} ms`);
   expect(layoutMs).toBeLessThan(30_000);
 });
+
+test("sidebar table search: 5000 tables in 50 schemas, time to the first result", async ({
+  page,
+  app,
+  database,
+}) => {
+  test.setTimeout(180_000);
+  const SCHEMAS = 50;
+  const PER_SCHEMA = 100;
+
+  const client = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await client.connect();
+  // One schema per statement batch: a single transaction of 5000 tables runs out of lock slots.
+  for (let s = 0; s < SCHEMAS; s += 1) {
+    const sql = [`CREATE SCHEMA s${s};`];
+    for (let t = 0; t < PER_SCHEMA; t += 1) {
+      sql.push(`CREATE TABLE s${s}.t${t} (id integer PRIMARY KEY, name text);`);
+    }
+    await client.query(sql.join("\n"));
+  }
+  await client.query("CREATE TABLE s49.needle_in_haystack (id integer PRIMARY KEY);");
+  await client.end();
+
+  await page.goto(app.link);
+  await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+  await page.getByLabel("Connection name").fill("Many");
+  await page.getByRole("tab", { name: /connection string/i }).click();
+  await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+  await page.getByRole("button", { name: /^Connect$/ }).click();
+  await expect(page.getByRole("button", { name: "Disconnect Many" })).toBeVisible();
+
+  const search = page.getByRole("textbox", { name: "Find a table" });
+  const started = Date.now();
+  await search.fill("needle");
+  await expect(page.getByRole("button", { name: /^needle_in_haystack\b/ })).toBeVisible();
+  const firstResult = Date.now() - started;
+
+  // Typing more filters in the browser only: no new request, and fast.
+  const again = Date.now();
+  await search.fill("needle_in");
+  await expect(page.getByText(/^1 of 50\d\d tables and views$/)).toBeVisible();
+  const narrowed = Date.now() - again;
+
+  console.log(`sidebar search: first result ${firstResult} ms, then ${narrowed} ms`);
+  expect(firstResult).toBeLessThan(10_000);
+  expect(narrowed).toBeLessThan(2_000);
+});

@@ -6,24 +6,55 @@
  * What clicking does depends on the current view:
  *   canvas view  -> adds the table to the canvas and flies to it;
  *   details view -> shows the table's details.
+ *
+ * A search box above the tree narrows it to the tables and views whose name
+ * contains the text. The first time it is used, every schema's table list is
+ * loaded once (decision 136); the text itself never leaves the browser.
  */
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight, LayoutGrid } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, LayoutGrid, Search, X } from "lucide-react";
 import { KIND_ICON, KIND_LABEL } from "@/components/relation-kind";
 import { tableRefKey, type TableInfo } from "@datacanvas/database-core";
 import { LoadingState } from "@/components/states/loading-state";
 import { ErrorState } from "@/components/states/error-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { addSchemaToCanvas, addTablesToCanvas } from "@/features/canvas/add-tables";
 import { cn } from "@/lib/utils";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { getSchemas, getTables } from "./api";
+import { loadAllTables, type SchemaTables } from "./load-all-tables";
+import { filterSchemaTables, splitMatch } from "./table-filter";
 
-function TableRow({ connectionId, table }: { connectionId: string; table: TableInfo }) {
+/** The name, with the part that matches the search marked (built from text, never markup). */
+function TableName({ name, query }: { name: string; query?: string }) {
+  const parts = query ? splitMatch(name, query) : null;
+  if (!parts) return <span className="truncate">{name}</span>;
+  return (
+    <span className="truncate">
+      {parts.before}
+      <mark className="rounded-sm bg-amber-200 text-foreground dark:bg-amber-500/40">
+        {parts.match}
+      </mark>
+      {parts.after}
+    </span>
+  );
+}
+
+function TableRow({
+  connectionId,
+  table,
+  query,
+}: {
+  connectionId: string;
+  table: TableInfo;
+  /** The search text, when this row is a search result. */
+  query?: string;
+}) {
   const Icon = KIND_ICON[table.kind];
   const selected = useWorkspaceStore(
     (s) => s.selectedTable?.schema === table.schema && s.selectedTable.name === table.name,
@@ -59,7 +90,7 @@ function TableRow({ connectionId, table }: { connectionId: string; table: TableI
         )}
       >
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="truncate">{table.name}</span>
+        <TableName name={table.name} query={query} />
         <span className="sr-only">({KIND_LABEL[table.kind]})</span>
         {onCanvas ? (
           <span
@@ -139,8 +170,107 @@ function SchemaNode({
   );
 }
 
+function TableSearchResults({
+  connectionId,
+  query,
+  lists,
+}: {
+  connectionId: string;
+  query: string;
+  lists: SchemaTables[];
+}) {
+  const result = filterSchemaTables(lists, query);
+  return (
+    <div className="flex flex-col gap-1">
+      <p role="status" aria-live="polite" className="px-1 text-xs text-muted-foreground">
+        {result.matched === 0
+          ? "No table matches this text."
+          : `${result.matched} of ${result.total} ${result.total === 1 ? "table" : "tables and views"}`}
+      </p>
+      {result.matched > 0 ? (
+        <ul className="flex flex-col gap-1" aria-label="Tables that match">
+          {result.schemas.map(({ schema, tables }) => (
+            <li key={schema}>
+              <div className="flex items-center gap-1 px-1 py-1 text-sm font-medium">
+                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">{schema}</span>
+              </div>
+              <ul className="flex flex-col" aria-label={`Matches in ${schema}`}>
+                {tables.map((table) => (
+                  <TableRow
+                    key={table.name}
+                    connectionId={connectionId}
+                    table={table}
+                    query={query}
+                  />
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function TableSearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="relative">
+      <label htmlFor="sidebar-table-search" className="sr-only">
+        Find a table
+      </label>
+      <Search
+        className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <Input
+        id="sidebar-table-search"
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Find a table"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && value !== "") {
+            e.preventDefault();
+            e.stopPropagation();
+            onChange("");
+          }
+        }}
+        className="h-7 pr-7 pl-7"
+      />
+      {value !== "" ? (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => onChange("")}
+          aria-label="Clear the table search"
+          className="absolute top-1/2 right-0.5 -translate-y-1/2"
+        >
+          <X aria-hidden="true" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export function SchemaTree({ connectionId }: { connectionId: string }) {
   const { state, reload } = useAsyncData(() => getSchemas(connectionId), connectionId);
+  const [query, setQuery] = useState("");
+  // Every schema's table list is loaded the first time the box is used, then
+  // kept for this tree (the tree is remounted for another connection).
+  const [searchUsed, setSearchUsed] = useState(false);
+  const all = useAsyncData<SchemaTables[] | null>(
+    () => (searchUsed ? loadAllTables(connectionId) : Promise.resolve({ ok: true, data: null })),
+    `${connectionId}/${searchUsed ? "all" : "none"}`,
+  );
+  const searching = query.trim() !== "";
+
+  function changeQuery(next: string) {
+    setQuery(next);
+    if (next.trim() !== "") setSearchUsed(true);
+  }
 
   if (state.status === "loading") return <LoadingState label="Loading schemas…" />;
   if (state.status === "error") {
@@ -156,16 +286,43 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const defaultOpenName = state.data.some((s) => s.name === "public")
     ? "public"
     : state.data[0]?.name;
-  return (
-    <ul className="flex flex-col gap-1" aria-label="Schemas">
-      {state.data.map((schema) => (
-        <SchemaNode
-          key={schema.name}
-          connectionId={connectionId}
-          schema={schema.name}
-          defaultOpen={schema.name === defaultOpenName}
+
+  let results: ReactNode = null;
+  if (searching) {
+    if (all.state.status === "error") {
+      results = (
+        <ErrorState
+          title="Could not load the table lists"
+          message={all.state.error.message}
+          onRetry={all.reload}
         />
-      ))}
-    </ul>
+      );
+    } else if (all.state.status === "success" && all.state.data) {
+      results = (
+        <TableSearchResults connectionId={connectionId} query={query} lists={all.state.data} />
+      );
+    } else {
+      results = <LoadingState label="Loading tables…" />;
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="sticky top-0 z-10 bg-sidebar pb-1">
+        <TableSearchBox value={query} onChange={changeQuery} />
+      </div>
+      {results}
+      {/* Hidden, not unmounted, while searching: clearing the box brings the tree back as it was. */}
+      <ul className="flex flex-col gap-1" aria-label="Schemas" hidden={searching}>
+        {state.data.map((schema) => (
+          <SchemaNode
+            key={schema.name}
+            connectionId={connectionId}
+            schema={schema.name}
+            defaultOpen={schema.name === defaultOpenName}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }

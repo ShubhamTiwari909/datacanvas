@@ -36,3 +36,32 @@ describe("buildServerEnv", () => {
     expect(env.PATH).toBe("/bin");
   });
 });
+
+describe("buildServerEnv and writes (decision 125: the flag only)", () => {
+  it("leaves writes off without the flag, even when the shell sets the variable", () => {
+    const env = buildServerEnv(4747, "tok", { DATACANVAS_ENABLE_WRITES: "1", PATH: "/bin" });
+    expect(env).not.toHaveProperty("DATACANVAS_ENABLE_WRITES");
+    expect(env.PATH).toBe("/bin");
+  });
+
+  it("turns writes on with the flag", () => {
+    const env = buildServerEnv(4747, "tok", {}, { enableWrites: true });
+    expect(env.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+
+  it("replaces any other value from the shell when the flag is given", () => {
+    const env = buildServerEnv(
+      4747,
+      "tok",
+      { DATACANVAS_ENABLE_WRITES: "yes" },
+      { enableWrites: true },
+    );
+    expect(env.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+
+  it("does not change the caller's environment object", () => {
+    const base = { DATACANVAS_ENABLE_WRITES: "1" };
+    buildServerEnv(4747, "tok", base);
+    expect(base.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+});

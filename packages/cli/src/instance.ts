@@ -22,6 +22,8 @@ export interface InstanceInfo {
   port: number;
   token: string;
   version: string;
+  /** Started with `--enable-writes`. Files written before 1.4.0 have no such field: read as false. */
+  writes: boolean;
 }
 
 const FILE_NAME = "run.json";
@@ -39,12 +41,13 @@ export function parseInstance(text: string): InstanceInfo | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { pid, port, token, version } = value as Record<string, unknown>;
+  const { pid, port, token, version, writes } = value as Record<string, unknown>;
   if (!Number.isInteger(pid) || (pid as number) < 1) return null;
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) return null;
   if (typeof token !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(token)) return null;
   if (typeof version !== "string" || version.length > 64) return null;
-  return { pid: pid as number, port: port as number, token, version };
+  if (writes !== undefined && typeof writes !== "boolean") return null;
+  return { pid: pid as number, port: port as number, token, version, writes: writes === true };
 }
 
 export async function writeInstance(dataDir: string, info: InstanceInfo): Promise<void> {

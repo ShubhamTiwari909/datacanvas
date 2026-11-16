@@ -42,9 +42,15 @@ Usage: datacanvas [options]
 Options:
   --port <number>   Port to listen on (default: ${DEFAULT_PORT}, or the next free port)
   --no-open         Do not open the browser automatically
+  --enable-writes   Allow editing rows and changing table structure on local databases (off by default)
   -v, --version     Print the version
   -h, --help        Show this help
 `;
+
+/** Printed at every start with --enable-writes (Appendix A of docs/data-editing-plan.md). */
+const WRITES_NOTICE =
+  "Writes are enabled. Changes are committed immediately and cannot be undone. " +
+  "Connect with a role that can only do what you need.";
 
 function fail(message: string): never {
   console.error(`Error: ${message}`);
@@ -64,6 +70,7 @@ async function main(): Promise<void> {
       options: {
         port: { type: "string" },
         "no-open": { type: "boolean", default: false },
+        "enable-writes": { type: "boolean", default: false },
         version: { type: "boolean", short: "v", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -103,8 +110,18 @@ async function main(): Promise<void> {
 
   // Already running? Open that one instead of starting a second server. An
   // explicit --port that differs means "I want a new one on that port".
+  const enableWrites = values["enable-writes"];
   const running = await findRunningInstance(dataDir, isDataCanvasHealthy);
   if (running && (values.port === undefined || Number(values.port) === running.port)) {
+    // Never open a running DataCanvas whose write mode differs from what was asked for:
+    // the person would believe writes are on (or off) when they are not.
+    if (running.writes !== enableWrites) {
+      fail(
+        running.writes
+          ? "DataCanvas is already running WITH writes enabled. Stop it (Ctrl+C in its window) and start again without --enable-writes."
+          : "DataCanvas is already running without writes. Stop it (Ctrl+C in its window) and start again with --enable-writes.",
+      );
+    }
     const link = `http://127.0.0.1:${running.port}/?token=${running.token}`;
     console.log(`DataCanvas is already running. Open this link in your browser:\n  ${link}`);
     if (!values["no-open"]) openBrowser(link);
@@ -132,7 +149,7 @@ async function main(): Promise<void> {
   console.log(`DataCanvas ${VERSION}: starting…`);
   // A new secret for every run. Only this process and the server it starts know it.
   const sessionToken = generateSessionToken();
-  const server = startWebServer(serverJs, port, sessionToken);
+  const server = startWebServer(serverJs, port, sessionToken, { enableWrites });
 
   // Shutdown handling. `shuttingDown` stops a second Ctrl+C from racing the first.
   let shuttingDown = false;
@@ -170,11 +187,13 @@ async function main(): Promise<void> {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   console.log(`DataCanvas is running. Open this link in your browser:\n  ${url}`);
   console.log("The link is private to this run. Press Ctrl+C to stop.");
+  if (enableWrites) console.log(WRITES_NOTICE);
   await writeInstance(dataDir, {
     pid: process.pid,
     port,
     token: sessionToken,
     version: VERSION,
+    writes: enableWrites,
   }).catch(
     () => {}, // not being able to write it only disables "open the running one"
   );

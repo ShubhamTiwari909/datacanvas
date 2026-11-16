@@ -21,6 +21,7 @@ import { setDataAccess as requestDataAccess } from "@/features/data/api";
 import { useCanvasStore } from "./canvas-store";
 import { useMetadataStore } from "./metadata-store";
 import { usePersistenceStore } from "./persistence-store";
+import { useWritesStore } from "./writes-store";
 
 /** What the main area shows for the selected connection. */
 export type WorkspaceView =
@@ -122,6 +123,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     useCanvasStore.getState().dropConnection(id);
     useMetadataStore.getState().forgetConnection(id);
     usePersistenceStore.getState().forgetConnection(id);
+    // The unlock and the history belonged to that connection only.
+    useWritesStore.getState().forgetConnection(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;

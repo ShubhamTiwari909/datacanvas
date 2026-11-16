@@ -1,0 +1,232 @@
+/**
+ * A foreign key, chosen from what exists: the columns of this table, then a
+ * schema, a table and its columns (read from the explorer), and what happens on
+ * delete and on update. For a new table, the table may point at itself.
+ */
+"use client";
+
+import { Plus, Trash2 } from "lucide-react";
+import type { ReferentialAction } from "@datacanvas/database-core";
+import { Button } from "@/components/ui/button";
+import { getSchemas, getTableDetails, getTables } from "@/features/explorer/api";
+import { useAsyncData } from "@/lib/use-async-data";
+import { SELECT_CLASS } from "./column-fields";
+import { ACTIONS, ACTION_LABEL, type ForeignKeyForm } from "./structure";
+
+/** The new table itself, when a foreign key of a table being created points at its own columns. */
+export interface SelfTable {
+  schema: string;
+  name: string;
+  columns: string[];
+}
+
+export function ForeignKeyFields({
+  connectionId,
+  form,
+  index,
+  localColumns,
+  self,
+  onChange,
+  onRemove,
+}: {
+  connectionId: string;
+  form: ForeignKeyForm;
+  index: number;
+  /** The columns of the table that holds the foreign key. */
+  localColumns: string[];
+  self?: SelfTable;
+  onChange: (next: Partial<ForeignKeyForm>) => void;
+  onRemove?: () => void;
+}) {
+  const prefix = `Foreign key ${index}`;
+  const schemas = useAsyncData(() => getSchemas(connectionId), `${connectionId}/fk-schemas`);
+  const tables = useAsyncData(
+    () => getTables(connectionId, form.schema),
+    `${connectionId}/fk-tables/${form.schema}`,
+  );
+  const pointsAtSelf =
+    self !== undefined &&
+    self.name !== "" &&
+    form.schema === self.schema &&
+    form.table === self.name;
+  const target = useAsyncData(
+    () =>
+      form.table === "" || pointsAtSelf
+        ? Promise.resolve({ ok: true as const, data: null })
+        : getTableDetails(connectionId, form.schema, form.table),
+    `${connectionId}/fk-target/${form.schema}/${form.table}/${pointsAtSelf}`,
+  );
+
+  const schemaNames =
+    schemas.state.status === "success" ? schemas.state.data.map((s) => s.name) : [form.schema];
+  const tableNames = [
+    ...(self && self.name !== "" && form.schema === self.schema ? [self.name] : []),
+    ...(tables.state.status === "success"
+      ? tables.state.data.filter((t) => t.kind === "table").map((t) => t.name)
+      : []),
+  ];
+  const targetColumns = pointsAtSelf
+    ? (self?.columns ?? [])
+    : target.state.status === "success" && target.state.data
+      ? target.state.data.columns.map((c) => c.name)
+      : [];
+
+  const setPair = (position: number, local: string | null, referenced: string | null) => {
+    const columns = [...form.columns];
+    const refs = [...form.referenced];
+    if (local !== null) columns[position] = local;
+    if (referenced !== null) refs[position] = referenced;
+    onChange({ columns, referenced: refs });
+  };
+
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border p-3">
+      <legend className="px-1 text-xs font-medium">{prefix}</legend>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-muted-foreground">Points at schema</span>
+          <select
+            aria-label={`${prefix} schema`}
+            className={SELECT_CLASS}
+            value={form.schema}
+            onChange={(event) =>
+              onChange({
+                schema: event.target.value,
+                table: "",
+                referenced: form.referenced.map(() => ""),
+              })
+            }
+          >
+            {schemaNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-muted-foreground">Table</span>
+          <select
+            aria-label={`${prefix} table`}
+            className={SELECT_CLASS}
+            value={form.table}
+            onChange={(event) =>
+              onChange({ table: event.target.value, referenced: form.referenced.map(() => "") })
+            }
+          >
+            <option value="">Choose a table</option>
+            {tableNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {onRemove ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="mb-0.5"
+            onClick={onRemove}
+            aria-label={`Remove ${prefix.toLowerCase()}`}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+
+      {form.columns.map((local, position) => (
+        <div key={position} className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="text-muted-foreground">Column</span>
+            <select
+              aria-label={`${prefix} column ${position + 1}`}
+              className={SELECT_CLASS}
+              value={local}
+              onChange={(event) => setPair(position, event.target.value, null)}
+            >
+              <option value="">Choose a column</option>
+              {localColumns
+                .filter((c) => c !== "")
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <span className="pb-2 text-xs text-muted-foreground" aria-hidden="true">
+            →
+          </span>
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="text-muted-foreground">Points at</span>
+            <select
+              aria-label={`${prefix} referenced column ${position + 1}`}
+              className={SELECT_CLASS}
+              value={form.referenced[position] ?? ""}
+              onChange={(event) => setPair(position, null, event.target.value)}
+            >
+              <option value="">Choose a column</option>
+              {targetColumns.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {form.columns.length > 1 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mb-0.5"
+              aria-label={`Remove column pair ${position + 1} of ${prefix.toLowerCase()}`}
+              onClick={() =>
+                onChange({
+                  columns: form.columns.filter((_, i) => i !== position),
+                  referenced: form.referenced.filter((_, i) => i !== position),
+                })
+              }
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      <div className="flex flex-wrap items-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() =>
+            onChange({ columns: [...form.columns, ""], referenced: [...form.referenced, ""] })
+          }
+        >
+          <Plus aria-hidden="true" />
+          Add a column pair
+          <span className="sr-only"> to {prefix.toLowerCase()}</span>
+        </Button>
+        {(["onDelete", "onUpdate"] as const).map((field) => (
+          <label key={field} className="flex flex-col gap-1 text-xs">
+            <span className="text-muted-foreground">
+              {field === "onDelete" ? "On delete" : "On update"}
+            </span>
+            <select
+              aria-label={`${prefix} ${field === "onDelete" ? "on delete" : "on update"}`}
+              className={SELECT_CLASS}
+              value={form[field]}
+              onChange={(event) => onChange({ [field]: event.target.value as ReferentialAction })}
+            >
+              {ACTIONS.map((action) => (
+                <option key={action} value={action}>
+                  {ACTION_LABEL[action]}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}

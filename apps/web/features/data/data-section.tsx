@@ -7,7 +7,7 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import type { TableInfo } from "@datacanvas/database-core";
 import { EmptyState } from "@/components/states/empty-state";
@@ -25,6 +25,7 @@ import { pageNotes } from "./page-notes";
 import { PAGE_SIZES, canGoBack, pageNumber } from "./paging";
 import { nextSort } from "./sorting";
 import { useRows } from "./use-rows";
+import { useRowEditing } from "@/features/writes/row-editing";
 import type { ApiFailure } from "@/lib/api-client";
 import type { PagingAction } from "./paging";
 
@@ -124,6 +125,9 @@ function Rows({
   const estimate = describeRowEstimate(info?.estimatedRowCount ?? null);
   const blurred = useBlurStore((s) => s.blurred);
   const setBlurred = useBlurStore((s) => s.setBlurred);
+  const ref = useMemo(() => ({ schema, name: table }), [schema, table]);
+  // With writes unlocked (1.4.0): row actions, "Add row" and the preview step. Inert otherwise.
+  const editing = useRowEditing({ connectionId, table: ref, page, reload: view.reload });
 
   if (!page) {
     // The first read failed (or is still running): there is no page yet to build a filter panel from.
@@ -177,6 +181,7 @@ function Rows({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-4">
+          {editing.toolbar}
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={blurred} onCheckedChange={setBlurred} />
             Blur values
@@ -199,6 +204,8 @@ function Rows({
           </label>
         </div>
       </div>
+
+      {editing.hint}
 
       {/* Always shown once there is a page, even after a failed read: a condition that was refused has to be removable. */}
       <FilterBar
@@ -239,8 +246,11 @@ function Rows({
           sort={paging.sort}
           onSort={(column) => dispatch({ type: "sort", sort: nextSort(paging.sort, column) })}
           busy={busy}
+          editing={editing.grid}
         />
       )}
+
+      {editing.dialogs}
 
       {failed ? null : (
         <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">

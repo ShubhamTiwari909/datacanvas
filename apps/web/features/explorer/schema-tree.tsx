@@ -14,7 +14,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, LayoutGrid, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutGrid, Plus, Search, X } from "lucide-react";
 import { KIND_ICON, KIND_LABEL } from "@/components/relation-kind";
 import { tableRefKey, type TableInfo } from "@datacanvas/database-core";
 import { LoadingState } from "@/components/states/loading-state";
@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useConnectionWrites, useStructureVersion, writesReady } from "@/stores/writes-store";
+import { CreateTableDialog } from "@/features/writes/create-table-dialog";
 import { getSchemas, getTables } from "./api";
 import { loadAllTables, type SchemaTables } from "./load-all-tables";
 import { filterSchemaTables, splitMatch } from "./table-filter";
@@ -105,9 +107,11 @@ function TableRow({
 }
 
 function TableList({ connectionId, schema }: { connectionId: string; schema: string }) {
+  // Read again after a change of structure made here (a new, renamed or dropped table).
+  const structureVersion = useStructureVersion(connectionId);
   const { state, reload } = useAsyncData(
     () => getTables(connectionId, schema),
-    `${connectionId}/${schema}`,
+    `${connectionId}/${schema}/${structureVersion}`,
   );
 
   if (state.status === "loading") return <LoadingState label="Loading tables…" />;
@@ -133,10 +137,13 @@ function SchemaNode({
   connectionId,
   schema,
   defaultOpen,
+  onNewTable,
 }: {
   connectionId: string;
   schema: string;
   defaultOpen: boolean;
+  /** Offered while writes are unlocked for the connection (1.4.0). */
+  onNewTable: ((schema: string) => void) | null;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const view = useWorkspaceStore((s) => s.view);
@@ -162,6 +169,17 @@ function SchemaNode({
             title="Add all tables of this schema to the canvas"
           >
             <LayoutGrid aria-hidden="true" />
+          </Button>
+        ) : null}
+        {onNewTable ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onNewTable(schema)}
+            aria-label={`New table in ${schema}`}
+            title="Create a new table in this schema"
+          >
+            <Plus aria-hidden="true" />
           </Button>
         ) : null}
       </div>
@@ -259,13 +277,18 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const { state, reload } = useAsyncData(() => getSchemas(connectionId), connectionId);
   const [query, setQuery] = useState("");
   // Every schema's table list is loaded the first time the box is used, then
-  // kept for this tree (the tree is remounted for another connection).
+  // kept for this tree (the tree is remounted for another connection). A change
+  // of structure made from DataCanvas reads the lists again.
   const [searchUsed, setSearchUsed] = useState(false);
+  const structureVersion = useStructureVersion(connectionId);
   const all = useAsyncData<SchemaTables[] | null>(
     () => (searchUsed ? loadAllTables(connectionId) : Promise.resolve({ ok: true, data: null })),
-    `${connectionId}/${searchUsed ? "all" : "none"}`,
+    `${connectionId}/${searchUsed ? "all" : "none"}/${structureVersion}`,
   );
   const searching = query.trim() !== "";
+  const writes = useConnectionWrites(connectionId);
+  const [newTableIn, setNewTableIn] = useState<string | null>(null);
+  const onNewTable = writesReady(writes.status) ? setNewTableIn : null;
 
   function changeQuery(next: string) {
     setQuery(next);
@@ -320,9 +343,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
             connectionId={connectionId}
             schema={schema.name}
             defaultOpen={schema.name === defaultOpenName}
+            onNewTable={onNewTable}
           />
         ))}
       </ul>
+      <CreateTableDialog
+        connectionId={connectionId}
+        schema={onNewTable ? newTableIn : null}
+        onClose={() => setNewTableIn(null)}
+      />
     </div>
   );
 }

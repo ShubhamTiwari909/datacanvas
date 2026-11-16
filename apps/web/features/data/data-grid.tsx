@@ -2,12 +2,14 @@
  * The rows of one page as a real table: a caption, a sticky header, monospace
  * values, NULL and the empty string shown differently, hidden columns marked,
  * and keyboard navigation (one cell is a tab stop; arrow keys move; Enter opens
- * a value). Reading only: nothing here edits a cell.
+ * a value). Nothing here edits a cell: with writes unlocked (1.4.0) each row
+ * gets Edit and Delete buttons, and F2 or a double click on a cell asks to edit
+ * it, but the change itself goes through the editor and the preview.
  */
 "use client";
 
-import { memo, useCallback, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock } from "lucide-react";
+import { memo, useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock, Pencil, Trash2 } from "lucide-react";
 import type { RowCell, RowColumn, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,6 +17,15 @@ import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { CellDialog, type OpenCell } from "./cell-dialog";
 import { describeCell, hasMoreToShow } from "./cell-text";
 import { sortActionLabel, sortStateOf, whyNotSortable, type SortState } from "./sorting";
+
+/** What the grid needs to offer editing (only passed while writes are unlocked and the table is editable). */
+export interface GridEditing {
+  /** Why this row cannot be edited or deleted, or null when it can. */
+  rowBlock: (row: number) => string | null;
+  /** Edit a row, starting at a column (by index) if one was chosen. */
+  onEdit: (row: number, col: number | null) => void;
+  onDelete: (row: number) => void;
+}
 
 const CELL_BASE =
   "max-w-xs truncate px-3 py-1.5 align-top font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -28,6 +39,7 @@ export function DataGrid({
   sort,
   onSort,
   busy,
+  editing = null,
 }: {
   page: RowPage;
   caption: string;
@@ -40,6 +52,8 @@ export function DataGrid({
   onSort: (column: string) => void;
   /** The next page is loading: this one is dimmed, not replaced. */
   busy: boolean;
+  /** Row actions, while writes are unlocked. */
+  editing?: GridEditing | null;
 }) {
   const tableRef = useRef<HTMLTableElement>(null);
   const [active, setActive] = useState({ row: 0, col: 0 });
@@ -73,7 +87,7 @@ export function DataGrid({
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
     const target = (event.target as HTMLElement).closest("td");
-    if (!target) return;
+    if (!target || target.dataset.row === undefined) return;
     const row = Number(target.dataset.row);
     const col = Number(target.dataset.col);
     const moves: Record<string, [number, number]> = {
@@ -93,6 +107,9 @@ export function DataGrid({
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       open(row, col);
+    } else if (event.key === "F2" && editing && editing.rowBlock(row) === null) {
+      event.preventDefault();
+      editing.onEdit(row, col);
     }
   };
 
@@ -110,6 +127,11 @@ export function DataGrid({
           <caption className="sr-only">{caption}</caption>
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
+              {editing ? (
+                <th scope="col" className="w-0 px-2 py-2">
+                  <span className="sr-only">Row actions</span>
+                </th>
+              ) : null}
               {page.columns.map((column) => (
                 <HeaderCell
                   key={column.name}
@@ -134,6 +156,7 @@ export function DataGrid({
                 activeCol={active.row === r ? active.col : -1}
                 onActivate={activate}
                 onOpen={open}
+                editing={editing}
               />
             ))}
           </tbody>
@@ -155,6 +178,7 @@ const GridRow = memo(function GridRow({
   activeCol,
   onActivate,
   onOpen,
+  editing,
 }: {
   row: RowCell[];
   r: number;
@@ -163,9 +187,29 @@ const GridRow = memo(function GridRow({
   activeCol: number;
   onActivate: (row: number, col: number) => void;
   onOpen: (row: number, col: number) => void;
+  editing: GridEditing | null;
 }) {
+  const block = editing ? editing.rowBlock(r) : null;
   return (
     <tr className="border-t hover:bg-muted/40">
+      {editing ? (
+        <td className="px-1 py-0.5 align-top whitespace-nowrap">
+          <RowActionButton
+            label={`Edit row ${r + 1}`}
+            block={block}
+            onClick={() => editing.onEdit(r, null)}
+          >
+            <Pencil aria-hidden="true" />
+          </RowActionButton>
+          <RowActionButton
+            label={`Delete row ${r + 1}`}
+            block={block}
+            onClick={() => editing.onDelete(r)}
+          >
+            <Trash2 aria-hidden="true" />
+          </RowActionButton>
+        </td>
+      ) : null}
       {row.map((cell, c) => {
         const column = columns[c]!;
         const shown = describeCell(cell, column.masked);
@@ -178,6 +222,7 @@ const GridRow = memo(function GridRow({
             tabIndex={activeCol === c ? 0 : -1}
             onFocus={() => onActivate(r, c)}
             onClick={() => onOpen(r, c)}
+            onDoubleClick={editing && block === null ? () => editing.onEdit(r, c) : undefined}
             title={
               openable && hasMoreToShow(cell, column.masked)
                 ? "Click to see the whole value"
@@ -295,5 +340,36 @@ function HeaderCell({
       </div>
       <div className="font-mono text-[10px] font-normal text-foreground/70">{column.dataType}</div>
     </th>
+  );
+}
+
+/**
+ * An Edit or Delete button. When the row cannot be changed it stays focusable
+ * (so its reason can be read) but does nothing, and says why.
+ */
+function RowActionButton({
+  label,
+  block,
+  onClick,
+  children,
+}: {
+  label: string;
+  block: string | null;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      aria-label={label}
+      aria-disabled={block !== null}
+      title={block ?? label}
+      className={cn(block !== null && "cursor-not-allowed opacity-40")}
+      onClick={block === null ? onClick : undefined}
+    >
+      {children}
+    </Button>
   );
 }

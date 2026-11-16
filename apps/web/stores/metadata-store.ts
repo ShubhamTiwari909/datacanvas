@@ -36,6 +36,16 @@ interface MetadataState {
   ensureTables: (connectionId: string, refs: TableRef[]) => Promise<Outcome>;
   /** Load the relationships of the whole database, once. */
   ensureRelationships: (connectionId: string) => Promise<Outcome>;
+  /**
+   * After a change of structure made from DataCanvas (1.4.0): forget the tables
+   * that no longer exist, read again the cached tables that changed, and read
+   * the relationships again if they were loaded. The fresh copies replace the
+   * old ones only when they arrive, so the canvas never shows a gap.
+   */
+  refreshAfterChange: (
+    connectionId: string,
+    changes: { reload: TableRef[]; drop: TableRef[] },
+  ) => Promise<Outcome>;
   forgetConnection: (connectionId: string) => void;
 }
 
@@ -79,6 +89,46 @@ export const useMetadataStore = create<MetadataState>((set, get) => ({
         },
       };
     });
+    return { ok: true };
+  },
+
+  async refreshAfterChange(connectionId, { reload, drop }) {
+    const before = get().byConnection[connectionId];
+    if (!before) return { ok: true };
+    const dropped = new Set(drop.map(tableRefKey));
+    const cachedReload = reload.filter((ref) => tableRefKey(ref) in before.tables);
+    const relationshipsWereLoaded = before.relationships !== null;
+
+    const [details, relationships] = await Promise.all([
+      cachedReload.length > 0
+        ? getTablesDetails(connectionId, cachedReload.slice(0, MAX_TABLES_PER_DETAILS_REQUEST))
+        : Promise.resolve(null),
+      relationshipsWereLoaded ? getRelationships(connectionId) : Promise.resolve(null),
+    ]);
+
+    set((state) => {
+      const current = state.byConnection[connectionId];
+      if (!current) return state;
+      const tables = { ...current.tables };
+      for (const key of dropped) delete tables[key];
+      if (details?.ok) {
+        for (const entry of details.data) {
+          tables[tableRefKey({ schema: entry.table.schema, name: entry.table.name })] = entry;
+        }
+      }
+      return {
+        byConnection: {
+          ...state.byConnection,
+          [connectionId]: {
+            tables,
+            relationships: relationships?.ok ? relationships.data : current.relationships,
+          },
+        },
+      };
+    });
+    if (details && !details.ok) return { ok: false, message: details.error.message };
+    if (relationships && !relationships.ok)
+      return { ok: false, message: relationships.error.message };
     return { ok: true };
   },
 

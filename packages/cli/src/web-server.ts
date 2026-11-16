@@ -37,9 +37,14 @@ export function buildServerEnv(
 ): NodeJS.ProcessEnv {
   // SECURITY: writes are switched on by the `--enable-writes` FLAG only
   // (decision 125). A value inherited from the shell is dropped, so a line in a
-  // shell profile can never turn writes on behind the person's back.
+  // shell profile can never turn writes on behind the person's back. Every
+  // spelling is dropped: on Windows environment names are case-insensitive, and
+  // a copy of the environment keeps the case it was given, so deleting only the
+  // exact name would leave `datacanvas_enable_writes=1` for the server to read.
   const rest = { ...base };
-  delete rest[ENABLE_WRITES_ENV];
+  for (const key of Object.keys(rest)) {
+    if (key.toLowerCase() === ENABLE_WRITES_ENV.toLowerCase()) delete rest[key];
+  }
   return {
     ...rest,
     ...(options.enableWrites ? { [ENABLE_WRITES_ENV]: "1" } : {}),

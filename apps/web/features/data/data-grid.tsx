@@ -6,11 +6,12 @@
  */
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useRef, useState, type KeyboardEvent } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
-import type { RowColumn, RowPage } from "@datacanvas/database-core";
+import type { RowCell, RowColumn, RowPage } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { CellDialog, type OpenCell } from "./cell-dialog";
 import { describeCell, hasMoreToShow } from "./cell-text";
 
@@ -37,6 +38,7 @@ export function DataGrid({
   const tableRef = useRef<HTMLTableElement>(null);
   const [active, setActive] = useState({ row: 0, col: 0 });
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
+  const blurred = useBlurStore((s) => s.blurred);
 
   const lastRow = page.rows.length - 1;
   const lastCol = page.columns.length - 1;
@@ -52,12 +54,16 @@ export function DataGrid({
       ?.focus();
   };
 
-  const open = (row: number, col: number) => {
-    const column = page.columns[col];
-    const cell = page.rows[row]?.[col];
-    if (!column || !cell || column.masked || cell.value === null) return;
-    setOpenCell({ column, cell });
-  };
+  const open = useCallback(
+    (row: number, col: number) => {
+      const column = page.columns[col];
+      const cell = page.rows[row]?.[col];
+      if (!column || !cell || column.masked || cell.value === null) return;
+      setOpenCell({ column, cell });
+    },
+    [page],
+  );
+  const activate = useCallback((row: number, col: number) => setActive({ row, col }), []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
     const target = (event.target as HTMLElement).closest("td");
@@ -87,8 +93,9 @@ export function DataGrid({
   return (
     <>
       <div
+        data-blurred={blurred}
         className={cn(
-          "max-h-[70vh] overflow-auto rounded-lg border transition-opacity",
+          "group/grid max-h-[70vh] overflow-auto rounded-lg border transition-opacity",
           busy && "opacity-60",
         )}
         aria-busy={busy}
@@ -110,56 +117,15 @@ export function DataGrid({
           </thead>
           <tbody onKeyDown={onKeyDown}>
             {page.rows.map((row, r) => (
-              <tr key={r} className="border-t hover:bg-muted/40">
-                {row.map((cell, c) => {
-                  const column = page.columns[c]!;
-                  const shown = describeCell(cell, column.masked);
-                  const openable = !column.masked && cell.value !== null;
-                  return (
-                    <td
-                      key={c}
-                      data-row={r}
-                      data-col={c}
-                      tabIndex={active.row === r && active.col === c ? 0 : -1}
-                      onFocus={() => setActive({ row: r, col: c })}
-                      onClick={() => open(r, c)}
-                      title={
-                        openable && hasMoreToShow(cell, column.masked)
-                          ? "Click to see the whole value"
-                          : undefined
-                      }
-                      className={cn(CELL_BASE, openable && "cursor-pointer")}
-                    >
-                      {shown.kind === "value" ? (
-                        <>
-                          {shown.text}
-                          {shown.clipped ? (
-                            <span className="text-muted-foreground" aria-label="(value cut)">
-                              …
-                            </span>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span
-                          className={cn(
-                            "text-muted-foreground",
-                            shown.kind !== "hidden" && "italic",
-                          )}
-                        >
-                          {shown.kind === "hidden" ? (
-                            <>
-                              <span aria-hidden="true">••••••</span>
-                              <span className="sr-only">hidden</span>
-                            </>
-                          ) : (
-                            shown.text
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+              <GridRow
+                key={r}
+                row={row}
+                r={r}
+                columns={page.columns}
+                activeCol={active.row === r ? active.col : -1}
+                onActivate={activate}
+                onOpen={open}
+              />
             ))}
           </tbody>
         </table>
@@ -168,6 +134,75 @@ export function DataGrid({
     </>
   );
 }
+
+/**
+ * One body row. It is memoised so that moving between cells re-renders the two
+ * rows involved, not every cell of a wide page.
+ */
+const GridRow = memo(function GridRow({
+  row,
+  r,
+  columns,
+  activeCol,
+  onActivate,
+  onOpen,
+}: {
+  row: RowCell[];
+  r: number;
+  columns: RowColumn[];
+  /** The focusable column of this row, or -1 when the row has no tab stop. */
+  activeCol: number;
+  onActivate: (row: number, col: number) => void;
+  onOpen: (row: number, col: number) => void;
+}) {
+  return (
+    <tr className="border-t hover:bg-muted/40">
+      {row.map((cell, c) => {
+        const column = columns[c]!;
+        const shown = describeCell(cell, column.masked);
+        const openable = !column.masked && cell.value !== null;
+        return (
+          <td
+            key={c}
+            data-row={r}
+            data-col={c}
+            tabIndex={activeCol === c ? 0 : -1}
+            onFocus={() => onActivate(r, c)}
+            onClick={() => onOpen(r, c)}
+            title={
+              openable && hasMoreToShow(cell, column.masked)
+                ? "Click to see the whole value"
+                : undefined
+            }
+            className={cn(CELL_BASE, openable && "cursor-pointer")}
+          >
+            {shown.kind === "value" ? (
+              <>
+                <span className={BLUR_IN_GRID}>{shown.text}</span>
+                {shown.clipped ? (
+                  <span className="text-muted-foreground" aria-label="(value cut)">
+                    …
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              <span className={cn("text-muted-foreground", shown.kind !== "hidden" && "italic")}>
+                {shown.kind === "hidden" ? (
+                  <>
+                    <span aria-hidden="true">••••••</span>
+                    <span className="sr-only">hidden</span>
+                  </>
+                ) : (
+                  shown.text
+                )}
+              </span>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
 
 function HeaderCell({
   column,
@@ -212,9 +247,7 @@ function HeaderCell({
           </Button>
         ) : null}
       </div>
-      <div className="font-mono text-[10px] font-normal text-muted-foreground">
-        {column.dataType}
-      </div>
+      <div className="font-mono text-[10px] font-normal text-foreground/70">{column.dataType}</div>
     </th>
   );
 }

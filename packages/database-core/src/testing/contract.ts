@@ -374,6 +374,7 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
             hiddenColumns: 0,
             cutBySize: false,
             offsetCapped: false,
+            rowSecurity: "off",
           });
           for (const cell of page.rows.flat()) {
             expect(cell.value === null || typeof cell.value === "string").toBe(true);

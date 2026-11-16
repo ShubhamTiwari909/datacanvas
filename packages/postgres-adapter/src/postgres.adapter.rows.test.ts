@@ -128,6 +128,12 @@ const SQL = `
   CREATE TABLE secured (id int PRIMARY KEY, owner text);
   ALTER TABLE secured ENABLE ROW LEVEL SECURITY;
   CREATE TABLE private_table (id int PRIMARY KEY, secret text);
+  -- owned by the test role (see beforeAll): security on, and security forced on the owner
+  CREATE TABLE owned_rls (id int PRIMARY KEY);
+  ALTER TABLE owned_rls ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE owned_forced (id int PRIMARY KEY);
+  ALTER TABLE owned_forced ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE owned_forced FORCE ROW LEVEL SECURITY;
   INSERT INTO private_table VALUES (1, '${SECRET}');
 `;
 
@@ -183,6 +189,8 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getRows", () => {
         `INSERT INTO secured VALUES (1, 'postgres'), (2, '${role}'), (3, '${role}')`,
       );
       await client.query(`CREATE POLICY mine ON secured USING (owner = current_user)`);
+      await client.query(`ALTER TABLE owned_rls OWNER TO ${quoteIdent(role)}`);
+      await client.query(`ALTER TABLE owned_forced OWNER TO ${quoteIdent(role)}`);
     } finally {
       await client.end();
     }
@@ -512,6 +520,17 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getRows", () => {
       expect(values(page, 1)).toEqual([role, role]);
       // The owner (a superuser here) bypasses the policy and sees everything.
       expect(values(await read("secured"), 0)).toEqual(["1", "2", "3"]);
+    });
+
+    it("says whether row-level security applies to the connected role", async () => {
+      // Not switched on.
+      expect((await read("private_table")).rowSecurity).toBe("off");
+      // On, and this role is subject to it; the superuser is not.
+      expect((await reader.getRows(ref("secured"), first)).rowSecurity).toBe("applies");
+      expect((await read("secured")).rowSecurity).toBe("exempt");
+      // The owner is exempt unless the table forces security on its owner too.
+      expect((await reader.getRows(ref("owned_rls"), first)).rowSecurity).toBe("exempt");
+      expect((await reader.getRows(ref("owned_forced"), first)).rowSecurity).toBe("applies");
     });
   });
 

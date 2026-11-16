@@ -404,6 +404,15 @@ export interface RowOrder {
   columns: string[];
 }
 
+/**
+ * Whether row-level security can hide rows from the connected role on this table.
+ *  - `off`: it is not switched on for the table.
+ *  - `applies`: it is on and this role is subject to it, so some rows may not be returned.
+ *  - `exempt`: it is on but this role is not subject to it (a superuser, a role that
+ *    bypasses it, or the table's owner when security is not forced).
+ */
+export type RowSecurityState = "off" | "applies" | "exempt";
+
 export interface RowPage {
   /** The columns read, in table order (at most `ROWS_MAX_COLUMNS`). */
   columns: RowColumn[];
@@ -418,4 +427,6 @@ export interface RowPage {
   cutBySize: boolean;
   /** An unordered table has more rows, but past `ROWS_MAX_OFFSET`: they cannot be reached. */
   offsetCapped: boolean;
+  /** Whether the rows shown may be only some of the table's rows because of row-level security. */
+  rowSecurity: RowSecurityState;
 }

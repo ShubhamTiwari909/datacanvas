@@ -74,8 +74,12 @@ describe("rowsResponseSchema", () => {
       hiddenColumns: 0,
       cutBySize: false,
       offsetCapped: false,
+      rowSecurity: "off" as const,
     };
     expect(rowsResponseSchema.parse({ page })).toEqual({ page });
+    expect(rowsResponseSchema.safeParse({ page: { ...page, rowSecurity: "maybe" } }).success).toBe(
+      false,
+    );
   });
 });
 

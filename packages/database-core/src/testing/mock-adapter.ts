@@ -20,6 +20,7 @@ import type {
   RowColumn,
   RowOrder,
   RowPage,
+  RowSecurityState,
   RowsOptions,
   SchemaInfo,
   SearchHit,
@@ -187,6 +188,12 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       dataType: c.dataType,
       masked: isSensitiveColumnName(c.name) && !reveal.has(c.name),
     }));
+    // The sample role is not the owner of anything, so security that is on applies to it.
+    const rowSecurity: RowSecurityState = this.data.objects.rowSecurity.some(
+      (r) => r.schema === ref.schema && r.table === ref.name,
+    )
+      ? "applies"
+      : "off";
     const empty = (order: RowOrder): RowPage =>
       buildRowPage({
         columns,
@@ -195,6 +202,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
         rawRows: [],
         pageSize,
         offset: 0,
+        rowSecurity,
       });
 
     const mapKey = `${ref.schema}.${ref.name}`;
@@ -255,6 +263,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
       rawRows,
       pageSize: limit,
       offset,
+      rowSecurity,
     });
   }
 

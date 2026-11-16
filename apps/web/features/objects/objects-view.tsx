@@ -3,8 +3,8 @@
  * index or foreign key. Views (with their query and what they read), types,
  * sequences, functions, triggers, extensions and row-level-security policies.
  *
- * Definitions and settings from the catalogs only: no table rows and no
- * sequence values are read, and nothing here changes the database.
+ * Definitions and settings from the catalogs only: this tab reads no table
+ * rows and no sequence values, and nothing here changes the database.
  */
 "use client";
 
@@ -526,7 +526,7 @@ export function ObjectsView({ connectionId }: { connectionId: string }) {
         <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
           Objects
           <span className="text-sm font-normal text-muted-foreground">
-            Definitions and settings only. No table rows are read and nothing is changed.
+            Definitions and settings only. This tab reads no table rows and changes nothing.
           </span>
         </h2>
         <p className="text-xs text-muted-foreground">

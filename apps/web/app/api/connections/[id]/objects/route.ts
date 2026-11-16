@@ -3,7 +3,8 @@
  *
  * Views (with their definitions and what they read), types, sequences,
  * functions, triggers, extensions and row-level-security policies. Definitions
- * and settings from the catalogs only: no table rows, no sequence values.
+ * and settings from the catalogs only: this route reads no table rows and no
+ * sequence values.
  */
 import { getServerContext } from "@/lib/server/context";
 import { handleRoute } from "@/lib/server/error-response";

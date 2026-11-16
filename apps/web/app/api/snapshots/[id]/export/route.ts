@@ -5,7 +5,7 @@
  *
  * Reminder for users: the file lists table and column names, which can be
  * sensitive, and view and function definitions are copied as written, so they can contain
- * anything typed into them. It holds no rows and no connection credentials.
+ * anything typed into them. It holds no rows (whether or not data viewing is on) and no connection credentials.
  */
 import { getServerContext } from "@/lib/server/context";
 import { handleRoute } from "@/lib/server/error-response";

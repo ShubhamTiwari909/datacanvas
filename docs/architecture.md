@@ -267,7 +267,7 @@ Higher layers depend on an **abstraction** (the interface), not on a concrete dr
 Rules every implementation follows:
 
 - It throws only `DatabaseError`; raw driver errors are translated by the adapter.
-- Structure only; there is **no method that runs SQL or returns rows**.
+- Almost every method returns structure. The one exception is `getRows`, the opt-in data viewer (see "Reading table rows" below), which the service layer calls only for a connection with data access switched on. There is **no method that runs SQL you wrote**.
 - Unknown schema or table: `not_found`. Data call before `connect()` or after `disconnect()`: `not_connected`.
 - Results are plain, JSON-safe data. "No value" is `null`, never `undefined`.
 
@@ -348,7 +348,7 @@ Cardinality is computed in TypeScript (`deriveCardinality`, unit tested): a fore
 - Every query is a fixed string with bound parameters; identifiers and values from callers are never concatenated into SQL.
 - Every operation runs in `BEGIN READ ONLY`, so the server itself rejects writes. A test proves an `INSERT` is refused.
 - Every statement has a timeout (default 15 s); connecting has one (default 10 s); the pool holds at most 3 connections; idle connections are closed after 30 s.
-- Only catalog metadata is read, never rows. Row counts come from the planner's statistics.
+- Catalog metadata is read everywhere; rows are read only by `getRows`, behind the per-connection data-access check. Row counts shown in the explorer come from the planner's statistics, never from a scan.
 - TLS settings are always passed explicitly, so a `PGSSLMODE` environment variable cannot weaken them. `verify-full` verifies certificate and host name.
 - Raw driver errors never leave the package: `mapPgError` maps them to codes with fixed messages and keeps the original only as `cause`.
 
@@ -809,7 +809,7 @@ Tests: the queries against a real PostgreSQL (`postgres.adapter.objects.test.ts`
 
 ## Reading table rows (adapter layer, data viewer M1)
 
-`getRows(table, options)` is the first method that returns table **data**. It is built and tested at the adapter layer only: **no route, service or screen calls it yet** (M2 and M3 of `docs/data-viewer-plan.md`), so DataCanvas still reads no rows. The README and SECURITY.md keep saying so until the feature ships.
+`getRows(table, options)` is the first method that returns table **data**. It was built and tested at the adapter layer first (M1 of `docs/data-viewer-plan.md`); the server layer (M2) and the screens (M3, M4) follow below. It is opt-in per connection and off by default.
 
 **One fixed statement** (`buildRowsQuery`, a pure function with exact-text tests): `SELECT 1 AS r, left(CAST("col" AS text), $1) AS c0, ..., CAST("key" AS text) AS k0 FROM "schema"."table" [WHERE ROW("key") > ROW($2)] [ORDER BY "key"] LIMIT $n [OFFSET $m]`. Identifiers come from the catalog and are quoted by `quoteIdentifier` (now in `database-core`, shared with the web app); aliases are positions, so no column name becomes an alias; the page size and the paging position are bound parameters; nothing from the caller becomes SQL text. It runs through the same read-only transaction and statement timeout as every other read.
 
@@ -825,7 +825,7 @@ Tests: the shared contract (mock and PostgreSQL), exact statement text, every ty
 
 ### The server layer for rows (data viewer M2)
 
-Two routes and one service method sit in front of `getRows`. **Still no screen uses them** (M3), so the product shows no rows yet and the README and SECURITY.md are unchanged.
+Two routes and one service method sit in front of `getRows`. The screens (M3) call them; nothing else does.
 
 | Method and path                        | Purpose                                                                              | Success                |
 | -------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------- |
@@ -846,7 +846,7 @@ New error codes: `data_access_disabled` (403), `rows_busy` (429); the adapter's 
 
 ### The screens for rows (data viewer M3)
 
-The Data section is the first place the product shows rows. **It is built but not yet announced:** the README, SECURITY.md, the threat model and the guide still describe a product that reads no rows, and change with the release (M5). Everything is opt-in and off by default.
+The Data section is the first place the product shows rows. Everything is opt-in and off by default. The README, SECURITY.md, the threat model and the guide describe it as of the release that ships it (1.2.0, M5).
 
 **Switching it on.** A checkbox "Allow viewing table data" in the connect dialog (a reopened saved connection brings its own setting back), a switch and an "on" badge on each connection in the sidebar, and, in the section itself, an explanation with an "Allow viewing table data" button while it is off and a "Turn off" button while it is on. All of them call `PUT /api/connections/:id/data-access` through the store (`setDataAccess`), which mirrors the answer into the connection and the saved list. While it is off the section requests nothing and the page holds no row. The connect dialog's old note ("only reads the structure, never its rows") is replaced by "By default DataCanvas reads only the structure".
 
@@ -856,6 +856,8 @@ The Data section is the first place the product shows rows. **It is built but no
 
 **Rows live in component state only.** `useRows` holds the page in `useState`; it is dropped when the view goes away (another table, another connection, switching access off, a disconnect). Rules in `tests/security.test.ts` fail if anything in `features/data` mentions `localStorage`, `sessionStorage`, `indexedDB`, `document.cookie`, `caches.`, `persist(` or `console.`; if any file other than the API module and the hook asks for rows; if the hook uses a store; or if the stores, the autosave or the canvas code can see `getRows`, `RowPage` or `RowCell`. The browser test also checks that a hidden column's value is nowhere in the page, that nothing is left in `localStorage` or `sessionStorage`, and that no row remains in the page after access is switched off or the connection is closed.
 
-Tests: the paging rules, the cell and note rules (pure), and ten Playwright tests (`e2e/data-viewer.spec.ts`) against a real database: off by default and nothing read, switching on, paging forward and back to the last page, NULL against the empty string, hidden and revealed columns, a long value in the dialog, keyboard use, awkward names, a table without a key, switching off in the sidebar, no row left after disconnect, a saved connection that remembers the choice, and dark mode. **Not in M3:** sort and filter (still to be designed), a blur toggle and the row-level-security notice (added in M4, below).
+Tests: the paging rules, the cell and note rules (pure), and ten Playwright tests (`e2e/data-viewer.spec.ts`) against a real database: off by default and nothing read, switching on, paging forward and back to the last page, NULL against the empty string, hidden and revealed columns, a long value in the dialog, keyboard use, awkward names, a table without a key, switching off in the sidebar, no row left after disconnect, a saved connection that remembers the choice, and dark mode. **Not in M3:** a blur toggle and the row-level-security notice (added in M4, below). Sort and filter are designed in `docs/data-sort-filter-plan.md` and not built.
 
 **Added in M4 (polish).** The page now says whether row-level security can hide rows from the connected role (`rowSecurity`: `off`, `applies` or `exempt`, read with one catalog query in the same read-only transaction), and the section shows a note only when it applies. A "Blur values" switch blurs every value in the grid and the cell dialog for screen sharing: an in-memory boolean (`blur-store.ts`, never persisted, one per page load), applied through a CSS rule on the grid so no cell re-renders; it changes how values look and nothing about what is read. Grid rows are memoised, so moving between cells of a 20,000-cell page costs about 9 ms. The cell dialog keeps its content only until its closing animation ends. Details and measurements are in `docs/data-viewer-plan.md`, section 18.
+
+**The wording changed with the release (M5).** The product-wide promises now say "by default only metadata is read; with data viewing switched on, rows too": `README.md`, `SECURITY.md`, `docs/threat-model.md` (a new asset, "table contents", and a table of side doors: logs, errors, files, caches, secrets, screen sharing, load, injection, row-level security), `docs/getting-started.md` (a "Look at the rows" section), the connect dialog and the issue template. Statements about one tab ("this tab reads no table rows") stay and say "this tab" so they cannot be read as a claim about the product. `tests/security.test.ts` fails if a product-wide document goes back to saying rows are never read.

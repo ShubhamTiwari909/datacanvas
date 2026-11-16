@@ -24,9 +24,10 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 - **Get an overview** of the whole database: per schema, how many tables and views, how they connect to other schemas, the most connected tables, the largest tables and tables without relationships.
 - **Find a path** between two tables: the shortest chain of foreign keys, the columns joined at each step, and a ready-to-copy `SELECT … JOIN …` (text only; DataCanvas never runs SQL).
 - **Check the model**: tables without a primary key, foreign keys without a supporting index, foreign keys whose column types differ, duplicate, redundant and unused indexes (from the server's own usage counters), optional (nullable) foreign keys, names that break the database's own style and very wide tables, each with an explanation and SQL you can copy (DataCanvas never runs it).
-- **See beyond tables**: view definitions and what each view reads, enums and other types, sequences, functions, triggers, extensions and row-level-security policies (definitions and settings only; no rows are read).
-- **Snapshot and compare**: save the structure now, then compare it later with the live database, another snapshot or a different database. It lists added, removed and changed tables, columns, indexes, constraints, foreign keys and those objects, which is useful for drift and reviews. Snapshots hold structure only (no rows, no credentials) and can be exported as files.
+- **See beyond tables**: view definitions and what each view reads, enums and other types, sequences, functions, triggers, extensions and row-level-security policies (definitions and settings only; this feature reads no table rows).
+- **Snapshot and compare**: save the structure now, then compare it later with the live database, another snapshot or a different database. It lists added, removed and changed tables, columns, indexes, constraints, foreign keys and those objects, which is useful for drift and reviews. Snapshots hold structure only (no rows, no credentials, whether or not data viewing is on) and can be exported as files.
 - **Explore** schemas, tables, views, materialized views and foreign tables, with columns, keys, indexes, constraints and row-count estimates.
+- **Look at the rows** (optional, off by default): switch on **Allow viewing table data** for a connection and each table gets a Data section with its rows, one page at a time, read-only. Columns whose names look like secrets are not read unless you ask, NULL is told apart from an empty value, long values open in a dialog, and a **Blur values** switch helps when you share your screen. Rows are never saved, logged or put in a snapshot or workspace.
 - **See relationships** drawn as edges with their cardinality (1:1, 1:N, N:1), including across schemas.
 - **Arrange** tables on an infinite canvas: drag, zoom, auto-layout (hierarchical, grouped, compact), search, filters, and focus on one table and its neighbours.
 - **Save** layouts per connection; they are restored the next time you connect.
@@ -36,7 +37,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 ## Your database, your machine, your control
 
 - Everything runs locally and listens on `127.0.0.1` only.
-- Only **metadata** is read (names, types, keys, indexes). Table rows are never read and there is no way to run your own SQL.
+- By default only **metadata** is read (names, types, keys, indexes). If you switch on **Allow viewing table data** for a connection, DataCanvas can also show the rows of a table you open: read-only, one page at a time, never saved, logged or put in a snapshot or workspace. There is no way to run your own SQL.
 - No telemetry, no cloud, no account.
 - The local server refuses requests from other websites and other programs (Host, Origin and a per-run session token).
 

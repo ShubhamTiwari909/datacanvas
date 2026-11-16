@@ -93,8 +93,8 @@ export function HealthView({ connectionId }: { connectionId: string }) {
         <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
           Health
           <span className="text-sm font-normal text-muted-foreground">
-            Hints from the structure and the server&apos;s usage counters. No table rows are read
-            and nothing is changed.
+            Hints from the structure and the server&apos;s usage counters. This tab reads no table
+            rows and changes nothing.
           </span>
         </h2>
         <p className="flex flex-wrap items-center gap-3 text-sm">

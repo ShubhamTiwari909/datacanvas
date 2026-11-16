@@ -3,7 +3,7 @@
  * connection (any connection, so two different databases can be compared).
  *
  * The comparison itself is the pure `diffStructures`; this file only fetches
- * both structures and names them for display. Structure only, no rows.
+ * both structures and names them for display. Structure only: this feature reads no table rows.
  */
 import { diffStructures, type DatabaseStructure, type SchemaDiff } from "@datacanvas/database-core";
 import type { ApiResult } from "@/lib/api-client";

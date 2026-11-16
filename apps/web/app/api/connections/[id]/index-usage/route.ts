@@ -3,7 +3,7 @@
  *
  * How often each index of the ordinary tables has been used, from the server's
  * statistics counters, with when they were last reset and whether the server is
- * a standby. Counters only: no table rows are read.
+ * a standby. Counters only: this route reads no table rows.
  */
 import { getServerContext } from "@/lib/server/context";
 import { handleRoute } from "@/lib/server/error-response";

@@ -6,19 +6,22 @@ DataCanvas is a local tool: it runs on your computer, talks to your database fro
 
 ## What stays on your machine
 
-| Thing                         | Where it lives                                                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Database password             | In memory of the running server only. Never written to disk, never returned by the API, never logged.                  |
-| Host, port, database, user    | In `~/.datacanvas/connections.json` only if you choose **Save connection**. Not the password.                          |
-| Canvas layouts                | `~/.datacanvas/workspaces/` (table names and positions). Files are owner-only (mode 0600).                             |
-| Session token (while running) | In the server's memory and in `~/.datacanvas/run.json` (owner-only) so a second launch can reopen it. Deleted on exit. |
-| What leaves the machine       | Nothing. No account, no cloud, no analytics. Telemetry of the web framework is switched off at start-up.               |
+| Thing                         | Where it lives                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Database password             | In memory of the running server only. Never written to disk, never returned by the API, never logged.                                                  |
+| Host, port, database, user    | In `~/.datacanvas/connections.json` only if you choose **Save connection**, together with whether data viewing is on. Not the password.                |
+| Table rows (if you view data) | In the memory of the server for the length of one request, and in your browser's memory while a table's Data section is open. Never written to a file. |
+| Canvas layouts                | `~/.datacanvas/workspaces/` (table names and positions). Files are owner-only (mode 0600).                                                             |
+| Session token (while running) | In the server's memory and in `~/.datacanvas/run.json` (owner-only) so a second launch can reopen it. Deleted on exit.                                 |
+| What leaves the machine       | Nothing. No account, no cloud, no analytics. Telemetry of the web framework is switched off at start-up.                                               |
 
 Set `DATACANVAS_HOME` to use a different folder.
 
 ## What DataCanvas reads from your database
 
-Only **metadata**: schema, table and column names, types, keys, indexes, constraints, comments and row-count estimates. It never reads table rows and has no way to run your own SQL. Every metadata query runs in a read-only transaction.
+By default, only **metadata**: schema, table and column names, types, keys, indexes, constraints, comments, definitions of views, functions and policies, usage counters and row-count estimates. Every query runs in a read-only transaction, and there is no way to run your own SQL.
+
+If you switch on **data viewing** for a connection (off by default, shown by a badge, remembered with the saved connection), DataCanvas also reads **rows**: a fixed `SELECT` on a table you open, in the same read-only transaction, with limits on rows, columns, cell length, response size and time. Rows go from the database to the local server to your browser and nowhere else; they are never written to a file, logged, cached, or included in an error message, a snapshot or a workspace. Columns whose names look sensitive (`password`, `token`, `secret`, ...) are not sent unless you reveal them; this is a convenience, not a security control, because names are only a hint. Anyone who holds the session token can switch data viewing on, so treat the printed link like a password.
 
 ## How the local server is protected
 
@@ -39,7 +42,9 @@ A web page you visit can try to reach programs listening on `127.0.0.1`. DataCan
 
 ## Before you export a diagram
 
-A PNG, SVG or workspace file shows **table and column names**. That can reveal how a system works. It contains no row data and is created on your machine, but share it only with people who should see your schema.
+A PNG, SVG or workspace file shows **table and column names**. That can reveal how a system works. It contains no row data, whether or not data viewing is on, and is created on your machine, but share it only with people who should see your schema.
+
+The Data section is not exported or saved. If you share your screen, a screenshot or a recording while it is open, rows are visible; the **Blur values** switch hides them on screen, but it is for that purpose only and does not change what is read.
 
 ## Known limits
 
@@ -47,7 +52,10 @@ A PNG, SVG or workspace file shows **table and column names**. That can reveal h
 - The token travels over plain `http` on loopback. Other users on a shared machine cannot normally see loopback traffic, but this is not hardened against a hostile administrator.
 - Cookies are not isolated by port; other web apps on `127.0.0.1` receive the cookie. The Origin and `Sec-Fetch-Site` checks stop them from using it from a browser.
 - There is no full Content-Security-Policy yet (the framework inlines scripts; this needs nonces).
-- Passwords live in memory, so they are present in a memory dump of the process.
+- Passwords live in memory, so they are present in a memory dump of the process. So are the rows of any page you have open, in the server and in your browser, and they can end up in the operating system's swap.
+- Hiding columns by name is a hint, not a control. A column called `notes` can hold a password; one called `token_count` is harmless. Use a database user that cannot read what DataCanvas should not show.
+- Browser extensions with access to the page can read what the page shows, including rows.
+- Row-level security can silently return fewer rows; the Data section says so only when it applies to your database user.
 - Two DataCanvas processes sharing one data folder are not coordinated.
 
 The full reasoning is in [docs/threat-model.md](docs/threat-model.md).

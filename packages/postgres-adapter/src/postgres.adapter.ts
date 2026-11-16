@@ -7,8 +7,10 @@
  *   - translate every failure into a safe `DatabaseError` (`mapPgError`),
  *   - delegate the actual catalog queries to the `introspection/` modules.
  *
- * Nothing here ever reads table rows, and there is no way to run caller-
- * supplied SQL: every query is a fixed string with bound parameters.
+ * Apart from `getRows` (the opt-in data viewer, in `introspection/rows.ts`),
+ * nothing here reads table rows, and there is no way to run caller-supplied
+ * SQL: every query is a fixed string, or a fixed shape built from catalog
+ * names, with bound parameters.
  */
 import {
   DatabaseError,

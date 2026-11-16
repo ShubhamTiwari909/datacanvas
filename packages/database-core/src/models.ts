@@ -1,6 +1,7 @@
 /**
  * Metadata models: the vocabulary DataCanvas uses to describe a database's
- * STRUCTURE (never its rows).
+ * STRUCTURE. The rows of a table (the opt-in data viewer) have their own
+ * section below, `RowPage` and the types around it.
  *
  * Design rules:
  *  - Plain data only: no classes, no methods, no driver types. Every value is

@@ -3,8 +3,9 @@
  * the live database or with another snapshot (a snapshot of a different
  * database works too), and export / import snapshot files.
  *
- * A snapshot holds structure only: names, types, keys, indexes. No rows and no
- * credentials. The server reads the database; this screen only asks for it.
+ * A snapshot holds structure only: names, types, keys, indexes. It never
+ * contains rows, whether or not data viewing is on, and no credentials. The
+ * server reads the database; this screen only asks for it.
  */
 "use client";
 
@@ -240,7 +241,8 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
         <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
           Snapshots
           <span className="text-sm font-normal text-muted-foreground">
-            Save the structure now, compare it later. No table rows and no connection credentials.
+            Save the structure now, compare it later. A snapshot never holds table rows or
+            connection credentials.
           </span>
         </h2>
         <p className="text-xs text-muted-foreground">

@@ -7,6 +7,8 @@
  *  4. The CLI never binds beyond loopback.
  *  5. Table rows are read only behind the data-access check, and are never logged.
  *  6. In the browser, rows live in component state only: never stored, never saved.
+ *  7. The product-wide documents never claim that rows are not read (they can be,
+ *     when a person switches data viewing on), and they do mention data viewing.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -209,5 +211,42 @@ describe("rows in the browser live in component state only", () => {
 
   it("the data viewer does not write to the console", () => {
     for (const file of dataFiles) expect(code(file), rel(file)).not.toMatch(/\bconsole\./);
+  });
+});
+
+describe("the documents tell the truth about rows", () => {
+  // Product-wide texts. Statements about ONE tab ("this tab reads no table rows") are fine and are
+  // not listed here: they describe that tab, not the product.
+  const documents = [
+    "README.md",
+    "SECURITY.md",
+    "docs/getting-started.md",
+    "docs/threat-model.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    "apps/web/features/connections/connection-form.tsx",
+  ];
+  const text = (file: string) => readFileSync(path.join(root, file), "utf8");
+
+  it.each(documents)("%s does not say that rows are never read", (file) => {
+    const content = text(file).replace(/\s+/g, " ");
+    expect(content).not.toMatch(/never reads? (any )?(table )?rows/i);
+    expect(content).not.toMatch(/(table )?rows are never read/i);
+    expect(content).not.toMatch(/only reads? (the )?metadata/i);
+    expect(content).not.toMatch(/never (reads|its) rows/i);
+  });
+
+  it.each(["README.md", "SECURITY.md", "docs/getting-started.md", "docs/threat-model.md"])(
+    "%s describes data viewing",
+    (file) => {
+      expect(text(file).toLowerCase()).toContain("data viewing");
+    },
+  );
+
+  it("the README and SECURITY.md say it is off by default and that rows are never saved", () => {
+    for (const file of ["README.md", "SECURITY.md"]) {
+      const content = text(file).replace(/\s+/g, " ").toLowerCase();
+      expect(content, file).toContain("off by default");
+      expect(content, file).toMatch(/never (written to a file|saved)/);
+    }
   });
 });

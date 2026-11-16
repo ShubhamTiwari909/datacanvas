@@ -1,8 +1,8 @@
 /**
  * Model health checks: things in a database's STRUCTURE that are often
  * mistakes or that cost performance. Pure functions over metadata the app
- * already reads (tables, columns, constraints, indexes, foreign keys); no
- * table rows are ever read and nothing is changed.
+ * already reads (tables, columns, constraints, indexes, foreign keys); this
+ * feature reads no table rows and changes nothing.
  *
  * These are hints, not verdicts. Every finding says why it matters and what a
  * fix would look like, but only the person who knows the database can decide

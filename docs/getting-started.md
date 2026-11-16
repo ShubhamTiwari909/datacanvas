@@ -26,7 +26,7 @@ or switch to the fields form. Press **Test connection** to check the details wit
 
 Good practice:
 
-- Use a **read-only user** with the least access that is useful. DataCanvas only reads (metadata, and rows if you switch that on), but a read-only user makes that a guarantee.
+- Use a **read-only user** with the least access that is useful. Unless you start it with `--enable-writes` (section 5), DataCanvas only reads (metadata, and rows if you switch that on), and a read-only user makes that a guarantee. DataCanvas warns beside the connection when the user can change data or create objects.
 - For a database that is not on your own computer, use **Encrypted and verified** (TLS with certificate checking).
 - The password stays in memory. After a restart you are asked for it again; host, port, database and user can be remembered with **Save connection**.
 
@@ -62,7 +62,27 @@ What you get, for the table you have open:
 
 Limits and rules: only tables, partitioned tables, views and materialized views (a foreign table lives on another server and is not read), at most 2 MB per page (a shortened page says so), and a time limit on every read. Rows are held in memory while the Data section is open and are gone when you open another table, switch data viewing off, or disconnect; they are never saved to a file, logged, or put in a snapshot or a workspace. The sort, the filters and the values you typed in them are held the same way: they last for the view you have open, another table starts with neither, and nothing about them is stored.
 
-## 5. Keep and share
+## 5. Change rows and tables (optional)
+
+DataCanvas does not change your database unless you ask for it three times:
+
+1. **Start it with `--enable-writes`**, for example `npx --yes @shubhamtiwari909/datacanvas --enable-writes`. It prints a notice that writes are enabled. Without the flag, nothing in the app can change a database.
+2. **Use a database on this machine.** Writes are offered only when the host is `localhost`, `127.0.0.1` (any `127.x` address), `::1` or a Unix socket. Any other connection stays read-only.
+3. **Unlock writes for the connection**: use the **Writes** switch beside it in the left list and type the database name. Viewing table data must be on. The dialog shows the address the database server reports and any warning about your database user. While writes are unlocked a red **Writes on** badge is shown; **Lock writes** ends it, and so do disconnecting, reconnecting and stopping DataCanvas. The unlock is never saved.
+
+A tunnel (`ssh -L`) or a proxy such as the Cloud SQL Auth Proxy also listens on `127.0.0.1` but forwards to another server, possibly a production one, so it looks local. Check the address in the unlock dialog, and only unlock a database you are willing to change. **Changes are committed immediately and cannot be undone.**
+
+What you can do with writes unlocked:
+
+- **Edit a row** in a table's **Data** section: choose a cell or the row's **Edit** button, type the new values (NULL and an empty value are separate choices), and **Preview**. **Add row** opens a form with every column: give a value, NULL, or leave it to its default; columns the database fills (generated columns and `GENERATED ALWAYS` identities) cannot be set. **Delete** removes one row. A table needs a primary key, or a unique index on columns that cannot be NULL, to be edited; views, materialized views and foreign tables cannot be. Long values cut in the grid, hidden columns and `bytea` columns cannot be edited, and the grid says why.
+- **Create a table** with **New table** beside a schema: columns with a type from a fixed list (numbers, text, dates and times, `uuid`, `json`, `jsonb`, `bytea`, `inet`, and arrays of these), whether each can be NULL, a default from a fixed list (a value, the current time or date, a random UUID, true or false) or an identity, a primary key, unique columns, foreign keys to existing tables, and comments.
+- **Change a table** with **Edit structure** in its details: add, rename and drop columns, rename and drop the table, change a column's type (only where PostgreSQL can convert it on its own), set or drop NOT NULL and a default, add a primary key, unique constraint or foreign key, drop a constraint, and create or drop an index. A drop needs the table name typed, and is refused, with the list of what depends on it, while a view, a foreign key or an index uses it.
+
+Every change opens a **preview** first: the exact statement that will run (values appear as `$1`, `$2`, ...; you can copy it), the values before and after, and what to know before applying: triggers that will run, foreign keys from other tables and what they do, row-level security, and whether a change locks or rewrites the table. Deleting and dropping need a tick to confirm. **Apply** runs exactly the statement you saw, in one transaction; a preview can be applied once and expires after five minutes. If the row changed since you loaded it, nothing is written and the page says so. Errors from the database are shown as a fixed sentence (for example "A row with the same value already exists"), never with your values in them.
+
+**Changes** (from the badge) lists what you changed in this session: the kind of change, the table, the column names, the time and the outcome, and the statement for changes of structure. It never shows values and is not saved.
+
+## 6. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.
 - **Export** saves a PNG or SVG. These images show table and column names, so share them only with people who should see your schema.

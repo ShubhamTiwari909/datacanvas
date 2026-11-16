@@ -240,7 +240,12 @@ test.describe("with writes unlocked", () => {
 
     const alert = preview.getByRole("alert");
     await expect(alert).toContainText("A row with the same value already exists");
-    await expect(page.locator("body")).not.toContainText(SECRET);
+    // The error is a fixed sentence naming the constraint; the value the person typed is not in it.
+    await expect(alert).toContainText("w_people_pkey");
+    await expect(alert).not.toContainText(SECRET);
+    await preview.getByRole("button", { name: "Close" }).first().click();
+    await page.getByRole("button", { name: "Changes made to W shop in this session" }).click();
+    await expect(page.getByRole("list", { name: "Changes" })).not.toContainText(SECRET);
     expect(await sql(database, `SELECT 1 FROM public.w_people WHERE name = '${SECRET}'`)).toEqual(
       [],
     );
@@ -290,7 +295,9 @@ test.describe("with writes unlocked", () => {
     await alter.getByLabel("What to change").selectOption({ label: "Drop the table" });
     await alter.getByRole("textbox", { name: /Type .*w_people.* to confirm/ }).fill("w_people");
     await alter.getByRole("button", { name: "Preview" }).click();
-    await expect(page.getByRole("dialog").getByRole("alert")).toContainText(/depend/i);
+    await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+      /cannot be dropped while other things use it.*w_orders_person_id_fkey/,
+    );
     expect(await sql(database, "SELECT to_regclass('public.w_people') IS NOT NULL AS ok")).toEqual([
       { ok: true },
     ]);

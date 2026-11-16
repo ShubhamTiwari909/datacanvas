@@ -19,6 +19,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DatabaseAdapter } from "../adapter.js";
+import { encodeRowsCursor } from "../rows.js";
 
 /** Calls that need an open connection, used to check "not connected" behaviour. */
 const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
@@ -30,6 +31,14 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
   ["getTablesDetails", (a) => a.getTablesDetails([{ schema: "public", name: "users" }])],
   ["searchObjects", (a) => a.searchObjects("user", 5)],
   ["getRelationships", (a) => a.getRelationships()],
+  [
+    "getRows",
+    (a) =>
+      a.getRows(
+        { schema: "public", name: "users" },
+        { pageSize: 10, cursor: null, revealColumns: [] },
+      ),
+  ],
 ];
 
 /** Assert a promise rejects with a DatabaseError carrying exactly this code. */
@@ -337,6 +346,108 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
             expect(hit.schema.startsWith("pg_")).toBe(false);
             expect(hit.schema).not.toBe("information_schema");
           }
+        });
+      });
+
+      describe("getRows", () => {
+        const users = { schema: "public", name: "users" };
+        const first = { pageSize: 50, cursor: null, revealColumns: [] };
+
+        it("reads the rows of users in primary-key order, every value as text", async () => {
+          const page = await adapter.getRows(users, first);
+          expect(page.columns.map((c) => c.name)).toEqual([
+            "id",
+            "email",
+            "full_name",
+            "created_at",
+          ]);
+          expect(page.columns.some((c) => c.masked)).toBe(false);
+          expect(page.order).toEqual({ kind: "primary_key", columns: ["id"] });
+          expect(page.rows.map((row) => row[0]!.value)).toEqual(["1", "2", "3"]);
+          expect(page.rows.map((row) => row[1]!.value)).toEqual([
+            "a@x.test",
+            "b@x.test",
+            "c@x.test",
+          ]);
+          expect(page).toMatchObject({
+            nextCursor: null,
+            hiddenColumns: 0,
+            cutBySize: false,
+            offsetCapped: false,
+          });
+          for (const cell of page.rows.flat()) {
+            expect(cell.value === null || typeof cell.value === "string").toBe(true);
+            expect(cell.truncated).toBe(false);
+          }
+        });
+
+        it("keeps SQL NULL as null, not as the empty string", async () => {
+          const page = await adapter.getRows(users, first);
+          expect(page.rows[0]![2]).toEqual({ value: null, truncated: false });
+        });
+
+        it("pages by the key: a cursor continues after the last row, and the last page has none", async () => {
+          const one = await adapter.getRows(users, { ...first, pageSize: 2 });
+          expect(one.rows.map((row) => row[0]!.value)).toEqual(["1", "2"]);
+          expect(one.nextCursor).not.toBeNull();
+
+          const two = await adapter.getRows(users, {
+            ...first,
+            pageSize: 2,
+            cursor: one.nextCursor,
+          });
+          expect(two.rows.map((row) => row[0]!.value)).toEqual(["3"]);
+          expect(two.nextCursor).toBeNull();
+        });
+
+        it("walks the whole table one row at a time without repeating or skipping a row", async () => {
+          const seen: string[] = [];
+          let cursor: string | null = null;
+          for (let guard = 0; guard < 10; guard += 1) {
+            const page = await adapter.getRows(users, { pageSize: 1, cursor, revealColumns: [] });
+            seen.push(...page.rows.map((row) => row[0]!.value!));
+            cursor = page.nextCursor;
+            if (cursor === null) break;
+          }
+          expect(seen).toEqual(["1", "2", "3"]);
+        });
+
+        it("gives an empty page for a table with no rows, with its columns", async () => {
+          const page = await adapter.getRows({ schema: "public", name: "orders" }, first);
+          expect(page.rows).toEqual([]);
+          expect(page.nextCursor).toBeNull();
+          expect(page.columns.map((c) => c.name)).toContain("user_id");
+        });
+
+        it("refuses a page size or a cursor that is not valid, with invalid_request", async () => {
+          for (const options of [
+            { ...first, pageSize: 0 },
+            { ...first, pageSize: 201 },
+            { ...first, pageSize: 1.5 },
+            { ...first, cursor: "not a cursor!" },
+            // a position that belongs to a table without a key, offered to a table with one
+            { ...first, cursor: encodeRowsCursor({ kind: "offset", offset: 1 }) },
+            // a key of the wrong length
+            { ...first, cursor: encodeRowsCursor({ kind: "keyset", values: ["1", "2"] }) },
+          ]) {
+            await expectCode(adapter.getRows(users, options), "invalid_request");
+          }
+        });
+
+        it("rejects an unknown schema or table with not_found", async () => {
+          await expectCode(
+            adapter.getRows({ schema: "public", name: "no_such_table" }, first),
+            "not_found",
+          );
+          await expectCode(
+            adapter.getRows({ schema: "no_such_schema", name: "users" }, first),
+            "not_found",
+          );
+        });
+
+        it("returns plain JSON-safe data", async () => {
+          const page = await adapter.getRows(users, { ...first, pageSize: 2 });
+          expect(JSON.parse(JSON.stringify(page))).toEqual(page);
         });
       });
 

@@ -343,3 +343,79 @@ export interface IndexUsageReport {
   inRecovery: boolean;
   indexes: IndexUsage[];
 }
+
+// ---------------------------------------------------------------- table rows ---
+//
+// The ROWS of a table, read only when the caller asks for them (the opt-in
+// data viewer). Everything here is bounded: rows per page, columns, characters
+// per cell, size of a response and the depth of an unordered page. A cell is
+// always TEXT (the database converts every value to text) or null.
+
+/** Rows per page when the caller does not choose. */
+export const ROWS_DEFAULT_PAGE_SIZE = 50;
+/** The most rows in one page. */
+export const ROWS_MAX_PAGE_SIZE = 200;
+/** Columns read per request; a wider table says how many were left out. */
+export const ROWS_MAX_COLUMNS = 100;
+/** Characters of one cell kept. Longer values are cut IN THE DATABASE and flagged. */
+export const ROWS_CELL_CHARS = 2000;
+/** About 2 MB of cell text in one response; a page that would exceed it is cut. */
+export const ROWS_MAX_RESPONSE_CHARS = 2_000_000;
+/** A table without a usable key can only be read this deep (OFFSET gets slower with depth). */
+export const ROWS_MAX_OFFSET = 10_000;
+/** A paging cursor is untrusted input: longer than this is refused. */
+export const ROWS_MAX_CURSOR_CHARS = 4096;
+
+export interface RowsOptions {
+  /** 1 to `ROWS_MAX_PAGE_SIZE`. */
+  pageSize: number;
+  /** The `nextCursor` of the previous page, or null for the first page. Opaque. */
+  cursor: string | null;
+  /**
+   * Columns whose names look sensitive are NOT read unless named here. Names
+   * that are not columns of the table are ignored.
+   */
+  revealColumns: string[];
+}
+
+export interface RowColumn {
+  name: string;
+  /** The type as the database prints it, e.g. "integer", "character varying(255)". */
+  dataType: string;
+  /** The column looks sensitive and was not read: every cell of it is empty. */
+  masked: boolean;
+}
+
+/** One value. `value` is null for SQL NULL (which is not the empty string); `truncated` says the text was cut. */
+export interface RowCell {
+  value: string | null;
+  truncated: boolean;
+}
+
+/**
+ * How the page is ordered, and so how it is paged:
+ *  - "primary_key" / "unique_index": by those columns, with a cursor that holds
+ *    the last row's key (as fast on page 1000 as on page 1);
+ *  - "none": the table has no usable key, so the order is not guaranteed and
+ *    paging is by position, down to `ROWS_MAX_OFFSET` rows.
+ */
+export interface RowOrder {
+  kind: "primary_key" | "unique_index" | "none";
+  columns: string[];
+}
+
+export interface RowPage {
+  /** The columns read, in table order (at most `ROWS_MAX_COLUMNS`). */
+  columns: RowColumn[];
+  /** One list of cells per row, aligned with `columns`. */
+  rows: RowCell[][];
+  /** Pass to the next call for the following page, or null when there is no more to read. */
+  nextCursor: string | null;
+  order: RowOrder;
+  /** Columns of the table that were left out because it has more than `ROWS_MAX_COLUMNS`. */
+  hiddenColumns: number;
+  /** The page was shortened because it would have exceeded the response size limit. */
+  cutBySize: boolean;
+  /** An unordered table has more rows, but past `ROWS_MAX_OFFSET`: they cannot be reached. */
+  offsetCapped: boolean;
+}

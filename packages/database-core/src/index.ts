@@ -15,4 +15,6 @@ export * from "./registry.js";
 export * from "./table-refs.js";
 export * from "./structure.js";
 export * from "./objects.js";
+export * from "./sql-text.js";
+export * from "./rows.js";
 export * from "./diff.js";

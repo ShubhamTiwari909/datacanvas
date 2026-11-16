@@ -23,6 +23,10 @@ export const DATABASE_ERROR_CODES = [
   "not_found",
   /** A method was called before `connect()` or after `disconnect()`. */
   "not_connected",
+  /** A request the adapter cannot act on: a page size out of range, or a paging position that does not belong to this table. */
+  "invalid_request",
+  /** The kind of table is not supported for this operation (for example reading rows of a foreign table). */
+  "not_supported",
   /** Anything we did not anticipate. */
   "unexpected",
 ] as const;
@@ -41,6 +45,9 @@ export const DEFAULT_ERROR_MESSAGES: Record<DatabaseErrorCode, string> = {
   database_not_found: "The database does not exist, or this user is not allowed to access it.",
   not_found: "The requested schema or table does not exist.",
   not_connected: "The database connection is not open.",
+  invalid_request:
+    "The request could not be used. The page size or the paging position is not valid for this table.",
+  not_supported: "This kind of table cannot be read here (for example a foreign table).",
   unexpected: "An unexpected database error occurred.",
 };
 

@@ -30,6 +30,8 @@ export const API_ERROR_CODES = [
   "permission_denied",
   "database_not_found",
   "not_connected",
+  "invalid_request",
+  "not_supported",
   "unexpected",
   // Connection registry problems.
   "connection_not_found",

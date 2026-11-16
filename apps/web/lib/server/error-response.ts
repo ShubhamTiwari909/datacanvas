@@ -28,6 +28,8 @@ export const DATABASE_ERROR_STATUS: Record<DatabaseErrorCode, number> = {
   permission_denied: 400,
   not_found: 404,
   not_connected: 409,
+  invalid_request: 400,
+  not_supported: 400,
   unreachable: 502,
   timeout: 504,
   unexpected: 500,

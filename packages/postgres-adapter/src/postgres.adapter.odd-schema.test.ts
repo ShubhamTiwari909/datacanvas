@@ -367,6 +367,32 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter against an awkward schema",
     });
   });
 
+  describe("reading rows", () => {
+    it("reads the rows of every table, view and materialized view of the awkward schema, whatever its name", async () => {
+      const read: string[] = [];
+      for (const schema of await adapter.getSchemas()) {
+        for (const table of await adapter.getTables(schema.name)) {
+          const ref = { schema: schema.name, name: table.name };
+          const options = { pageSize: 5, cursor: null, revealColumns: [] };
+          if (table.kind === "foreign_table") {
+            await expect(adapter.getRows(ref, options)).rejects.toMatchObject({
+              code: "not_supported",
+            });
+            continue;
+          }
+          const page = await adapter.getRows(ref, options);
+          // Whatever the table looks like, the page is well formed and within every limit.
+          expect(page.columns.length).toBeLessThanOrEqual(100);
+          for (const row of page.rows) expect(row).toHaveLength(page.columns.length);
+          expect(page.rows.length).toBeLessThanOrEqual(5);
+          read.push(`${schema.name}.${table.name}`);
+        }
+      }
+      // Guard against a hollow loop: the fixture really has many awkward relations.
+      expect(read.length).toBeGreaterThan(20);
+    });
+  });
+
   describe("missing things", () => {
     it("answers not_found for a table that does not exist, whatever its name looks like", async () => {
       await expect(adapter.getColumns("public", "nope")).rejects.toMatchObject({

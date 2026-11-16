@@ -231,19 +231,12 @@ describe("ConnectionRegistry", () => {
 });
 
 describe("isLocalHost", () => {
-  it.each([
-    "localhost",
-    "LOCALHOST",
-    "127.0.0.1",
-    "127.1.2.3",
-    "127.255.255.255",
-    "::1",
-    "[::1]",
-    "/var/run/postgresql",
-    "/tmp",
-  ])("treats %s as this machine", (host) => {
-    expect(isLocalHost(host)).toBe(true);
-  });
+  it.each(["localhost", "LOCALHOST", "127.0.0.1", "127.1.2.3", "127.255.255.255", "::1", "[::1]"])(
+    "treats %s as this machine",
+    (host) => {
+      expect(isLocalHost(host)).toBe(true);
+    },
+  );
 
   it.each([
     "0.0.0.0",
@@ -258,6 +251,9 @@ describe("isLocalHost", () => {
     "::2",
     "",
     "1270.0.0.1",
+    // A Unix socket path cannot be connected to (the connection schema refuses it): not "this machine" here.
+    "/var/run/postgresql",
+    "/tmp",
   ])("does not treat %s as this machine", (host) => {
     expect(isLocalHost(host)).toBe(false);
   });

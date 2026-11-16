@@ -7,7 +7,8 @@
  *  - lives in server memory only (it holds the person's values as statement
  *    parameters, so it is never written, logged or sent back),
  *  - belongs to one connection and cannot be applied through another,
- *  - expires after `PREVIEW_TTL_MS`,
+ *  - expires after `PREVIEW_TTL_MS`, and is dropped then even if nobody touches
+ *    the store again (a timer that exists only while something is held),
  *  - is single use: it is taken out of the store BEFORE it runs, so a
  *    repeated or concurrent apply cannot run it twice.
  */
@@ -23,10 +24,14 @@ interface Stored {
   expiresAt: number;
 }
 
+/** How often expired previews are dropped while any are held. */
+export const PREVIEW_SWEEP_INTERVAL_MS = 30_000;
+
 export interface PreviewStoreOptions {
   now?: () => number;
   generateId?: () => string;
   ttlMs?: number;
+  sweepIntervalMs?: number;
 }
 
 export class PreviewStore {
@@ -35,8 +40,11 @@ export class PreviewStore {
   private readonly now: () => number;
   private readonly generateId: () => string;
   private readonly ttlMs: number;
+  private readonly sweepIntervalMs: number;
+  private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: PreviewStoreOptions = {}) {
+    this.sweepIntervalMs = options.sweepIntervalMs ?? PREVIEW_SWEEP_INTERVAL_MS;
     this.now = options.now ?? Date.now;
     // 16 random bytes = 128 bits, URL-safe.
     this.generateId = options.generateId ?? (() => randomBytes(16).toString("base64url"));
@@ -53,6 +61,7 @@ export class PreviewStore {
     const id = this.generateId();
     const expiresAt = this.now() + this.ttlMs;
     this.previews.set(id, { connectionId, plan, expiresAt });
+    this.startTimer();
     return { id, expiresAt };
   }
 
@@ -75,6 +84,17 @@ export class PreviewStore {
     }
   }
 
+  /** Stop the timer and forget every preview (shutdown). */
+  dispose(): void {
+    this.stopTimer();
+    this.previews.clear();
+  }
+
+  /** How many previews are held at all, expired ones included (for tests). */
+  heldCount(): number {
+    return this.previews.size;
+  }
+
   /** How many previews are kept for a connection (for tests). */
   count(connectionId: string): number {
     this.sweep();
@@ -86,5 +106,25 @@ export class PreviewStore {
     for (const [id, stored] of this.previews) {
       if (stored.expiresAt <= now) this.previews.delete(id);
     }
+  }
+
+  /**
+   * A plan holds the person's values, so how long it is retained must not
+   * depend on the store being used again: while any is held, a timer drops the
+   * expired ones. It stops itself when the store is empty and never keeps the
+   * process alive.
+   */
+  private startTimer(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      this.sweep();
+      if (this.previews.size === 0) this.stopTimer();
+    }, this.sweepIntervalMs);
+    this.timer.unref?.();
+  }
+
+  private stopTimer(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
   }
 }

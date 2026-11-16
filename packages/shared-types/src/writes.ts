@@ -346,7 +346,7 @@ export const editInfoRequestSchema = z.strictObject({
 export const writesStatusSchema = z.object({
   /** DataCanvas was started with `--enable-writes`. */
   enabled: z.boolean(),
-  /** The connection's host is this machine (loopback or a Unix socket). */
+  /** The connection's host is this machine (`localhost`, `127.0.0.0/8` or `::1`). */
   local: z.boolean(),
   /** Viewing table data is on for the connection. */
   dataAccess: z.boolean(),

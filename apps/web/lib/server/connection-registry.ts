@@ -45,14 +45,15 @@ interface Entry {
 }
 
 /**
- * Is the connection's host this machine? Loopback (`localhost`, `127.0.0.0/8`,
- * `::1`) or a Unix socket path. Anything else, including `0.0.0.0` and LAN
- * addresses, is not. This is what the person typed: a tunnel or proxy on
- * 127.0.0.1 can still lead to a remote database (see docs/data-editing-plan.md 6.1).
+ * Is the connection's host this machine? Loopback: `localhost`, `127.0.0.0/8`
+ * or `::1`. Anything else, including `0.0.0.0` and LAN addresses, is not. A
+ * Unix socket path is not a host DataCanvas can connect to (the connection
+ * schema refuses it), so it is not an option here. This is what the person
+ * typed: a tunnel or proxy on 127.0.0.1 can still lead to a remote database
+ * (see docs/data-editing-plan.md 6.1).
  */
 export function isLocalHost(host: string): boolean {
   const name = host.trim().toLowerCase();
-  if (name.startsWith("/")) return true; // a Unix socket directory
   if (name === "localhost" || name === "::1" || name === "[::1]") return true;
   const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
   if (!octets) return false;
@@ -68,6 +69,7 @@ export class ConnectionRegistry {
   private readonly generateId: () => string;
   private sweeper: ReturnType<typeof setInterval> | undefined;
   private readonly removeListeners = new Set<(id: string) => void>();
+  private readonly lockListeners = new Set<(id: string) => void>();
 
   constructor(options: ConnectionRegistryOptions = {}) {
     this.maxConnections = options.maxConnections ?? 10;
@@ -111,13 +113,30 @@ export class ConnectionRegistry {
   }
 
   /**
+   * Be told when writes go from unlocked to locked for a connection (locked by
+   * the person, or because data viewing was switched off), to drop what was
+   * prepared while they were unlocked.
+   */
+  onWriteLocked(listener: (id: string) => void): () => void {
+    this.lockListeners.add(listener);
+    return () => this.lockListeners.delete(listener);
+  }
+
+  private lockWrites(id: string, entry: Entry): void {
+    if (!entry.writeUnlocked) return;
+    entry.writeUnlocked = false;
+    for (const listener of this.lockListeners) listener(id);
+  }
+
+  /**
    * Unlock or lock writes for a live connection (memory only).
    * @throws ServiceError `connection_not_found`
    */
   setWriteUnlocked(id: string, unlocked: boolean): void {
     const entry = this.entries.get(id);
     if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
-    entry.writeUnlocked = unlocked;
+    if (unlocked) entry.writeUnlocked = true;
+    else this.lockWrites(id, entry);
   }
 
   /** Whether writes are unlocked for the connection; false when it does not exist. */
@@ -150,7 +169,7 @@ export class ConnectionRegistry {
     if (!entry) throw new ServiceError("connection_not_found", "This connection does not exist.");
     entry.summary = { ...entry.summary, dataAccess: enabled };
     // Editing needs data viewing (guardrail 3): switching it off also locks writes.
-    if (!enabled) entry.writeUnlocked = false;
+    if (!enabled) this.lockWrites(id, entry);
     return entry.summary;
   }
 

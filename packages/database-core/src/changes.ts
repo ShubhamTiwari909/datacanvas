@@ -372,6 +372,27 @@ export function changeColumns(change: Change): string[] {
   }
 }
 
+/**
+ * Does the change carry text the person typed into the statement itself: a
+ * literal default or a comment? Such a change of structure is still shown to
+ * the person exactly, but its SQL is not kept in the session history, which is
+ * names only (decision 131).
+ */
+export function changeCarriesUserText(change: Change): boolean {
+  const column = (c: ColumnDefinition): boolean =>
+    c.default.kind === "literal" || (c.comment !== null && c.comment !== "");
+  switch (change.kind) {
+    case "create_table":
+      return (change.comment !== null && change.comment !== "") || change.columns.some(column);
+    case "add_column":
+      return column(change.column);
+    case "set_default":
+      return change.default.kind === "literal";
+    default:
+      return false;
+  }
+}
+
 // --------------------------------------------------------------- previews ---
 
 /** Why the preview warns. Each code has a fixed explanation; `message` may name structure, never values. */

@@ -1,6 +1,6 @@
 # Plan: searching tables from the sidebar
 
-Status: **proposal for 1.4.0, nothing built.** Requested 2026-11-16 as part of the 1.4.0 release, alongside editing rows and designing tables (`docs/data-editing-plan.md`). It is independent of editing and small, so it can be built first.
+Status: **decisions settled for 1.4.0 (all four recommendations in section 8 accepted on 2026-11-16, decision 136).** Requested 2026-11-16 as part of the 1.4.0 release, alongside editing rows and designing tables (`docs/data-editing-plan.md`). It is independent of editing and small, so it can be built first.
 
 ## 1. Goal
 

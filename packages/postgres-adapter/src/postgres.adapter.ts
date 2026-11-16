@@ -18,6 +18,8 @@ import {
   type DatabaseObjects,
   type IndexInfo,
   type IndexUsageReport,
+  type RowPage,
+  type RowsOptions,
   type RelationshipInfo,
   type SchemaInfo,
   type SearchHit,
@@ -42,6 +44,7 @@ import { assertRelationExists, assertSchemaExists } from "./introspection/existe
 import { listIndexes } from "./introspection/indexes.js";
 import { listIndexUsage } from "./introspection/index-usage.js";
 import { listObjects } from "./introspection/objects.js";
+import { readRows } from "./introspection/rows.js";
 import { listRelationships } from "./introspection/relationships.js";
 import { listSchemas } from "./introspection/schemas.js";
 import { searchObjects } from "./introspection/search.js";
@@ -157,6 +160,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   getObjects(): Promise<DatabaseObjects> {
     return this.read((db) => listObjects(db));
+  }
+
+  getRows(table: TableRef, options: RowsOptions): Promise<RowPage> {
+    return this.read((db) => readRows(db, table, options));
   }
 
   getIndexUsage(): Promise<IndexUsageReport> {

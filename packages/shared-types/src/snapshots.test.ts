@@ -164,6 +164,23 @@ describe("refusing bad files", () => {
     expect(parseSnapshotFile({ ...sampleSnapshot(), extra: 1 }).ok).toBe(false);
   });
 
+  it("has no place for row data: a rows key anywhere is refused", () => {
+    const base = () => JSON.parse(JSON.stringify(sampleSnapshot()));
+    const atTop = { ...base(), rows: [["secret"]] };
+    expect(parseSnapshotFile(atTop).ok).toBe(false);
+    const inStructure = base();
+    inStructure.structure.rows = [{ id: "1" }];
+    expect(parseSnapshotFile(inStructure).ok).toBe(false);
+    const inTable = base();
+    inTable.structure.tables[0].rows = [{ id: "1" }];
+    expect(parseSnapshotFile(inTable).ok).toBe(false);
+    const inColumn = base();
+    inColumn.structure.tables.find(
+      (t: { columns: unknown[] }) => t.columns.length > 0,
+    ).columns[0].sample = "x";
+    expect(parseSnapshotFile(inColumn).ok).toBe(false);
+  });
+
   it("refuses an unsafe id (it becomes a file name)", () => {
     for (const id of ["../../etc/passwd", "a/b", "short", "x".repeat(65), "has space!", ""]) {
       expect(parseSnapshotFile({ ...sampleSnapshot(), id }).ok, id).toBe(false);

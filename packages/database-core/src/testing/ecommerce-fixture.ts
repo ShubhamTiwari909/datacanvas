@@ -34,6 +34,11 @@ export interface MockDatabaseData {
   objects: DatabaseObjects;
   /** Counters for the indexes of the sample tables. */
   indexUsage: IndexUsageReport;
+  /**
+   * Rows, keyed by "schema.table": one object per row, column name to the value
+   * as text (null for SQL NULL). A table that is not listed has no rows.
+   */
+  rows: Record<string, Array<Record<string, string | null>>>;
 }
 
 function column(
@@ -366,6 +371,15 @@ export function createEcommerceData(): MockDatabaseData {
         usage("users_email_key", "users", 450, 16384, true),
         usage("orders_user_id_idx", "orders", 0, 8192, false),
         usage("order_items_order_id_idx", "order_items", 120, 8192, false),
+      ],
+    },
+
+    // The same three customers the PostgreSQL test database gets, so the contract tests agree.
+    rows: {
+      "public.users": [
+        { id: "1", email: "a@x.test", full_name: null, created_at: "2026-11-01 10:00:00+00" },
+        { id: "2", email: "b@x.test", full_name: null, created_at: "2026-11-01 10:00:00+00" },
+        { id: "3", email: "c@x.test", full_name: null, created_at: "2026-11-01 10:00:00+00" },
       ],
     },
   };

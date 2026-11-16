@@ -17,6 +17,10 @@ import type {
   IndexInfo,
   IndexUsageReport,
   RelationshipInfo,
+  RowColumn,
+  RowOrder,
+  RowPage,
+  RowsOptions,
   SchemaInfo,
   SearchHit,
   TableDetailsEntry,
@@ -24,6 +28,8 @@ import type {
   TableRef,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
+import { buildRowPage, isSensitiveColumnName, normalizeRowsOptions, type RawRow } from "../rows.js";
+import { ROWS_MAX_COLUMNS, ROWS_MAX_OFFSET } from "../models.js";
 import { uniqueTableRefs } from "../table-refs.js";
 import { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";
 
@@ -165,6 +171,121 @@ export class MockDatabaseAdapter implements DatabaseAdapter {
   async getObjects(): Promise<DatabaseObjects> {
     this.requireConnection();
     return normalizeObjects(copy(this.data.objects));
+  }
+
+  async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {
+    this.requireConnection();
+    const { pageSize, cursor, reveal } = normalizeRowsOptions(options);
+    const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
+    if (!table) throw new DatabaseError("not_found");
+    if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+
+    const all = this.lookup(this.data.columns, ref.schema, ref.name);
+    const shown = all.slice(0, ROWS_MAX_COLUMNS);
+    const columns: RowColumn[] = shown.map((c) => ({
+      name: c.name,
+      dataType: c.dataType,
+      masked: isSensitiveColumnName(c.name) && !reveal.has(c.name),
+    }));
+    const empty = (order: RowOrder): RowPage =>
+      buildRowPage({
+        columns,
+        hiddenColumns: all.length - shown.length,
+        order,
+        rawRows: [],
+        pageSize,
+        offset: 0,
+      });
+
+    const mapKey = `${ref.schema}.${ref.name}`;
+    const key = this.rowKey(mapKey);
+    const order: RowOrder = key
+      ? { kind: key.kind, columns: key.columns }
+      : { kind: "none", columns: [] };
+    if (all.length === 0) return empty(order);
+
+    const stored = Object.hasOwn(this.data.rows, mapKey) ? this.data.rows[mapKey]! : [];
+    let rows = stored;
+    let start = 0;
+    let offset = 0;
+    let limit = pageSize;
+    if (key) {
+      const byKey = (a: Record<string, string | null>, b: Record<string, string | null>): number =>
+        this.compareKeys(
+          mapKey,
+          key.columns.map((c) => a[c] ?? ""),
+          key.columns.map((c) => b[c] ?? ""),
+          key.columns,
+        );
+      rows = [...stored].sort(byKey);
+      if (cursor) {
+        if (cursor.kind !== "keyset" || cursor.values.length !== key.columns.length) {
+          throw new DatabaseError("invalid_request");
+        }
+        const after = cursor.values;
+        start = rows.findIndex(
+          (r) =>
+            this.compareKeys(
+              mapKey,
+              key.columns.map((c) => r[c] ?? ""),
+              after,
+              key.columns,
+            ) > 0,
+        );
+        if (start === -1) start = rows.length;
+      }
+    } else if (cursor) {
+      if (cursor.kind !== "offset") throw new DatabaseError("invalid_request");
+      offset = cursor.offset;
+      start = offset;
+      // Same depth limit as the real adapter: nothing is readable past it.
+      limit = Math.max(0, Math.min(pageSize, ROWS_MAX_OFFSET - offset));
+    } else {
+      limit = Math.min(pageSize, ROWS_MAX_OFFSET);
+    }
+
+    const rawRows: RawRow[] = rows.slice(start, start + limit + 1).map((row) => ({
+      cells: shown.map((c) => row[c.name] ?? null),
+      key: key ? key.columns.map((c) => row[c] ?? "") : null,
+    }));
+    return buildRowPage({
+      columns,
+      hiddenColumns: all.length - shown.length,
+      order,
+      rawRows,
+      pageSize: limit,
+      offset,
+    });
+  }
+
+  /** The columns a table is read and paged by: its primary key, else a unique index on NOT NULL columns. */
+  private rowKey(
+    mapKey: string,
+  ): { kind: "primary_key" | "unique_index"; columns: string[] } | null {
+    const primary = (this.data.constraints[mapKey] ?? []).find((c) => c.kind === "primary_key");
+    if (primary) return { kind: "primary_key", columns: [...primary.columns] };
+    const columns = this.data.columns[mapKey] ?? [];
+    const unique = (this.data.indexes[mapKey] ?? []).find(
+      (i) =>
+        i.unique &&
+        !/\sWHERE\s/i.test(i.definition ?? "") &&
+        i.columns.every((name) => columns.find((c) => c.name === name)?.nullable === false),
+    );
+    return unique ? { kind: "unique_index", columns: [...unique.columns] } : null;
+  }
+
+  /** Compare two keys the way the database would: numbers as numbers, everything else as text. */
+  private compareKeys(mapKey: string, a: string[], b: string[], names: string[]): number {
+    const columns = this.data.columns[mapKey] ?? [];
+    for (let i = 0; i < names.length; i += 1) {
+      const type = columns.find((c) => c.name === names[i])?.dataType ?? "text";
+      const numeric = /^(smallint|integer|bigint|numeric|real|double precision)/.test(type);
+      const x = a[i] ?? "";
+      const y = b[i] ?? "";
+      const result = numeric ? Number(x) - Number(y) : x < y ? -1 : x > y ? 1 : 0;
+      if (result !== 0) return result < 0 ? -1 : 1;
+    }
+    return 0;
   }
 
   async getIndexUsage(): Promise<IndexUsageReport> {

@@ -5,7 +5,7 @@ import {
 } from "@datacanvas/shared-types";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultSnapshotName, snapshotFileName } from "./snapshot-service";
 import { createTestContext, fieldsInput } from "./test-support";
 
@@ -104,6 +104,21 @@ describe("SnapshotService", () => {
     expect(loaded.schemaVersion).toBe(2);
     expect(loaded.structure.objects).toBeNull();
     expect((await snapshots.list())[0]!.counts.objects).toBeNull();
+  });
+
+  it("never reads a row: taking, loading, exporting or importing a snapshot does not call getRows", async () => {
+    const { snapshots, connections, connectionId, createdAdapters } = await setup();
+    const spy = vi.spyOn(createdAdapters[0]!, "getRows");
+
+    const { id } = await snapshots.create(connectionId, { name: "no rows" });
+    await snapshots.get(id);
+    const { content } = await snapshots.exportFile(id);
+    await snapshots.importFile(JSON.parse(JSON.stringify(content)));
+    await connections.captureStructure(connectionId);
+    await connections.getObjects(connectionId);
+    await connections.getIndexUsage(connectionId);
+
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("lists newest first", async () => {

@@ -13,8 +13,11 @@
  * One adapter instance is bound to ONE database (the connection details are
  * given to the adapter's constructor, not to its methods).
  *
- * All methods are READ-ONLY and return STRUCTURE only. There is deliberately
- * no method that runs arbitrary SQL or returns table rows.
+ * All methods are READ-ONLY. Almost all return STRUCTURE (names, types, keys,
+ * definitions, counters). `getRows` is the one method that returns table ROWS: it
+ * exists for the opt-in data viewer, and it is the caller's job (the service
+ * layer) to call it only when the person has switched data viewing on for that
+ * connection. There is deliberately no method that runs arbitrary SQL.
  */
 import type {
   ColumnInfo,
@@ -23,6 +26,8 @@ import type {
   IndexInfo,
   IndexUsageReport,
   RelationshipInfo,
+  RowPage,
+  RowsOptions,
   SchemaInfo,
   SearchHit,
   TableDetailsEntry,
@@ -140,6 +145,32 @@ export interface DatabaseAdapter {
    *   `IndexUsageReport` for what they can and cannot say.
    */
   getIndexUsage(): Promise<IndexUsageReport>;
+
+  /**
+   * One page of the ROWS of a table, view or materialized view, read-only and
+   * bounded. This is the only method that returns table data.
+   *
+   * - Every value is read as text, and cut in the database to `ROWS_CELL_CHARS`
+   *   (flagged `truncated`); SQL NULL stays distinct from the empty string.
+   * - Columns whose names look sensitive (`isSensitiveColumnName`) are NOT read
+   *   unless listed in `options.revealColumns`; their cells come back empty and
+   *   the column says `masked`.
+   * - At most `ROWS_MAX_COLUMNS` columns are read (the page says how many were
+   *   left out), at most `options.pageSize` rows, and about
+   *   `ROWS_MAX_RESPONSE_CHARS` characters in all (`cutBySize`).
+   * - Ordered by the primary key, or else a unique index on NOT NULL columns,
+   *   and paged by that key (`nextCursor`), so a deep page is as fast as the
+   *   first. A table with no such key is read in no particular order, by
+   *   position, and only down to `ROWS_MAX_OFFSET` rows (`offsetCapped`).
+   * - No row count is computed. The cursor is opaque and untrusted.
+   * - An empty table, or one with no columns, gives an empty page.
+   *
+   * @throws DatabaseError `invalid_request` for a page size or cursor that is not
+   *   valid for this table, `not_found` if the table does not exist,
+   *   `not_supported` for a foreign table, `permission_denied` without SELECT.
+   *   The error text never contains a value from the table.
+   */
+  getRows(table: TableRef, options: RowsOptions): Promise<RowPage>;
 
   /**
    * Close everything and release resources. Safe to call more than once, and

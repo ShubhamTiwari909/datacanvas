@@ -1,6 +1,6 @@
 # Plan: read-only data viewer
 
-Status: **M0 done (2026-11-16): the eight decisions are settled (section 12) and the wording of the changed promises is agreed (Appendix A). Nothing is built.** Implementation starts at M1. M0 changed three things in the first draft, listed in section 14.
+Status: **M0 and M1 done (2026-11-16).** The eight decisions are settled (section 12), the wording of the changed promises is agreed (Appendix A), and the adapter layer is built and tested (`getRows`, the shared helpers, the PostgreSQL implementation; section 15). **No route or screen reads rows yet**, so the product still reads none. Implementation continues at M2. M0 changed three things in the first draft (section 14); M1 found four more (section 15).
 
 ## 1. Goal
 
@@ -160,7 +160,7 @@ Sizes are relative (S, M, L), not time estimates.
 |     | Milestone                                                                                                                                                             | Size | Done when                                                               |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------- |
 | M0  | **Decisions and wording**: settle section 12; agree the wording of the promises that will change (Appendix A). **Done 2026-11-16.**                                   | S    | The open decisions are answered and the new wording is agreed           |
-| M1  | **Adapter**: model, `getRows` in the interface, PostgreSQL implementation, mock, contract and awkward-schema tests, matrix                                            | L    | All adapter tests pass on PostgreSQL 12 to 18                           |
+| M1  | **Adapter**: model, `getRows` in the interface, PostgreSQL implementation, mock, contract and awkward-schema tests, matrix                                            | L    | All adapter tests pass on PostgreSQL 12 to 18 **Done 2026-11-16.**      |
 | M2  | **Server**: `dataAccess` flag, service, routes, error codes, schemas, route and security rule tests                                                                   | M    | A disabled connection cannot read rows; no value reaches a log or error |
 | M3  | **UI v1**: opt-in flow, Data section, paging, masking and reveal, cell dialog, themes, Playwright tests                                                               | L    | The end-to-end flow passes; checked by eye in light and dark            |
 | M4  | **Polish and extras**: sort and filter (composite keyset, timeout-aware), blur toggle, RLS notice, optional foreign-table support, performance and accessibility pass | M    | Performance numbers recorded; accessibility issues fixed                |
@@ -248,3 +248,12 @@ This is the exact text to use when the feature ships (M2 for the server messages
 Use it for the Snapshots, Objects, Health and Overview headers and in the matching code comments and route comments; for snapshots add: "A snapshot never contains rows, whether or not data viewing is on."
 
 **Error messages (fixed text, no database text):** `data_access_disabled`: "Viewing table data is switched off for this connection. Switch it on to see rows." Permission denied: "The database user cannot read this table."
+
+## 15. What M1 found (adapter layer, 2026-11-16)
+
+1. **A materialized view is always read unordered.** Its columns are never `NOT NULL`, so even a unique index on one fails the "every key column NOT NULL" rule that keyset paging needs (a NULL key would break "after the last key"). Section 5.3's key rule is unchanged; the consequence is that materialized views are paged by position, capped at 10,000 rows. Allowing a nullable unique key (ordering with `NULLS LAST` and a null-aware cursor) is possible later and is recorded as a candidate for M4.
+2. **Booleans read as `true` and `false`.** Casting to text gives that, not the `t` and `f` that psql prints; the grid shows what the cast gives.
+3. **A parameter must be referenced.** PostgreSQL refuses a statement with an unused parameter (42P18). The cell-limit parameter is now only passed when some column uses it, which matters for a table whose every column is masked. Covered by a unit test and an integration test.
+4. **Row comparison needs no casts.** `ROW("k1", "k2") > ROW($2, $3)` with untyped text parameters pages correctly for every key type tested (bigint, text longer than the cell limit, composite keys), so section 5.2's rule of binding values without cast text holds.
+
+The paging cursor is plain ASCII (non-ASCII characters are escaped inside it), because `database-core` has no text-encoding dependency; section 5.3 said only that it is opaque.

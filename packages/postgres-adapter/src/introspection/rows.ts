@@ -1,0 +1,236 @@
+import {
+  DatabaseError,
+  ROWS_CELL_CHARS,
+  ROWS_MAX_COLUMNS,
+  ROWS_MAX_OFFSET,
+  buildRowPage,
+  isSensitiveColumnName,
+  normalizeRowsOptions,
+  quoteIdentifier,
+  quoteQualified,
+  type RawRow,
+  type RowColumn,
+  type RowOrder,
+  type RowPage,
+  type RowsOptions,
+  type TableRef,
+} from "@datacanvas/database-core";
+import { listColumns } from "./columns.js";
+import { listTablesByRef } from "./tables.js";
+import type { Queryable } from "./types.js";
+
+/**
+ * Reading the ROWS of one table: the only place in this adapter that reads table
+ * data. Everything about it is bounded and fixed in shape:
+ *
+ *  - the statement is ONE shape of SELECT, built by `buildRowsQuery` from names
+ *    that were first read from the catalog and are quoted; no text from the
+ *    caller ever becomes part of it (the page size and the paging position are
+ *    bound parameters);
+ *  - every value is converted to text and cut INSIDE the database
+ *    (`left(CAST(col AS text), n)`), so a huge value never travels;
+ *  - it runs in the read-only transaction the adapter opens for every call.
+ *
+ * Rows are never logged, stored or put in an error message here.
+ */
+
+// ------------------------------------------------------------ choosing a key ---
+
+/**
+ * The columns a table can be ordered and paged by: its primary key, else a
+ * unique index that is safe to order by. Safe means: valid and live, over plain
+ * columns (no expression), not partial, and every key column NOT NULL (a NULL
+ * would break "greater than the last key"). Only the index's KEY columns count,
+ * not its INCLUDE columns. Among several, the primary key wins, then the
+ * narrowest, then the oldest.
+ */
+const ROW_KEY_SQL = `
+  SELECT
+    ix.indisprimary AS "primary",
+    ARRAY(
+      SELECT a.attname::text
+      FROM generate_series(0, ix.indnkeyatts - 1) AS g(pos)
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = ix.indkey[g.pos]
+      ORDER BY g.pos
+    ) AS columns
+  FROM pg_catalog.pg_index ix
+  JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+  WHERE n.nspname = $1
+    AND t.relname = $2
+    AND ix.indisunique
+    AND ix.indisvalid
+    AND ix.indislive
+    AND ix.indpred IS NULL
+    AND ix.indexprs IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM generate_series(0, ix.indnkeyatts - 1) AS g(pos)
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = ix.indkey[g.pos]
+      WHERE NOT a.attnotnull
+    )
+  ORDER BY ix.indisprimary DESC, ix.indnkeyatts ASC, ix.indexrelid ASC
+  LIMIT 1
+`;
+
+interface KeyRow {
+  primary: boolean;
+  columns: string[];
+}
+
+export async function findRowKey(db: Queryable, ref: TableRef): Promise<RowOrder> {
+  const { rows } = await db.query<KeyRow>(ROW_KEY_SQL, [ref.schema, ref.name]);
+  const row = rows[0];
+  return row && row.columns.length > 0
+    ? { kind: row.primary ? "primary_key" : "unique_index", columns: row.columns }
+    : { kind: "none", columns: [] };
+}
+
+// ------------------------------------------------------------ the statement ---
+
+export interface RowsQueryPlan {
+  schema: string;
+  table: string;
+  /** The columns to read, with their position in the page's column list (the alias is `c<position>`). Masked columns are not here. */
+  shown: ReadonlyArray<{ position: number; name: string }>;
+  /** The ordering key; empty for a table without one. */
+  keyColumns: readonly string[];
+  /** The key of the last row of the previous page, or null for the first page (keyed tables). */
+  after: readonly string[] | null;
+  /** Where to start (tables without a key). */
+  offset: number;
+  /** How many rows to fetch: the page size plus one, to learn whether there is more. */
+  limit: number;
+}
+
+/**
+ * The one statement. For a table with a key:
+ *
+ *   SELECT 1 AS r, left(CAST("a" AS text), $1) AS c0, CAST("k" AS text) AS k0
+ *   FROM "s"."t" WHERE ROW("k") > ROW($2) ORDER BY "k" LIMIT $3
+ *
+ * and without one (no WHERE, no ORDER BY, so no order is promised):
+ *
+ *   SELECT 1 AS r, left(CAST("a" AS text), $1) AS c0 FROM "s"."t" LIMIT $2 OFFSET $3
+ *
+ * `$1` (when any column is read) is the cell limit plus one character, which tells
+ * a value that fits from one that was cut. The key columns are selected a second time WITHOUT cutting
+ * (`k0`...): the paging position must be the real key, not a shortened copy of
+ * it. `1 AS r` keeps the select list from being empty when every column is masked.
+ */
+export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unknown[] } {
+  const values: unknown[] = [];
+  const select: string[] = ["1 AS r"];
+  // The cell limit is a parameter only when some column uses it: PostgreSQL refuses a
+  // statement with a parameter that is never referenced (42P18), which is what a table
+  // whose every column is masked would otherwise be.
+  if (plan.shown.length > 0) values.push(ROWS_CELL_CHARS + 1);
+  for (const column of plan.shown) {
+    select.push(`left(CAST(${quoteIdentifier(column.name)} AS text), $1) AS c${column.position}`);
+  }
+  plan.keyColumns.forEach((name, i) => {
+    select.push(`CAST(${quoteIdentifier(name)} AS text) AS k${i}`);
+  });
+
+  const parts = [`SELECT ${select.join(", ")}`, `FROM ${quoteQualified(plan.schema, plan.table)}`];
+  const keyed = plan.keyColumns.length > 0;
+  if (keyed && plan.after) {
+    const marks = plan.after.map((value) => {
+      values.push(value);
+      return `$${values.length}`;
+    });
+    parts.push(
+      `WHERE ROW(${plan.keyColumns.map(quoteIdentifier).join(", ")}) > ROW(${marks.join(", ")})`,
+    );
+  }
+  if (keyed) parts.push(`ORDER BY ${plan.keyColumns.map(quoteIdentifier).join(", ")}`);
+  values.push(plan.limit);
+  parts.push(`LIMIT $${values.length}`);
+  if (!keyed) {
+    values.push(plan.offset);
+    parts.push(`OFFSET $${values.length}`);
+  }
+  return { text: parts.join(" "), values };
+}
+
+// ------------------------------------------------------------------ reading ---
+
+type DataRow = Record<string, string | null>;
+
+/** SQLSTATE class 22 is "data exception": a value that does not fit its type, here a forged paging position. */
+const isDataException = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  typeof (error as { code?: unknown }).code === "string" &&
+  (error as { code: string }).code.startsWith("22");
+
+export async function readRows(
+  db: Queryable,
+  ref: TableRef,
+  options: RowsOptions,
+): Promise<RowPage> {
+  const { pageSize, cursor, reveal } = normalizeRowsOptions(options);
+
+  const [table] = await listTablesByRef(db, [ref]);
+  if (!table) throw new DatabaseError("not_found");
+  // A foreign table reads from another server, with credentials we know nothing about.
+  if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+
+  const all = await listColumns(db, ref.schema, ref.name);
+  const shown = all.slice(0, ROWS_MAX_COLUMNS);
+  const columns: RowColumn[] = shown.map((c) => ({
+    name: c.name,
+    dataType: c.dataType,
+    masked: isSensitiveColumnName(c.name) && !reveal.has(c.name),
+  }));
+  const hiddenColumns = all.length - shown.length;
+
+  const order = await findRowKey(db, ref);
+  if (all.length === 0) {
+    return buildRowPage({ columns, hiddenColumns, order, rawRows: [], pageSize, offset: 0 });
+  }
+
+  const keyed = order.kind !== "none";
+  let after: string[] | null = null;
+  let offset = 0;
+  if (cursor) {
+    if (keyed && cursor.kind === "keyset" && cursor.values.length === order.columns.length) {
+      after = cursor.values;
+    } else if (!keyed && cursor.kind === "offset") {
+      offset = cursor.offset;
+    } else {
+      throw new DatabaseError("invalid_request"); // a cursor from another kind of table
+    }
+  }
+  // A table without a key can only be read this deep; the page shrinks to fit.
+  const effectiveSize = keyed
+    ? pageSize
+    : Math.max(0, Math.min(pageSize, ROWS_MAX_OFFSET - offset));
+
+  const { text, values } = buildRowsQuery({
+    schema: ref.schema,
+    table: ref.name,
+    shown: columns.flatMap((c, position) => (c.masked ? [] : [{ position, name: c.name }])),
+    keyColumns: order.columns,
+    after,
+    offset,
+    limit: effectiveSize + 1,
+  });
+
+  let result: { rows: DataRow[] };
+  try {
+    result = await db.query<DataRow>(text, values);
+  } catch (error) {
+    // PostgreSQL's own message for a bad value contains the value ("invalid input
+    // syntax for type integer: ..."): it is dropped, and a fixed message is used.
+    if (isDataException(error)) throw new DatabaseError("invalid_request", { cause: error });
+    throw error;
+  }
+
+  const rawRows: RawRow[] = result.rows.map((row) => ({
+    cells: columns.map((c, position) => (c.masked ? null : (row[`c${position}`] ?? null))),
+    key: keyed ? order.columns.map((_, i) => row[`k${i}`] ?? "") : null,
+  }));
+
+  return buildRowPage({ columns, hiddenColumns, order, rawRows, pageSize: effectiveSize, offset });
+}

@@ -1,17 +1,9 @@
 /**
  * Helpers for building SQL TEXT that is shown to the user to copy (suggested
- * indexes, generated joins). DataCanvas never runs this text: it has no way to
- * execute SQL. Quoting still matters, because a table named `a b` or
- * `"; DROP TABLE x; --` must become a harmless identifier in what the user
- * pastes into their own tool.
+ * indexes, generated joins). DataCanvas never runs this text from here.
+ *
+ * The implementation lives in `@datacanvas/database-core` (`quoteIdentifier`),
+ * because the PostgreSQL adapter needs the very same quoting for the queries it
+ * does run; this file keeps the names the web app already uses.
  */
-
-/** Quote an SQL identifier: "name", with any double quote inside doubled. */
-export function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-/** `"schema"."table"`. */
-export function quoteQualified(schema: string, name: string): string {
-  return `${quoteIdent(schema)}.${quoteIdent(name)}`;
-}
+export { quoteIdentifier as quoteIdent, quoteQualified } from "@datacanvas/database-core";

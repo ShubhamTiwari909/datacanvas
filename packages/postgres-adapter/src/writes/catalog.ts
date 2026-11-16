@@ -363,6 +363,8 @@ export async function listDependents(
          SELECT 1 FROM pg_catalog.pg_type t WHERE t.oid = d.objid AND t.typrelid = $1::oid))
        AND NOT (d.classid = 'pg_catalog.pg_rewrite'::regclass AND EXISTS (
          SELECT 1 FROM pg_catalog.pg_rewrite rw WHERE rw.oid = d.objid AND rw.ev_class = $1::oid))
+       AND NOT (d.classid = 'pg_catalog.pg_constraint'::regclass AND EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.oid = d.objid AND c.contype = 'n'))
        AND NOT ($2::int IS NULL AND d.classid = 'pg_catalog.pg_constraint'::regclass AND EXISTS (
          SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.oid = d.objid AND c.conrelid = $1::oid))
      ORDER BY 1`,

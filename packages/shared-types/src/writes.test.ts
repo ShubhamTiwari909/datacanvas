@@ -84,9 +84,71 @@ describe("write contracts", () => {
         changeSchema.safeParse({ ...base, set: [{ column: "email", value: "x", [key]: "y" }] })
           .success,
       ).toBe(false);
+      // The other nested lists of the same change: the key and the values the person saw.
+      expect(
+        changeSchema.safeParse({ ...base, key: [{ column: "id", value: "1", [key]: "y" }] })
+          .success,
+      ).toBe(false);
+      expect(
+        changeSchema.safeParse({
+          ...base,
+          expected: [{ column: "email", value: "y", [key]: "y" }],
+        }).success,
+      ).toBe(false);
       expect(previewChangeRequestSchema.safeParse({ change: base, [key]: "x" }).success).toBe(
         false,
       );
+    },
+  );
+
+  it.each(["sql", "where", "expression", "using"])(
+    "refuses a %s key in every other nested object of a change",
+    (key) => {
+      const extra = { [key]: "x" };
+      const column = {
+        name: "a",
+        type: { name: "integer" },
+        nullable: true,
+        default: { kind: "none" },
+        identity: null,
+        comment: null,
+      };
+      const foreignKey = {
+        columns: ["a"],
+        references: { schema: "public", table: "t", columns: ["id"] },
+        onDelete: "no_action",
+        onUpdate: "no_action",
+      };
+      const create = {
+        kind: "create_table",
+        schema: "public",
+        name: "t2",
+        columns: [column],
+        primaryKey: [],
+        unique: [],
+        foreignKeys: [foreignKey],
+        comment: null,
+      };
+      const accepted = (change: unknown) => changeSchema.safeParse(change).success;
+      expect(accepted(create)).toBe(true);
+      const bad: unknown[] = [
+        { ...create, ...extra },
+        { ...create, columns: [{ ...column, ...extra }] },
+        { ...create, columns: [{ ...column, type: { ...column.type, ...extra } }] },
+        { ...create, columns: [{ ...column, default: { kind: "none", ...extra } }] },
+        { ...create, foreignKeys: [{ ...foreignKey, ...extra }] },
+        {
+          ...create,
+          foreignKeys: [{ ...foreignKey, references: { ...foreignKey.references, ...extra } }],
+        },
+        { kind: "insert_row", table: users, values: [{ column: "a", value: "1", ...extra }] },
+        { kind: "delete_row", table: users, key: [{ column: "id", value: "1", ...extra }] },
+        { kind: "add_column", table: users, column: { ...column, ...extra } },
+        { kind: "alter_column_type", table: users, column: "a", type: { name: "text", ...extra } },
+        { kind: "add_foreign_key", table: users, foreignKey: { ...foreignKey, ...extra } },
+        { kind: "drop_table", table: users, confirm: "users", ...extra },
+      ];
+      for (const change of bad) expect(accepted(change), JSON.stringify(change)).toBe(false);
     },
   );
 

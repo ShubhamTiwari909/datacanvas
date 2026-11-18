@@ -103,7 +103,15 @@ export function ValueField({
         readOnly
         disabled={locked}
         value={state.text.replace(/\r?\n/g, " ↵ ")}
-        onFocus={() => {
+        autoFocus={autoFocus}
+        // Opened by a click or Enter, not by focus: the editor may focus this field on its own when it opens.
+        onClick={() => {
+          setOpened(true);
+          setCollapsed(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
           setOpened(true);
           setCollapsed(false);
         }}

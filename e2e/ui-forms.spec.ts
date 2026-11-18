@@ -633,6 +633,7 @@ test("a long value stays on one short line, the eye shows it all, and the button
   const value = dialog.getByRole("textbox", { name: "digest", exact: true });
   expect((await value.boundingBox())!.height).toBeLessThanOrEqual(34);
   await expect(value).toHaveJSProperty("readOnly", true);
+  await expect(value, "focus starts on the long field, still folded").toBeFocused();
 
   // The eye shows the whole value (wrapped, editable) and the dialog still fits.
   await dialog.getByRole("button", { name: "Show the whole value of digest" }).click();
@@ -646,5 +647,6 @@ test("a long value stays on one short line, the eye shows it all, and the button
   // And back to one line.
   await dialog.getByRole("button", { name: "Hide the whole value of digest" }).click();
   await expect(value).toHaveJSProperty("readOnly", true);
+  expect((await value.boundingBox())!.height, "folded back to one line").toBeLessThanOrEqual(34);
   await dialog.screenshot({ path: path.join(shots, "long-value-collapsed.png") });
 });

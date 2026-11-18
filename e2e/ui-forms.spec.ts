@@ -17,7 +17,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test, type TestDb } from "./fixtures";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +76,14 @@ async function inspect(page: Page, name: string, theme: string): Promise<void> {
   await expect(dialog).toBeVisible();
   await page.waitForTimeout(350); // the open animation
   mkdirSync(shots, { recursive: true });
+  // A dialog that scrolls is shown from the top and again from the bottom.
+  await dialog.evaluate((el) => el.scrollTo({ top: 0 }));
   await dialog.screenshot({ path: path.join(shots, `${name}-${theme}.png`) });
+  if (await dialog.evaluate((el) => el.scrollHeight > el.clientHeight + 1)) {
+    await dialog.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+    await dialog.screenshot({ path: path.join(shots, `${name}-${theme}-end.png`) });
+    await dialog.evaluate((el) => el.scrollTo({ top: 0 }));
+  }
   await designRules(page, name);
 
   await page.addScriptTag({ content: axeSource });
@@ -231,6 +238,77 @@ async function addRowRules(page: Page): Promise<void> {
   await expect(dialog.getByRole("status")).toContainText("2 to fill in");
 }
 
+/** The left edge of a control, in pixels. */
+async function leftOf(dialog: Locator, label: string): Promise<number> {
+  const box = await dialog.getByLabel(label, { exact: true }).boundingBox();
+  if (!box) throw new Error(`${label} is not on screen`);
+  return Math.round(box.x);
+}
+
+/** U3: the builders' cards share one grid, and Array and Can be NULL are buttons (docs/ui-polish-plan.md). */
+async function builderRules(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Columns (3)" })).toBeVisible();
+  // No lone checkboxes in a card: Array and Can be NULL are toggle buttons.
+  expect(
+    await dialog
+      .locator("[data-slot=builder-card] input[type=checkbox]:not([aria-hidden])")
+      .count(),
+    "builder: no checkboxes in a card",
+  ).toBe(0);
+  const array = dialog.getByRole("button", { name: "Array (Column 1)" });
+  await expect(array).toHaveAttribute("aria-pressed", "false");
+  await array.click();
+  await expect(array).toHaveAttribute("aria-pressed", "true");
+  await array.click();
+  await expect(dialog.getByRole("button", { name: "Can be NULL (Column 2)" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // One grid: in every column card the name, default and identity share a left edge, and the type
+  // and comment share another; and every card puts them in the same place.
+  const leftEdges = new Set<number>();
+  const rightEdges = new Set<number>();
+  for (const n of [1, 2, 3]) {
+    const name = await leftOf(dialog, `Column ${n} name`);
+    const type = await leftOf(dialog, `Column ${n} type`);
+    expect(await leftOf(dialog, `Column ${n} comment`), `column ${n}: comment under type`).toBe(
+      type,
+    );
+    const identity = dialog.getByLabel(`Column ${n} identity`, { exact: true });
+    if (await identity.count()) {
+      expect(await leftOf(dialog, `Column ${n} identity`), `column ${n}: identity under name`).toBe(
+        name,
+      );
+    }
+    const dflt = dialog.getByLabel(`Column ${n} default`, { exact: true });
+    if (await dflt.count()) {
+      expect(await leftOf(dialog, `Column ${n} default`), `column ${n}: default under name`).toBe(
+        name,
+      );
+    }
+    leftEdges.add(name);
+    rightEdges.add(type);
+  }
+  expect([...leftEdges], "every card starts its first column at the same x").toHaveLength(1);
+  expect([...rightEdges], "every card starts its second column at the same x").toHaveLength(1);
+
+  // The foreign key card is on the same grid: schema over column and on delete, table over
+  // points at and on update.
+  const first = await leftOf(dialog, "Foreign key 1 schema");
+  expect(await leftOf(dialog, "Foreign key 1 column 1"), "fk: column under schema").toBe(first);
+  expect(await leftOf(dialog, "Foreign key 1 on delete"), "fk: on delete under schema").toBe(first);
+  const second = await leftOf(dialog, "Foreign key 1 table");
+  expect(
+    await leftOf(dialog, "Foreign key 1 referenced column 1"),
+    "fk: points at under table",
+  ).toBe(second);
+  expect(await leftOf(dialog, "Foreign key 1 on update"), "fk: on update under table").toBe(second);
+  // And the card's column is aligned with the column cards' second column.
+  expect(second, "fk: table starts where the type starts").toBe([...rightEdges][0]);
+}
+
 async function closeDialog(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -283,7 +361,10 @@ for (const theme of ["light", "dark"] as const) {
     await create.getByLabel("Column 2 name").fill("label");
     await create.getByRole("button", { name: "Add a column" }).click();
     await create.getByLabel("Column 3 name").fill("amount");
+    await create.getByRole("button", { name: "Add a foreign key" }).click();
+    await expect(create.getByLabel("Foreign key 1 schema")).toBeVisible();
     await inspect(page, "new-table", theme);
+    await builderRules(page);
     await closeDialog(page);
 
     // --- structure editor

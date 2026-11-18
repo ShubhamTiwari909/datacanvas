@@ -144,7 +144,8 @@ function NewTableForm({
 
         <section aria-labelledby="create-columns" className="flex flex-col gap-2">
           <h3 id="create-columns" className={FIELD_SECTION}>
-            Columns
+            Columns{" "}
+            <span className="font-normal text-muted-foreground">({form.columns.length})</span>
           </h3>
           {form.columns.map((column, index) => (
             <ColumnFields

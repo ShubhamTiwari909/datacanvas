@@ -9,11 +9,11 @@
  */
 "use client";
 
-import { Button } from "@/components/ui/button";
 import type { FieldControlProps } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleButton } from "@/components/ui/toggle-button";
 import { BLUR_CLASSES } from "@/features/data/blur-store";
 import { cn } from "@/lib/utils";
 import { controlKind, isTrueText, type InsertMode } from "./row-edit";
@@ -22,34 +22,6 @@ export interface ValueState {
   mode: InsertMode;
   /** Kept while the mode is NULL or default, so pressing the button again brings it back. */
   text: string;
-}
-
-function ToggleButton({
-  pressed,
-  label,
-  name,
-  onClick,
-}: {
-  pressed: boolean;
-  label: string;
-  /** The accessible name: the label and the column, so several fields stay distinct. */
-  name: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      aria-pressed={pressed}
-      aria-label={name}
-      onClick={onClick}
-      // The dark variants are spelled out: the outline button's own dark fill would otherwise win over
-      // the pressed colours and leave dark text on a dark background.
-      className="px-2.5 text-xs aria-pressed:border-transparent aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/90 dark:aria-pressed:bg-primary dark:aria-pressed:text-primary-foreground dark:aria-pressed:hover:bg-primary/90"
-    >
-      {label}
-    </Button>
-  );
 }
 
 export function ValueField({

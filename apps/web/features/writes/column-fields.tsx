@@ -7,11 +7,13 @@
  */
 "use client";
 
+import { useId } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FIELD_LABEL, WrappedField } from "@/components/ui/field";
+import { FIELD_HINT, FIELD_LABEL, WrappedField } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { SELECT_CLASS } from "@/components/ui/select";
+import { ToggleButton } from "@/components/ui/toggle-button";
 import {
   COLUMN_TYPE_NAMES,
   DEFAULT_LABEL,
@@ -36,8 +38,8 @@ export function TypeFields({
   prefix: string;
 }) {
   return (
-    <>
-      <WrappedField label="Type">
+    <div className="flex items-end gap-2">
+      <WrappedField label="Type" className="min-w-0 flex-1">
         <select
           aria-label={`${prefix} type`}
           className={SELECT_CLASS}
@@ -81,16 +83,13 @@ export function TypeFields({
           </WrappedField>
         </>
       ) : null}
-      <label className="flex items-center gap-1.5 self-end pb-2 text-xs">
-        <input
-          type="checkbox"
-          checked={form.array}
-          onChange={(event) => onChange({ array: event.target.checked })}
-        />
-        Array
-        <span className="sr-only"> ({prefix})</span>
-      </label>
-    </>
+      <ToggleButton
+        pressed={form.array}
+        label="Array"
+        name={`Array (${prefix})`}
+        onClick={() => onChange({ array: !form.array })}
+      />
+    </div>
   );
 }
 
@@ -107,8 +106,8 @@ export function DefaultFields({
   kinds: ColumnForm["defaultKind"][];
 }) {
   return (
-    <>
-      <WrappedField label="Default">
+    <div className="flex items-end gap-2">
+      <WrappedField label="Default" className="min-w-0 flex-1">
         <select
           aria-label={`${prefix} default`}
           className={SELECT_CLASS}
@@ -125,7 +124,7 @@ export function DefaultFields({
         </select>
       </WrappedField>
       {form.defaultKind === "literal" ? (
-        <WrappedField label="Default value">
+        <WrappedField label="Default value" className="min-w-0 flex-1">
           <Input
             aria-label={`${prefix} default value`}
             value={form.defaultValue}
@@ -134,7 +133,7 @@ export function DefaultFields({
         </WrappedField>
       ) : null}
       {form.defaultKind === "boolean" ? (
-        <WrappedField label="Default value">
+        <WrappedField label="Default value" className="min-w-0 flex-1">
           <select
             aria-label={`${prefix} default value`}
             className={SELECT_CLASS}
@@ -146,7 +145,7 @@ export function DefaultFields({
           </select>
         </WrappedField>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -164,6 +163,7 @@ export function ColumnFields({
   onRemove?: () => void;
 }) {
   const prefix = `Column ${index}`;
+  const headingId = useId();
   // A change of type resets a default the new type does not offer, so the select never shows
   // "No default" while the form still holds `now()`.
   const change = (next: Partial<ColumnForm>) => onChange(columnFormPatch(form, next));
@@ -171,10 +171,42 @@ export function ColumnFields({
   const identityAllowed = canBeIdentity(type);
   const problems = form.name === "" ? [] : columnProblems(form);
   return (
-    <fieldset className="flex flex-col gap-2 rounded-lg border p-3">
-      <legend className={`px-1 ${FIELD_LABEL}`}>{prefix}</legend>
-      <div className="flex flex-wrap items-end gap-2">
-        <WrappedField label="Name" className="min-w-40 flex-1">
+    <section
+      role="group"
+      aria-labelledby={headingId}
+      data-slot="builder-card"
+      className="flex flex-col gap-3 rounded-lg border p-3"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <h4 id={headingId} className={FIELD_LABEL}>
+          {prefix}
+        </h4>
+        <div className="flex items-center gap-1.5">
+          {form.identity === null || !identityAllowed ? (
+            <ToggleButton
+              pressed={form.nullable}
+              label="Can be NULL"
+              name={`Can be NULL (${prefix})`}
+              onClick={() => change({ nullable: !form.nullable })}
+            />
+          ) : null}
+          {onRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onRemove}
+              aria-label={`Remove ${prefix.toLowerCase()}`}
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {/* Two columns on a 12-column grid: name, default and identity share the left edge, and type
+          and comment share the right one. They stack on a narrow screen. */}
+      <div className="grid grid-cols-12 gap-x-3 gap-y-3">
+        <WrappedField label="Name" className="col-span-12 sm:col-span-6">
           <Input
             aria-label={`${prefix} name`}
             autoComplete="off"
@@ -183,23 +215,35 @@ export function ColumnFields({
             onChange={(event) => change({ name: event.target.value })}
           />
         </WrappedField>
-        <TypeFields form={form} onChange={change} prefix={prefix} />
-        {onRemove ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="mb-0.5"
-            onClick={onRemove}
-            aria-label={`Remove ${prefix.toLowerCase()}`}
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-end gap-2">
+        <div className="col-span-12 sm:col-span-6">
+          <TypeFields form={form} onChange={change} prefix={prefix} />
+        </div>
+        {/* Empty while an identity fills the column: kept on a wide screen so the comment stays under the type. */}
+        <div
+          className={
+            form.identity === null || !identityAllowed
+              ? "col-span-12 sm:col-span-6"
+              : "col-span-6 hidden sm:block"
+          }
+        >
+          {form.identity === null || !identityAllowed ? (
+            <DefaultFields
+              form={form}
+              onChange={change}
+              prefix={prefix}
+              kinds={defaultKindsFor(type)}
+            />
+          ) : null}
+        </div>
+        <WrappedField label="Comment" className="col-span-12 sm:col-span-6">
+          <Input
+            aria-label={`${prefix} comment`}
+            value={form.comment}
+            onChange={(event) => change({ comment: event.target.value })}
+          />
+        </WrappedField>
         {identityAllowed ? (
-          <WrappedField label="Identity">
+          <WrappedField label="Identity" className="col-span-12 sm:col-span-6">
             <select
               aria-label={`${prefix} identity`}
               className={SELECT_CLASS}
@@ -217,38 +261,11 @@ export function ColumnFields({
               <option value="always">Generated always</option>
               <option value="by_default">Generated by default</option>
             </select>
+            {form.identity !== null ? (
+              <span className={FIELD_HINT}>Filled by the database, never NULL.</span>
+            ) : null}
           </WrappedField>
         ) : null}
-        {form.identity === null || !identityAllowed ? (
-          <>
-            <DefaultFields
-              form={form}
-              onChange={change}
-              prefix={prefix}
-              kinds={defaultKindsFor(type)}
-            />
-            <label className="flex items-center gap-1.5 self-end pb-2 text-xs">
-              <input
-                type="checkbox"
-                checked={form.nullable}
-                onChange={(event) => change({ nullable: event.target.checked })}
-              />
-              Can be NULL
-              <span className="sr-only"> ({prefix})</span>
-            </label>
-          </>
-        ) : (
-          <p className="self-end pb-2 text-xs text-muted-foreground">
-            Filled by the database, never NULL.
-          </p>
-        )}
-        <WrappedField label="Comment" className="min-w-40 flex-1">
-          <Input
-            aria-label={`${prefix} comment`}
-            value={form.comment}
-            onChange={(event) => change({ comment: event.target.value })}
-          />
-        </WrappedField>
       </div>
       {problems.length > 0 ? (
         <ul className="text-xs text-destructive">
@@ -257,6 +274,6 @@ export function ColumnFields({
           ))}
         </ul>
       ) : null}
-    </fieldset>
+    </section>
   );
 }

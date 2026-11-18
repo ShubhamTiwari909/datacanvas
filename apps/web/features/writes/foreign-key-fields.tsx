@@ -5,6 +5,7 @@
  */
 "use client";
 
+import { Fragment, useId } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { ReferentialAction } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export function ForeignKeyFields({
   onChange: (next: Partial<ForeignKeyForm>) => void;
   onRemove?: () => void;
 }) {
+  const headingId = useId();
   const prefix = `Foreign key ${index}`;
   // The lists are shared between the foreign key rows (one request, not one per row) and read again
   // after a change of structure.
@@ -88,10 +90,32 @@ export function ForeignKeyFields({
   };
 
   return (
-    <fieldset className="flex flex-col gap-2 rounded-lg border p-3">
-      <legend className={`px-1 ${FIELD_LABEL}`}>{prefix}</legend>
-      <div className="flex flex-wrap items-end gap-2">
-        <WrappedField label="Points at schema">
+    <section
+      role="group"
+      aria-labelledby={headingId}
+      data-slot="builder-card"
+      className="flex flex-col gap-3 rounded-lg border p-3"
+    >
+      <div className="flex items-center justify-between">
+        <h4 id={headingId} className={FIELD_LABEL}>
+          {prefix}
+        </h4>
+        {onRemove ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRemove}
+            aria-label={`Remove ${prefix.toLowerCase()}`}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+      {/* The same 12-column grid as a column card: a column and the schema share a left edge, and
+          so do "points at" and the table. */}
+      <div className="grid grid-cols-12 gap-x-3 gap-y-3">
+        <WrappedField label="Points at schema" className="col-span-12 sm:col-span-6">
           <select
             aria-label={`${prefix} schema`}
             className={SELECT_CLASS}
@@ -111,7 +135,7 @@ export function ForeignKeyFields({
             ))}
           </select>
         </WrappedField>
-        <WrappedField label="Table">
+        <WrappedField label="Table" className="col-span-12 sm:col-span-6">
           <select
             aria-label={`${prefix} table`}
             className={SELECT_CLASS}
@@ -128,91 +152,83 @@ export function ForeignKeyFields({
             ))}
           </select>
         </WrappedField>
-        {onRemove ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="mb-0.5"
-            onClick={onRemove}
-            aria-label={`Remove ${prefix.toLowerCase()}`}
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
-        ) : null}
-      </div>
 
-      {form.columns.map((local, position) => (
-        <div key={position} className="flex flex-wrap items-end gap-2">
-          <WrappedField label="Column">
-            <select
-              aria-label={`${prefix} column ${position + 1}`}
-              className={SELECT_CLASS}
-              value={local}
-              onChange={(event) => setPair(position, event.target.value, null)}
-            >
-              <option value="">Choose a column</option>
-              {localColumns
-                .filter((c) => c !== "")
-                .map((name) => (
+        {form.columns.map((local, position) => (
+          <Fragment key={position}>
+            <WrappedField label="Column" className="col-span-12 sm:col-span-6">
+              <select
+                aria-label={`${prefix} column ${position + 1}`}
+                className={SELECT_CLASS}
+                value={local}
+                onChange={(event) => setPair(position, event.target.value, null)}
+              >
+                <option value="">Choose a column</option>
+                {localColumns
+                  .filter((c) => c !== "")
+                  .map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+              </select>
+            </WrappedField>
+            <WrappedField label="Points at" className="col-span-10 sm:col-span-5">
+              <select
+                aria-label={`${prefix} referenced column ${position + 1}`}
+                className={SELECT_CLASS}
+                value={form.referenced[position] ?? ""}
+                onChange={(event) => setPair(position, null, event.target.value)}
+              >
+                <option value="">Choose a column</option>
+                {targetColumns.map((name) => (
                   <option key={name} value={name}>
                     {name}
                   </option>
                 ))}
-            </select>
-          </WrappedField>
-          <span className="pb-2 text-xs text-muted-foreground" aria-hidden="true">
-            →
-          </span>
-          <WrappedField label="Points at">
-            <select
-              aria-label={`${prefix} referenced column ${position + 1}`}
-              className={SELECT_CLASS}
-              value={form.referenced[position] ?? ""}
-              onChange={(event) => setPair(position, null, event.target.value)}
-            >
-              <option value="">Choose a column</option>
-              {targetColumns.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </WrappedField>
-          {form.columns.length > 1 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="mb-0.5"
-              aria-label={`Remove column pair ${position + 1} of ${prefix.toLowerCase()}`}
-              onClick={() =>
-                onChange({
-                  columns: form.columns.filter((_, i) => i !== position),
-                  referenced: form.referenced.filter((_, i) => i !== position),
-                })
-              }
-            >
-              <Trash2 aria-hidden="true" />
-            </Button>
-          ) : null}
+              </select>
+            </WrappedField>
+            <div className="col-span-2 flex items-end justify-end sm:col-span-1">
+              {form.columns.length > 1 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove column pair ${position + 1} of ${prefix.toLowerCase()}`}
+                  onClick={() =>
+                    onChange({
+                      columns: form.columns.filter((_, i) => i !== position),
+                      referenced: form.referenced.filter((_, i) => i !== position),
+                    })
+                  }
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
+          </Fragment>
+        ))}
+
+        <div className="col-span-12">
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() =>
+              onChange({ columns: [...form.columns, ""], referenced: [...form.referenced, ""] })
+            }
+          >
+            <Plus aria-hidden="true" />
+            Add a column pair
+            <span className="sr-only"> to {prefix.toLowerCase()}</span>
+          </Button>
         </div>
-      ))}
-      <div className="flex flex-wrap items-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() =>
-            onChange({ columns: [...form.columns, ""], referenced: [...form.referenced, ""] })
-          }
-        >
-          <Plus aria-hidden="true" />
-          Add a column pair
-          <span className="sr-only"> to {prefix.toLowerCase()}</span>
-        </Button>
+
         {(["onDelete", "onUpdate"] as const).map((field) => (
-          <WrappedField key={field} label={field === "onDelete" ? "On delete" : "On update"}>
+          <WrappedField
+            key={field}
+            label={field === "onDelete" ? "On delete" : "On update"}
+            className="col-span-12 sm:col-span-6"
+          >
             <select
               aria-label={`${prefix} ${field === "onDelete" ? "on delete" : "on update"}`}
               className={SELECT_CLASS}
@@ -228,6 +244,6 @@ export function ForeignKeyFields({
           </WrappedField>
         ))}
       </div>
-    </fieldset>
+    </section>
   );
 }

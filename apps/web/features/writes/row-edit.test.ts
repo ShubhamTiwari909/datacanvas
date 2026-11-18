@@ -64,6 +64,23 @@ describe("editability", () => {
     expect(notEditableText("no_key")).toMatch(/primary key/);
   });
 
+  it("explains each reason in its own words", () => {
+    expect(notEditableText("not_a_table")).toBe(
+      "This is a view or a materialized view. Its rows cannot be edited here.",
+    );
+    expect(notEditableText("no_key")).toBe(
+      "This table has no primary key and no unique index on columns that cannot be empty, so a single row cannot be found safely. Its rows cannot be edited here.",
+    );
+    expect(notEditableText("foreign_table")).toBe(
+      "The rows of a foreign table live on another server. They cannot be edited here.",
+    );
+    expect(notEditableText("partition_of_other")).toBe(
+      "This is a partition of another table. Edit its rows through the partitioned table.",
+    );
+    expect(notEditableText("not_found")).toBe("This table no longer exists.");
+    expect(notEditableText(null)).toBe("The rows of this table cannot be edited here.");
+  });
+
   it("blocks hidden, generated and bytea columns, and cut cells", () => {
     expect(columnEditBlock({ masked: false }, col("a"))).toBeNull();
     expect(columnEditBlock({ masked: true }, col("a"))).toMatch(/hidden/);
@@ -151,8 +168,41 @@ describe("building changes", () => {
     expect(initialInsertMode(col("a", { nullable: false }))).toBe("value");
     expect(initialInsertMode(col("a"))).toBe("default");
     expect(insertModes(col("g", { generated: true }))).toEqual(["default"]);
-    expect(insertModes(col("a", { nullable: false }))).toEqual(["default", "value"]);
-    expect(insertModes(col("b", { editable: false }))).toEqual(["default", "null"]);
+    expect(insertModes(col("n"))).toEqual(["default", "null", "value"]);
+  });
+
+  it("offers a required column without a default only a value (omitting it would fail)", () => {
+    const required = col("a", { nullable: false });
+    expect(insertModes(required)).toEqual(["value"]);
+    expect(initialInsertMode(required)).toBe("value");
+    expect(insertModes(col("a", { nullable: false, hasDefault: true }))).toEqual([
+      "default",
+      "value",
+    ]);
+    expect(insertModes(col("a", { nullable: false, identity: "by_default" }))).toEqual([
+      "default",
+      "value",
+    ]);
+  });
+
+  it("offers a column of a type that cannot be edited only its default, never NULL", () => {
+    for (const nullable of [true, false]) {
+      const column = col("b", { editable: false, nullable });
+      expect(insertModes(column)).toEqual(["default"]);
+      // The start is a mode the form offers, so a radio is always selected.
+      expect(initialInsertMode(column)).toBe("default");
+    }
+  });
+
+  it("always starts on a mode the column offers", () => {
+    for (const generated of [true, false])
+      for (const editable of [true, false])
+        for (const nullable of [true, false])
+          for (const hasDefault of [true, false])
+            for (const identity of [null, "always", "by_default"] as const) {
+              const column = col("c", { generated, editable, nullable, hasDefault, identity });
+              expect(insertModes(column)).toContain(initialInsertMode(column));
+            }
   });
 });
 

@@ -10,6 +10,12 @@
  *
  * Nothing is persisted: the unlock and the history belong to this session
  * (decisions 125 and 131), and a page reload asks the server again.
+ *
+ * Answers can arrive out of order, and after a connection was closed. Each
+ * connection therefore has an "epoch" (it changes when the connection is
+ * forgotten, so a late answer cannot bring its state back) and a sequence number
+ * for its status and for its history (only the newest request's answer is kept,
+ * so a slow "status" read started before an unlock cannot undo the unlock).
  */
 import type { HistoryEntry, RoleResponse, WritesStatus } from "@datacanvas/shared-types";
 import { create } from "zustand";
@@ -34,6 +40,8 @@ export interface ConnectionWrites {
   status: WritesStatus;
   /** null until loaded; it stays null if the role could not be read. */
   role: RoleResponse | null;
+  /** The last attempt to read the role failed (so null means "unavailable", not "still loading"). */
+  roleFailed: boolean;
   history: HistoryEntry[];
   /** The read-mode role note was dismissed for this session. */
   roleNoteDismissed: boolean;
@@ -44,6 +52,7 @@ export interface ConnectionWrites {
 const empty = (): ConnectionWrites => ({
   status: WRITES_OFF,
   role: null,
+  roleFailed: false,
   history: [],
   roleNoteDismissed: false,
   structureVersion: 0,
@@ -67,6 +76,18 @@ interface WritesState {
 }
 
 export const useWritesStore = create<WritesState>((set, get) => {
+  /** Changes when a connection is forgotten: an answer that started before is for a connection that is gone. */
+  const epochs = new Map<string, number>();
+  const epochOf = (connectionId: string) => epochs.get(connectionId) ?? 0;
+  /** The newest status request and the newest history change per connection. */
+  const statusSeq = new Map<string, number>();
+  const historySeq = new Map<string, number>();
+  const bump = (counters: Map<string, number>, connectionId: string): number => {
+    const value = (counters.get(connectionId) ?? 0) + 1;
+    counters.set(connectionId, value);
+    return value;
+  };
+
   const update = (connectionId: string, change: (current: ConnectionWrites) => ConnectionWrites) =>
     set((state) => ({
       byConnection: {
@@ -75,44 +96,76 @@ export const useWritesStore = create<WritesState>((set, get) => {
       },
     }));
 
+  /**
+   * An unlock or lock was confirmed by the server. Show it unless the connection is gone; if a newer
+   * status request has started since, ask again instead, so the screen settles on what the server
+   * says now rather than on whichever answer happened to arrive last.
+   */
+  const settle = (connectionId: string, epoch: number, seq: number, status: WritesStatus) => {
+    if (epochOf(connectionId) !== epoch) return;
+    if (statusSeq.get(connectionId) === seq) update(connectionId, (c) => ({ ...c, status }));
+    else void get().refreshStatus(connectionId);
+  };
+
   return {
     byConnection: {},
 
     async refreshStatus(connectionId) {
+      const epoch = epochOf(connectionId);
+      const seq = bump(statusSeq, connectionId);
       const result = await getWritesStatus(connectionId);
+      // Forgotten meanwhile, or a newer unlock, lock or read has started: this answer is out of date.
+      if (epochOf(connectionId) !== epoch || statusSeq.get(connectionId) !== seq) return;
       // A server that cannot answer (an older one, or the connection is gone) means: no writes.
       update(connectionId, (c) => ({ ...c, status: result.ok ? result.data : WRITES_OFF }));
     },
 
     async loadRole(connectionId) {
+      const epoch = epochOf(connectionId);
       const result = await getRole(connectionId);
-      if (result.ok) update(connectionId, (c) => ({ ...c, role: result.data }));
+      if (epochOf(connectionId) !== epoch) return;
+      update(connectionId, (c) => ({
+        ...c,
+        role: result.ok ? result.data : c.role,
+        roleFailed: !result.ok,
+      }));
     },
 
     async loadHistory(connectionId) {
+      const epoch = epochOf(connectionId);
+      const seq = historySeq.get(connectionId) ?? 0;
       const result = await getWritesHistory(connectionId);
-      if (result.ok) update(connectionId, (c) => ({ ...c, history: result.data }));
+      // A change was recorded since this read started: it would not be in this answer.
+      if (epochOf(connectionId) !== epoch || (historySeq.get(connectionId) ?? 0) !== seq) return;
+      // The server answers newest first; the store keeps the oldest first (as `recordChange`
+      // appends) and the dialog turns it round once for display.
+      if (result.ok) update(connectionId, (c) => ({ ...c, history: [...result.data].reverse() }));
     },
 
     async unlock(connectionId, database) {
+      const epoch = epochOf(connectionId);
+      const seq = bump(statusSeq, connectionId);
       const result = await unlockWrites(connectionId, database);
       if (!result.ok) return { ok: false, error: result.error };
-      update(connectionId, (c) => ({ ...c, status: result.data }));
+      settle(connectionId, epoch, seq, result.data);
       return { ok: true };
     },
 
     async lock(connectionId) {
+      const epoch = epochOf(connectionId);
+      const seq = bump(statusSeq, connectionId);
       const result = await lockWrites(connectionId);
       if (!result.ok) {
         // Whatever happened, do not show writes as on when the server could not confirm it.
         await get().refreshStatus(connectionId);
         return { ok: false, error: result.error };
       }
-      update(connectionId, (c) => ({ ...c, status: result.data }));
+      settle(connectionId, epoch, seq, result.data);
       return { ok: true };
     },
 
     recordChange(connectionId, entry) {
+      bump(historySeq, connectionId);
       update(connectionId, (c) => ({
         ...c,
         history: [...c.history.filter((e) => e.id !== entry.id), entry],
@@ -128,6 +181,10 @@ export const useWritesStore = create<WritesState>((set, get) => {
     },
 
     forgetConnection(connectionId) {
+      // A late answer for this connection must not bring its state back.
+      epochs.set(connectionId, epochOf(connectionId) + 1);
+      statusSeq.delete(connectionId);
+      historySeq.delete(connectionId);
       set((state) => {
         const rest = { ...state.byConnection };
         delete rest[connectionId];

@@ -14,6 +14,7 @@ import {
   columnProblems,
   columnTypeOf,
   foreignKeyOf,
+  foreignKeyProblems,
   newColumnForm,
   newForeignKeyForm,
   type ColumnForm,
@@ -155,11 +156,11 @@ export function buildAlter(table: TableRef, state: AlterState): AlterBuild {
       };
     case "add_foreign_key": {
       const fk = state.foreignKey;
-      if (fk.columns.some((c) => c === ""))
-        return { ok: false, problem: "Choose the columns of this table." };
-      if (fk.table === "") return { ok: false, problem: "Choose the table it points at." };
-      if (fk.referenced.some((c) => c === ""))
-        return { ok: false, problem: "Choose the columns it points at." };
+      // The columns of the table are chosen from its own list, so only what is blank, unpaired or
+      // repeated can be wrong here.
+      const problem = foreignKeyProblems(fk, new Set(fk.columns))[0];
+      if (problem)
+        return { ok: false, problem: problem.charAt(0).toUpperCase() + problem.slice(1) };
       return {
         ok: true,
         change: { kind: "add_foreign_key", table: ref, foreignKey: foreignKeyOf(fk) },

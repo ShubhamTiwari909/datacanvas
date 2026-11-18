@@ -8,9 +8,10 @@
 import { Plus, Trash2 } from "lucide-react";
 import type { ReferentialAction } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
-import { getSchemas, getTableDetails, getTables } from "@/features/explorer/api";
 import { useAsyncData } from "@/lib/use-async-data";
+import { useStructureVersion } from "@/stores/writes-store";
 import { SELECT_CLASS } from "./column-fields";
+import { sharedSchemas, sharedTableDetails, sharedTables } from "./fk-lookups";
 import { ACTIONS, ACTION_LABEL, type ForeignKeyForm } from "./structure";
 
 /** The new table itself, when a foreign key of a table being created points at its own columns. */
@@ -39,10 +40,16 @@ export function ForeignKeyFields({
   onRemove?: () => void;
 }) {
   const prefix = `Foreign key ${index}`;
-  const schemas = useAsyncData(() => getSchemas(connectionId), `${connectionId}/fk-schemas`);
+  // The lists are shared between the foreign key rows (one request, not one per row) and read again
+  // after a change of structure.
+  const version = useStructureVersion(connectionId);
+  const schemas = useAsyncData(
+    () => sharedSchemas(connectionId, version),
+    `${connectionId}/fk-schemas/${version}`,
+  );
   const tables = useAsyncData(
-    () => getTables(connectionId, form.schema),
-    `${connectionId}/fk-tables/${form.schema}`,
+    () => sharedTables(connectionId, version, form.schema),
+    `${connectionId}/fk-tables/${version}/${form.schema}`,
   );
   const pointsAtSelf =
     self !== undefined &&
@@ -53,8 +60,8 @@ export function ForeignKeyFields({
     () =>
       form.table === "" || pointsAtSelf
         ? Promise.resolve({ ok: true as const, data: null })
-        : getTableDetails(connectionId, form.schema, form.table),
-    `${connectionId}/fk-target/${form.schema}/${form.table}/${pointsAtSelf}`,
+        : sharedTableDetails(connectionId, version, form.schema, form.table),
+    `${connectionId}/fk-target/${version}/${form.schema}/${form.table}/${pointsAtSelf}`,
   );
 
   const schemaNames =

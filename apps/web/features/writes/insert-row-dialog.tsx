@@ -159,13 +159,26 @@ function InsertForm({
                     value={field.value}
                     onChange={(event) => set(column.name, { value: event.target.value })}
                     aria-invalid={problem !== null}
+                    aria-describedby={
+                      [hint ? `${id}-hint` : null, problem ? `${id}-problem` : null]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
                     className={cn(
                       "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30",
                       blurred && BLUR_CLASSES,
                     )}
                   />
-                  {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-                  {problem ? <p className="text-xs text-destructive">{problem}</p> : null}
+                  {hint ? (
+                    <span id={`${id}-hint`} className="text-xs text-muted-foreground">
+                      {hint}
+                    </span>
+                  ) : null}
+                  {problem ? (
+                    <p id={`${id}-problem`} className="text-xs text-destructive">
+                      {problem}
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </fieldset>

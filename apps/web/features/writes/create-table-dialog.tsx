@@ -30,6 +30,9 @@ import {
   createTableProblems,
   newColumnForm,
   newForeignKeyForm,
+  removeColumnIn,
+  renameColumnIn,
+  renameTableIn,
   type CreateTableForm,
 } from "./structure";
 
@@ -123,7 +126,8 @@ function NewTableForm({
               autoComplete="off"
               spellCheck={false}
               value={form.name}
-              onChange={(event) => update({ name: event.target.value })}
+              // A foreign key that points at the table itself moves with its name.
+              onChange={(event) => setForm((f) => renameTableIn(f, event.target.value))}
             />
           </div>
           <div className="flex min-w-60 flex-1 flex-col gap-1.5">
@@ -146,22 +150,22 @@ function NewTableForm({
               form={column}
               index={index + 1}
               onChange={(next) =>
-                update({
-                  columns: form.columns.map((c) => (c.id === column.id ? { ...c, ...next } : c)),
-                  // A renamed column keeps its place in the key.
-                  primaryKey:
-                    next.name !== undefined
-                      ? form.primaryKey.map((n) => (n === column.name ? next.name! : n))
-                      : form.primaryKey,
+                setForm((f) => {
+                  // A renamed column keeps its place in the primary key, the unique constraints
+                  // and the foreign keys.
+                  const { name, ...rest } = next;
+                  const renamed = name !== undefined ? renameColumnIn(f, column.id, name) : f;
+                  return {
+                    ...renamed,
+                    columns: renamed.columns.map((c) =>
+                      c.id === column.id ? { ...c, ...rest } : c,
+                    ),
+                  };
                 })
               }
               onRemove={
                 form.columns.length > 1
-                  ? () =>
-                      update({
-                        columns: form.columns.filter((c) => c.id !== column.id),
-                        primaryKey: form.primaryKey.filter((n) => n !== column.name),
-                      })
+                  ? () => setForm((f) => removeColumnIn(f, column.id))
                   : undefined
               }
             />

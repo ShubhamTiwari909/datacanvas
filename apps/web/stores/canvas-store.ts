@@ -80,6 +80,13 @@ interface CanvasStore {
 
   addTables: (connectionId: string, tables: NewTable[]) => void;
   applyChanges: (connectionId: string, changes: NodeChange<TableFlowNode>[]) => void;
+  /**
+   * A table on the canvas was renamed in the database: give its node the new
+   * identity and keep everything else (position, size, expanded, selected), so a
+   * rename does not move the table or reset how the person arranged it. Does
+   * nothing when `from` is not on the canvas or the new name already is.
+   */
+  renameNode: (connectionId: string, from: TableRef, to: TableRef) => void;
   toggleExpanded: (connectionId: string, nodeId: string) => void;
   /** Select every table except `hiddenIds` (tables a filter hides must not be selected by accident). */
   selectAll: (connectionId: string, hiddenIds?: ReadonlySet<string>) => void;
@@ -176,6 +183,23 @@ export const useCanvasStore = create<CanvasStore>((set) => {
           // The first batch on an empty canvas should fill the screen.
           layoutVersion:
             canvas.nodes.length === 0 ? canvas.layoutVersion + 1 : canvas.layoutVersion,
+        };
+      });
+    },
+
+    renameNode(connectionId, from, to) {
+      update(connectionId, (canvas) => {
+        const fromId = nodeIdFor(from);
+        const toId = nodeIdFor(to);
+        if (fromId === toId || !canvas.nodes.some((n) => n.id === fromId)) return canvas;
+        if (canvas.nodes.some((n) => n.id === toId)) return canvas;
+        return {
+          ...canvas,
+          nodes: canvas.nodes.map((node) =>
+            node.id === fromId
+              ? { ...node, id: toId, data: { ...node.data, schema: to.schema, name: to.name } }
+              : node,
+          ),
         };
       });
     },

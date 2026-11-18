@@ -329,8 +329,9 @@ export function ConnectionForm({
       )}
 
       <p className="text-xs text-muted-foreground">
-        By default DataCanvas reads only the structure of your database. A read-only database user
-        is still the safest choice. Credentials stay on this machine, in memory.
+        By default DataCanvas reads only the structure of your database, and it never changes your
+        database unless it was started with --enable-writes. A read-only database user is still the
+        safest choice. Credentials stay on this machine, in memory.
       </p>
 
       <label className="flex items-start gap-2 text-sm">
@@ -343,8 +344,8 @@ export function ConnectionForm({
         <span>
           Allow viewing table data
           <span className="block text-xs text-muted-foreground">
-            Off by default. When on, DataCanvas reads and shows the rows of tables you open,
-            read-only. Rows are never saved.
+            Off by default. When on, DataCanvas reads and shows the rows of tables you open. Rows
+            are never saved.
           </span>
         </span>
       </label>

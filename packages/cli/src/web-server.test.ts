@@ -36,3 +36,55 @@ describe("buildServerEnv", () => {
     expect(env.PATH).toBe("/bin");
   });
 });
+
+describe("buildServerEnv and writes (decision 125: the flag only)", () => {
+  it("leaves writes off without the flag, even when the shell sets the variable", () => {
+    const env = buildServerEnv(4747, "tok", { DATACANVAS_ENABLE_WRITES: "1", PATH: "/bin" });
+    expect(env).not.toHaveProperty("DATACANVAS_ENABLE_WRITES");
+    expect(env.PATH).toBe("/bin");
+  });
+
+  it("drops every spelling of the variable (Windows environment names ignore case)", () => {
+    const env = buildServerEnv(4747, "tok", {
+      datacanvas_enable_writes: "1",
+      DataCanvas_Enable_Writes: "1",
+      PATH: "/bin",
+    });
+    const names = Object.keys(env).filter((k) => k.toLowerCase() === "datacanvas_enable_writes");
+    expect(names).toEqual([]);
+    expect(env.PATH).toBe("/bin");
+  });
+
+  it("with the flag, leaves exactly one spelling, set to 1", () => {
+    const env = buildServerEnv(
+      4747,
+      "tok",
+      { datacanvas_enable_writes: "no", DataCanvas_Enable_Writes: "0" },
+      { enableWrites: true },
+    );
+    const names = Object.keys(env).filter((k) => k.toLowerCase() === "datacanvas_enable_writes");
+    expect(names).toEqual(["DATACANVAS_ENABLE_WRITES"]);
+    expect(env.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+
+  it("turns writes on with the flag", () => {
+    const env = buildServerEnv(4747, "tok", {}, { enableWrites: true });
+    expect(env.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+
+  it("replaces any other value from the shell when the flag is given", () => {
+    const env = buildServerEnv(
+      4747,
+      "tok",
+      { DATACANVAS_ENABLE_WRITES: "yes" },
+      { enableWrites: true },
+    );
+    expect(env.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+
+  it("does not change the caller's environment object", () => {
+    const base = { DATACANVAS_ENABLE_WRITES: "1" };
+    buildServerEnv(4747, "tok", base);
+    expect(base.DATACANVAS_ENABLE_WRITES).toBe("1");
+  });
+});

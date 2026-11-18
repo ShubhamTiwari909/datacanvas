@@ -40,13 +40,17 @@ function freePort(): Promise<number> {
   });
 }
 
-export async function startApp(home?: string): Promise<RunningApp> {
+export async function startApp(home?: string, extraArgs: string[] = []): Promise<RunningApp> {
   const dataHome = home ?? (await mkdtemp(path.join(os.tmpdir(), "dc-e2e-")));
   const port = await freePort();
-  const child: ChildProcess = spawn(process.execPath, [cli, "--no-open", "--port", String(port)], {
-    env: { ...process.env, DATACANVAS_HOME: dataHome },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child: ChildProcess = spawn(
+    process.execPath,
+    [cli, "--no-open", "--port", String(port), ...extraArgs],
+    {
+      env: { ...process.env, DATACANVAS_HOME: dataHome },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   let output = "";
   child.stdout?.on("data", (d) => (output += d));
   child.stderr?.on("data", (d) => (output += d));
@@ -86,7 +90,14 @@ export interface TestDb {
   url: string;
 }
 
-export const test = base.extend<{ app: RunningApp; database: TestDb }>({
+export const test = base.extend<{ app: RunningApp; writableApp: RunningApp; database: TestDb }>({
+  // DataCanvas started with --enable-writes, for the editing tests.
+  // eslint-disable-next-line no-empty-pattern
+  writableApp: async ({}, use) => {
+    const app = await startApp(undefined, ["--enable-writes"]);
+    await use(app);
+    await app.stop();
+  },
   // eslint-disable-next-line no-empty-pattern
   app: async ({}, use) => {
     const app = await startApp();

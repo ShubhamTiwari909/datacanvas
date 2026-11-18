@@ -22,17 +22,32 @@ export function generateSessionToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** The variable through which the CLI tells the server that writes are enabled. Set by the CLI only. */
+export const ENABLE_WRITES_ENV = "DATACANVAS_ENABLE_WRITES";
+
 /**
  * The environment the web server runs with. Exported so a test can pin down
- * the security-relevant values (loopback only, token, no telemetry).
+ * the security-relevant values (loopback only, token, no telemetry, writes).
  */
 export function buildServerEnv(
   port: number,
   sessionToken: string,
   base: NodeJS.ProcessEnv = process.env,
+  options: { enableWrites?: boolean } = {},
 ): NodeJS.ProcessEnv {
+  // SECURITY: writes are switched on by the `--enable-writes` FLAG only
+  // (decision 125). A value inherited from the shell is dropped, so a line in a
+  // shell profile can never turn writes on behind the person's back. Every
+  // spelling is dropped: on Windows environment names are case-insensitive, and
+  // a copy of the environment keeps the case it was given, so deleting only the
+  // exact name would leave `datacanvas_enable_writes=1` for the server to read.
+  const rest = { ...base };
+  for (const key of Object.keys(rest)) {
+    if (key.toLowerCase() === ENABLE_WRITES_ENV.toLowerCase()) delete rest[key];
+  }
   return {
-    ...base,
+    ...rest,
+    ...(options.enableWrites ? { [ENABLE_WRITES_ENV]: "1" } : {}),
     NODE_ENV: "production",
     PORT: String(port),
     // SECURITY: Next.js reads HOSTNAME to choose the interface to listen on.
@@ -55,10 +70,11 @@ export function startWebServer(
   serverJsPath: string,
   port: number,
   sessionToken: string,
+  options: { enableWrites?: boolean } = {},
 ): WebServer {
   const child = spawn(process.execPath, [serverJsPath], {
     // Run with the same Node.js binary that runs the CLI.
-    env: buildServerEnv(port, sessionToken),
+    env: buildServerEnv(port, sessionToken, process.env, options),
     stdio: ["ignore", "inherit", "inherit"],
   });
 

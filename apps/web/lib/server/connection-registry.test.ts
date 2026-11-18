@@ -1,7 +1,7 @@
 import { MockDatabaseAdapter } from "@datacanvas/database-core/testing";
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { describe, expect, it } from "vitest";
-import { ConnectionRegistry } from "./connection-registry";
+import { ConnectionRegistry, isLocalHost } from "./connection-registry";
 
 const details: Omit<ConnectionSummary, "id"> = {
   provider: "postgresql",
@@ -186,5 +186,75 @@ describe("ConnectionRegistry", () => {
     expect(() => registry.setDataAccess("missing", true)).toThrowError(
       expect.objectContaining({ code: "connection_not_found" }) as Error,
     );
+  });
+
+  it("keeps the write unlock per connection, in memory, out of the summary", () => {
+    const { registry } = setup();
+    const a = registry.add(details, new MockDatabaseAdapter());
+    const b = registry.add(details, new MockDatabaseAdapter());
+    expect(registry.isWriteUnlocked(a.id)).toBe(false);
+    registry.setWriteUnlocked(a.id, true);
+    expect(registry.isWriteUnlocked(a.id)).toBe(true);
+    expect(registry.isWriteUnlocked(b.id)).toBe(false);
+    expect(JSON.stringify(registry.list())).not.toMatch(/unlock/i);
+    registry.setWriteUnlocked(a.id, false);
+    expect(registry.isWriteUnlocked(a.id)).toBe(false);
+    expect(registry.isWriteUnlocked("missing")).toBe(false);
+    expect(() => registry.setWriteUnlocked("missing", true)).toThrowError(
+      expect.objectContaining({ code: "connection_not_found" }) as Error,
+    );
+  });
+
+  it("keeps the unlock through an idle close, and drops it on disconnect", async () => {
+    const { registry, advance } = setup({ idleTimeoutMs: 1000 });
+    const a = registry.add(details, new MockDatabaseAdapter());
+    registry.setWriteUnlocked(a.id, true);
+    advance(5000);
+    expect(await registry.closeIdle()).toBe(1);
+    expect(registry.isWriteUnlocked(a.id)).toBe(true);
+    await registry.remove(a.id);
+    expect(registry.isWriteUnlocked(a.id)).toBe(false);
+  });
+
+  it("tells listeners when a connection is removed or everything is disposed", async () => {
+    const { registry } = setup();
+    const removed: string[] = [];
+    const stop = registry.onRemove((id) => removed.push(id));
+    const a = registry.add(details, new MockDatabaseAdapter());
+    const b = registry.add(details, new MockDatabaseAdapter());
+    await registry.remove(a.id);
+    expect(removed).toEqual([a.id]);
+    await registry.dispose();
+    expect(removed).toEqual([a.id, b.id]);
+    stop();
+  });
+});
+
+describe("isLocalHost", () => {
+  it.each(["localhost", "LOCALHOST", "127.0.0.1", "127.1.2.3", "127.255.255.255", "::1", "[::1]"])(
+    "treats %s as this machine",
+    (host) => {
+      expect(isLocalHost(host)).toBe(true);
+    },
+  );
+
+  it.each([
+    "0.0.0.0",
+    "192.168.1.10",
+    "10.0.0.1",
+    "128.0.0.1",
+    "127.0.0.256",
+    "127.0.0",
+    "db.example.com",
+    "localhost.example.com",
+    "my-localhost",
+    "::2",
+    "",
+    "1270.0.0.1",
+    // A Unix socket path cannot be connected to (the connection schema refuses it): not "this machine" here.
+    "/var/run/postgresql",
+    "/tmp",
+  ])("does not treat %s as this machine", (host) => {
+    expect(isLocalHost(host)).toBe(false);
   });
 });

@@ -13,12 +13,14 @@
  * One adapter instance is bound to ONE database (the connection details are
  * given to the adapter's constructor, not to its methods).
  *
- * All methods are READ-ONLY. Almost all return STRUCTURE (names, types, keys,
+ * All methods are READ-ONLY (writes are a separate interface,
+ * `WritableAdapter`, below). Almost all return STRUCTURE (names, types, keys,
  * definitions, counters). `getRows` is the one method that returns table ROWS: it
  * exists for the opt-in data viewer, and it is the caller's job (the service
  * layer) to call it only when the person has switched data viewing on for that
  * connection. There is deliberately no method that runs arbitrary SQL.
  */
+import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
 import type {
   ColumnInfo,
   ConstraintInfo,
@@ -173,9 +175,72 @@ export interface DatabaseAdapter {
   getRows(table: TableRef, options: RowsOptions): Promise<RowPage>;
 
   /**
+   * What the connected role can do (superuser, role and database creation,
+   * row-level security, predefined write and server-file roles, CREATE rights,
+   * how many tables it can write to) and the address the server reports.
+   * Catalog only, read-only, no rows.
+   */
+  getRoleInfo(): Promise<RoleInfo>;
+
+  /**
    * Close everything and release resources. Safe to call more than once, and
    * safe to call when never connected. After it, data methods throw
    * `not_connected` until `connect()` is called again.
    */
   disconnect(): Promise<void>;
+}
+
+/**
+ * The WRITE capability (1.4.0, `docs/data-editing-plan.md`). Kept apart from
+ * `DatabaseAdapter`, which stays read-only: only the PostgreSQL adapter and the
+ * mock implement it, and only the server's write service may use it, after the
+ * start-up flag, the local-database rule and the per-connection unlock have all
+ * passed. A rule in `tests/architecture.test.ts` fails if any other app file
+ * imports it.
+ *
+ * There is no method that takes SQL. A change is a structured `Change`; the
+ * adapter checks every name against the catalog, builds the statement itself,
+ * and binds every value as a parameter.
+ */
+export interface WritableAdapter {
+  /**
+   * What the row editor needs about one table: whether its rows can be edited
+   * and by which key, its columns with their types and whether the database
+   * fills them, its triggers, row-level security and incoming foreign keys.
+   * Read-only, catalog only.
+   *
+   * @throws DatabaseError `not_found`.
+   */
+  describeForEdit(table: TableRef): Promise<TableEditInfo>;
+
+  /**
+   * Check a change against the catalog and build the exact statements, the
+   * effect and the warnings, in a READ-ONLY transaction. Nothing is changed.
+   *
+   * @throws DatabaseError `invalid_change`, `not_editable`, `not_found`,
+   *   `already_exists`, `has_dependents`, `invalid_value`. Messages name
+   *   structure only, never a value.
+   */
+  previewChange(change: Change): Promise<PlannedChange>;
+
+  /**
+   * Run a planned change EXACTLY as planned, in one read-write transaction with
+   * a short lock timeout and a statement timeout. A row change must affect
+   * exactly one row, or everything rolls back (`row_changed` for none).
+   *
+   * @throws DatabaseError `row_changed`, `unique_violation`,
+   *   `foreign_key_violation`, `not_null_violation`, `check_violation`,
+   *   `invalid_value`, `locked`, `retry`, `write_denied`, `has_dependents`,
+   *   `already_exists`, `timeout`. Never the database's own message.
+   */
+  applyChange(plan: PlannedChange): Promise<AppliedChange>;
+}
+
+/** Does this adapter also implement the write capability? */
+export function isWritableAdapter<T extends object>(adapter: T): adapter is T & WritableAdapter {
+  return (
+    typeof (adapter as Partial<WritableAdapter>).applyChange === "function" &&
+    typeof (adapter as Partial<WritableAdapter>).previewChange === "function" &&
+    typeof (adapter as Partial<WritableAdapter>).describeForEdit === "function"
+  );
 }

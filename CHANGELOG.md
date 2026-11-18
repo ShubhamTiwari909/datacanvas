@@ -4,6 +4,25 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-16
+
+### Added
+
+- **Editing rows and designing tables**, off unless DataCanvas is started with the new **`--enable-writes`** flag, and only for a database on this machine (`localhost`, `127.0.0.0/8` or `::1`). Unlock writes for a connection by typing its database name (viewing table data must be on); the unlock is kept in memory only and ends on disconnect, reconnect or restart, and a red **Writes on** badge shows while it lasts. Then:
+  - in the Data section, **edit** a row's values, **add** a row (each column a value, NULL or its default) and **delete** a row, on tables with a primary key, or a unique index that is not partial, over plain columns that cannot be NULL;
+  - **create a table** from a form (types from a fixed list, structured defaults, identity columns, primary key, unique constraints, foreign keys to existing tables, comments);
+  - **alter a table**: add, rename and drop columns, rename and drop the table, change a column's type where PostgreSQL can convert it on its own, set or drop NOT NULL and defaults, add primary keys, unique constraints and foreign keys, drop constraints, create and drop indexes.
+- Every change is **previewed** as the exact statement that will run, with what to know first (triggers, foreign keys from other tables and their actions, row-level security, locks and table rewrites), and **applied** exactly as previewed, in one transaction, with a 3 second lock timeout. A preview can be applied once, within five minutes. A row change must change exactly one row, and an update is refused if a column being changed no longer holds the value that was seen (other columns are not compared, and a delete compares no values). Drops need the table name typed and are refused while anything depends on them; nothing uses `CASCADE`. Database errors become fixed sentences that never contain a value.
+- A preview can only be applied to the table it was made for: if the table was dropped and recreated, or a column it names was dropped, re-added or replaced (its identity changed), in the meantime, applying is refused (a changed type, default or NULL setting does not count) and the person previews again. Dropping a column is refused while a generated column is computed from it.
+- A **role check**: a warning when the database user can do more than needed (when browsing: change data or create objects; with writes unlocked: superuser, create roles or databases, bypass row-level security, reach the server's files).
+- A **session list of changes**: kind, table, column names, time and outcome (and the statement for a change of structure, left out when it carries a default value or a comment you typed), in memory only, never row values.
+- New routes under `/api/connections/:id/writes/` (`unlock`, `lock`, `edit-info`, `preview`, `apply`, `history`, and the status at the root) and `GET /api/connections/:id/role`. Every request is a strict structured operation; there is no field for SQL, a WHERE clause or an expression.
+- **Find a table** in the sidebar: a search box at the top of the schema list narrows it to the tables and views whose name contains the text, in every schema (including those not yet opened), with the matching part marked and a count of the matches. Clicking a result does what clicking a table in the list does. **Escape** or the clear button brings the list back as it was. The text is matched in the browser and never sent anywhere.
+
+### Changed
+
+- **The documents** say what changed in the promises: DataCanvas is read-only **by default** and never changes a database unless started with `--enable-writes`, on a local database, with the connection unlocked (README, `SECURITY.md`, `docs/threat-model.md` with a new section on writes, `docs/getting-started.md` with a new section, the CLI help). The design and its decisions are in `docs/data-editing-plan.md` and decisions 124 to 136.
+
 ## [1.3.0] - 2026-11-16
 
 ### Added

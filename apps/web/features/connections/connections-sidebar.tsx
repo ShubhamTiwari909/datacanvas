@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { SchemaTree } from "@/features/explorer/schema-tree";
+import { WritesControl } from "@/features/writes/writes-control";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 
@@ -108,6 +109,7 @@ export function ConnectionsSidebar() {
                   </label>
                   {connection.dataAccess ? <Badge variant="outline">on</Badge> : null}
                 </div>
+                <WritesControl connection={connection} />
               </li>
             );
           })}

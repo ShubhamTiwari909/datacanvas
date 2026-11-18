@@ -12,6 +12,40 @@ beforeEach(() => {
   useCanvasStore.setState({ canvases: {}, focusRequest: null, busy: false, error: null });
 });
 
+describe("renameNode", () => {
+  const ref = (name: string) => ({ schema: "public", name });
+
+  it("gives the node its new identity and keeps where it is and how it looks", () => {
+    store().addTables(C, [table("a"), table("b")]);
+    store().toggleExpanded(C, id("b"));
+    store().applyChanges(C, [
+      { type: "position", id: id("b"), position: { x: 321, y: 123 } },
+      { type: "select", id: id("b"), selected: true },
+    ]);
+    const before = nodes().find((n) => n.id === id("b"));
+
+    store().renameNode(C, ref("b"), ref("b2"));
+
+    const after = nodes().find((n) => n.id === id("b2"));
+    expect(nodes().map((n) => n.id)).toEqual([id("a"), id("b2")]);
+    expect(after).toMatchObject({
+      position: { x: 321, y: 123 },
+      selected: true,
+      data: { schema: "public", name: "b2", expanded: true, columnCount: 4 },
+    });
+    expect(after?.position).toEqual(before?.position);
+  });
+
+  it("does nothing when the table is not on the canvas or the new name already is", () => {
+    store().addTables(C, [table("a"), table("b")]);
+    const ids = () => nodes().map((n) => n.id);
+    store().renameNode(C, ref("missing"), ref("x"));
+    store().renameNode(C, ref("a"), ref("b"));
+    store().renameNode(C, ref("a"), ref("a"));
+    expect(ids()).toEqual([id("a"), id("b")]);
+  });
+});
+
 describe("addTables", () => {
   it("lays the first tables out as a grid and asks the view to fit them", () => {
     store().addTables(C, [table("a"), table("b"), table("c"), table("d")]);

@@ -19,12 +19,23 @@ const info: InstanceInfo = {
   port: 4747,
   token: "a".repeat(43),
   version: "1.0.0",
+  writes: false,
 };
 const scratch = () => mkdtemp(path.join(os.tmpdir(), "dc-instance-"));
 
 describe("parseInstance", () => {
   it("accepts a valid file", () => {
     expect(parseInstance(JSON.stringify(info))).toEqual(info);
+    expect(parseInstance(JSON.stringify({ ...info, writes: true }))?.writes).toBe(true);
+  });
+
+  it("reads a file from before 1.4.0 (no writes field) as writes off", () => {
+    const { writes: _writes, ...old } = info;
+    expect(parseInstance(JSON.stringify(old))).toEqual({ ...info, writes: false });
+  });
+
+  it("rejects a writes field that is not a boolean", () => {
+    expect(parseInstance(JSON.stringify({ ...info, writes: "yes" }))).toBeNull();
   });
 
   it.each([

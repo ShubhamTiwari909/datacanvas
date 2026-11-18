@@ -6,7 +6,8 @@
  */
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { PencilRuler } from "lucide-react";
 import type {
   ColumnInfo,
   ConstraintInfo,
@@ -17,7 +18,10 @@ import type {
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DataSection } from "@/features/data/data-section";
+import { AlterTableDialog } from "@/features/writes/alter-table-dialog";
+import { useConnectionWrites, useStructureVersion, writesReady } from "@/stores/writes-store";
 import { useAsyncData } from "@/lib/use-async-data";
 import { KIND_LABEL } from "@/components/relation-kind";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -207,7 +211,11 @@ export function TableDetails({
   table: string;
 }) {
   const selectTable = useWorkspaceStore((s) => s.selectTable);
-  const key = `${connectionId}/${schema}/${table}`;
+  // A change of structure made from DataCanvas reads everything again.
+  const structureVersion = useStructureVersion(connectionId);
+  const writes = useConnectionWrites(connectionId);
+  const [editingStructure, setEditingStructure] = useState(false);
+  const key = `${connectionId}/${schema}/${table}/${structureVersion}`;
 
   // Three independent requests, shown as they arrive.
   const details = useAsyncData(() => getTableDetails(connectionId, schema, table), key);
@@ -245,6 +253,20 @@ export function TableDetails({
               ≈ {new Intl.NumberFormat().format(info.estimatedRowCount)} rows
             </Badge>
           ) : null}
+          {writesReady(writes.status) &&
+          info?.kind === "table" &&
+          details.state.status === "success" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              onClick={() => setEditingStructure(true)}
+            >
+              <PencilRuler aria-hidden="true" />
+              Edit structure
+            </Button>
+          ) : null}
         </div>
         {info?.comment ? <p className="text-sm text-muted-foreground">{info.comment}</p> : null}
       </header>
@@ -262,6 +284,13 @@ export function TableDetails({
 
       {details.state.status === "success" ? (
         <Fragment>
+          <AlterTableDialog
+            connectionId={connectionId}
+            table={{ schema, name: table }}
+            structure={details.state.data}
+            open={editingStructure && writesReady(writes.status)}
+            onClose={() => setEditingStructure(false)}
+          />
           <Section title="Columns" count={details.state.data.columns.length}>
             <ColumnsTable
               columns={details.state.data.columns}

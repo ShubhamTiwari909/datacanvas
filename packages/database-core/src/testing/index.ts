@@ -4,5 +4,5 @@
  * Imported as `@datacanvas/database-core/testing`, a separate entry point so
  * production code never pulls it in by accident.
  */
-export { MockDatabaseAdapter, type MockAdapterOptions } from "./mock-adapter.js";
+export { MOCK_ROLE, MockDatabaseAdapter, type MockAdapterOptions } from "./mock-adapter.js";
 export { createEcommerceData, type MockDatabaseData } from "./ecommerce-fixture.js";

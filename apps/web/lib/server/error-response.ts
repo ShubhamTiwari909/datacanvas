@@ -35,6 +35,20 @@ export const DATABASE_ERROR_STATUS: Record<DatabaseErrorCode, number> = {
   unreachable: 502,
   timeout: 504,
   unexpected: 500,
+  // Writes: the change was refused and nothing was written.
+  row_changed: 409,
+  not_editable: 400,
+  invalid_change: 400,
+  unique_violation: 409,
+  foreign_key_violation: 409,
+  not_null_violation: 400,
+  check_violation: 400,
+  invalid_value: 400,
+  locked: 409,
+  retry: 409,
+  write_denied: 403,
+  has_dependents: 409,
+  already_exists: 409,
 };
 
 const SERVICE_ERROR_STATUS = {
@@ -51,6 +65,12 @@ const SERVICE_ERROR_STATUS = {
   snapshot_too_large: 413,
   invalid_snapshot_file: 400,
   storage_error: 500,
+  writes_not_enabled: 403,
+  writes_not_allowed_here: 403,
+  write_not_unlocked: 403,
+  wrong_database_name: 400,
+  preview_expired: 410,
+  write_busy: 429,
 } as const;
 
 /** A log-safe description: names and codes only, never messages (they may hold secrets). */

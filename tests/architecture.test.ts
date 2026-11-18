@@ -80,3 +80,70 @@ describe("canvas-engine stays framework-free", () => {
     }
   });
 });
+
+describe("writes are a separate capability (1.4.0)", () => {
+  // Line endings are normalised first: a CRLF checkout (Windows) must read the same as an LF one.
+  const strip = (text: string) =>
+    text
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  // Paths are written with `/` in the rules, whatever the platform's separator is.
+  const posix = (file: string) => file.split(path.sep).join("/");
+  const adapterSource = strip(readFileSync(path.join(coreDir, "src/adapter.ts"), "utf8"));
+  const inBody = (source: string, header: string): string => {
+    const start = source.indexOf(header);
+    expect(start, header).toBeGreaterThan(-1);
+    return source.slice(start, source.indexOf("\n}\n", start));
+  };
+
+  it("DatabaseAdapter has no method that changes anything", () => {
+    const readOnly = inBody(adapterSource, "export interface DatabaseAdapter");
+    expect(readOnly).not.toMatch(/\b(applyChange|previewChange|describeForEdit)\b/);
+    // The one addition for 1.4.0 reads the role's rights from the catalog.
+    expect(readOnly).toContain("getRoleInfo()");
+  });
+
+  it("WritableAdapter takes a structured Change or a plan: no SQL text in any signature", () => {
+    const writable = inBody(adapterSource, "export interface WritableAdapter");
+    expect(writable).toMatch(/previewChange\(change: Change\)/);
+    expect(writable).toMatch(/applyChange\(plan: PlannedChange\)/);
+    expect(writable).not.toMatch(/\b(sql|statement|query|text)\s*:\s*string/i);
+  });
+
+  it("only an adapter implements it: the mock and the PostgreSQL adapter", () => {
+    const implementers = [
+      ...sourceFiles(path.join(root, "packages")),
+      ...sourceFiles(path.join(root, "apps/web")),
+    ].filter(
+      (file) =>
+        !file.endsWith(".test.ts") &&
+        !file.endsWith(".d.ts") &&
+        !file.includes("node_modules") &&
+        !file.includes(`${path.sep}dist${path.sep}`) &&
+        /\bimplements\b[^{]*\bWritableAdapter\b/.test(strip(readFileSync(file, "utf8"))),
+    );
+    for (const file of implementers) {
+      expect(
+        /testing\/mock-adapter\.ts$|postgres-adapter\/src\/.*\.ts$/.test(posix(file)),
+        posix(path.relative(root, file)),
+      ).toBe(true);
+    }
+    expect(implementers.some((f) => posix(f).endsWith("testing/mock-adapter.ts"))).toBe(true);
+  });
+
+  it("the web app's server code imports the write capability in one file only", () => {
+    const users = sourceFiles(path.join(root, "apps/web"))
+      .filter((f) => !f.endsWith(".test.ts") && !f.includes("node_modules") && !f.includes(".next"))
+      .filter((f) => /\b(WritableAdapter|isWritableAdapter)\b/.test(strip(readFileSync(f, "utf8"))))
+      .map((f) => posix(path.relative(root, f)));
+    expect(users).toEqual(["apps/web/lib/server/write-service.ts"]);
+  });
+
+  it("database-core's change types stay free of drivers and frameworks", () => {
+    const source = readFileSync(path.join(coreDir, "src/changes.ts"), "utf8");
+    for (const specifier of importSpecifiers(source)) {
+      expect(specifier.startsWith("."), specifier).toBe(true);
+    }
+  });
+});

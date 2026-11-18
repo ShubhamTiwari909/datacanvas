@@ -768,3 +768,93 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** sort and filter, with a layout fix (the page itself could scroll with a long table list and leave a blank area under the canvas), are a minor version after the viewer's 1.2.0. The editing plan's suggested version moves from 1.3.0 to 1.4.0.
 
 **Why:** each release stays small and the viewer's wording settles before it grows. Documents changed with the feature: the guide, the threat model, SECURITY.md and the README.
+
+## 123. Version 1.4.0 also adds a table search in the sidebar
+
+**Decision:** besides editing rows and designing tables, 1.4.0 includes a search box at the top of the sidebar's schema tree that narrows it to the tables and views whose name contains the text. It is planned in `docs/sidebar-table-search-plan.md` (T0) and independent of the editing milestones, so it can be built first.
+
+**Why:** the tree loads one schema at a time, so finding a table means opening schemas and scrolling, and the only search (in the canvas toolbar) works on the canvas. Names only, no new route, and no change to what is read. Where the names come from is decision 136.
+
+## 124. Editing changes rows (update, insert and delete) and designs tables (create and alter)
+
+**Decision:** 1.4.0 lets a person update, insert and delete one row at a time, create a table from a form and alter an existing one, all without writing SQL. The client sends a structured operation; the server builds the statement from catalog-checked names, allow-listed types and defaults, and bound parameters. There is no SQL box, no bulk change, no import and no undo. **Full reasoning:** `docs/data-editing-plan.md`.
+
+**Why:** requested on 2026-11-16 (the plan's S1 and S2). "No text typed by the user becomes SQL" stays true for writes, as it did for sort and filter (decision 116).
+
+## 125. Writes need three independent switches: a start-up flag, a local database and a per-connection unlock
+
+**Decision:** writes exist only when DataCanvas was started with `--enable-writes` (a flag, not an environment variable a person sets, so it shows in the command and the process list; the CLI passes it to the server internally); only on a connection whose host is loopback (`localhost`, `127.0.0.0/8`, `::1`); and only after the person unlocks that connection by typing its database name. The unlock lives in server memory, is never saved in a profile, and is cleared by disconnecting, reconnecting or restarting. Writing also needs data viewing to be on.
+
+**Why:** a web page or a program holding the session token cannot reach a switch that is not in the API, and the typed name stops the wrong tab from being edited. "Local" is the host only, not the server's reported address: requiring a loopback server address would block every database in Docker or behind a port mapping, while a tunnel to production could still be made to look right. **Left over:** an SSH tunnel or the Cloud SQL Auth Proxy on `127.0.0.1` makes a remote database look local. The unlock dialog shows the address the server reports (`inet_server_addr()`), and a red "Writes on" badge stays visible, but neither is proof.
+
+## 126. A warning when the database role can do more than the task needs
+
+**Decision:** a read-only catalog query (`getRoleInfo`) reads whether the role is a superuser, can create roles or databases, bypasses row-level security, belongs to the predefined write or server-file roles, and on how many tables it can write. In read-only mode the app warns when the role can write at all; with writes unlocked it warns when the role can do far more than edit tables. It is information with a suggested fix, never a block.
+
+**Why:** requested (S4). A read-only role is still the safest way to browse, and many people connect as a superuser without thinking about it. Some people legitimately use the owner of a local development database, so blocking them would be wrong.
+
+## 127. Preview, then apply exactly what was previewed
+
+**Decision:** every change is first previewed as the exact statement, its effect and its warnings, with a single-use id held in server memory for five minutes. Apply takes only that id. Each change is one transaction; a row change must touch exactly one row or it rolls back, and an update only applies if the changed columns still hold the values the person saw.
+
+**Why:** the person sees what will run, and nothing different can run. The conflict check stops one person silently overwriting another's newer change.
+
+## 128. Time limits for writes: 3 seconds to get a lock, 15 seconds for a row change, 60 seconds for a structure change
+
+**Decision:** every write sets `lock_timeout` to 3 s; a row change has a 15 s `statement_timeout` and a structure change 60 s. One write runs at a time per connection.
+
+**Why:** a change stuck behind a long transaction holds its own place in the lock queue and blocks every read after it. Failing fast with a clear message is better than quietly freezing someone's database.
+
+## 129. Database errors from a write become fixed messages chosen by SQLSTATE
+
+**Decision:** a failed write never shows PostgreSQL's own message. The SQLSTATE picks a fixed sentence, which may name a constraint or a column (structure) but never a value.
+
+**Why:** PostgreSQL puts row values in its messages ("Key (email)=(a@x.test) already exists"), and the privacy rules say values never reach an error, a log or a file.
+
+## 130. No CASCADE; drops are allowed but refused while anything depends on them
+
+**Decision:** drop column and drop table ship in 1.4.0, behind the typed table name. A drop is refused when any view, foreign key or other object depends on it, and the refusal lists what does. No statement ever uses `CASCADE`.
+
+**Why:** "alter" without drops is half a feature, and refusing on dependents keeps a drop from silently taking other objects with it.
+
+## 131. The session history is kept in memory only and never holds values
+
+**Decision:** the list of changes made since connecting holds the operation, the table, the column names, the time and the outcome (and the SQL for a structure change, except when the change carries a default value or a comment the person typed: that text is not kept). It is never written to a file. The preview shown to the person stays exact; only the history leaves such text out.
+
+**Why:** a file would be one more thing to protect and document, for little gain.
+
+## 132. Type changes only where PostgreSQL has a cast; no USING expressions
+
+**Decision:** a column type change is offered only when `pg_cast` has an implicit or assignment cast from the old type to the new one. Anything that would need a `USING` expression is refused with an explanation.
+
+**Why:** a `USING` clause is an arbitrary expression, which is the "no SQL typed by the user" line. A structured subset can come later.
+
+## 133. No check constraints and no CREATE INDEX CONCURRENTLY in the first version
+
+**Decision:** the table builder has no check constraints, and indexes are created with a plain `CREATE INDEX`, which takes a write lock (the preview says so).
+
+**Why:** a check is an arbitrary expression. `CONCURRENTLY` cannot run inside a transaction, and every change here is one transaction.
+
+## 134. Wording of the changed promises
+
+**Decision:** the README, `SECURITY.md`, the threat model, the CLI help and start-up notice, the unlock dialog and the role warnings use the drafts in Appendix A of `docs/data-editing-plan.md`. "Read-only" becomes "read-only by default".
+
+**Why:** a promise that is no longer true must not ship in the package (as for decision 115).
+
+## 135. Version 1.4.0
+
+**Decision:** editing and the sidebar table search ship together as 1.4.0, a minor version after sort and filter's 1.3.0.
+
+**Why:** it adds features and changes a documented promise (read-only by default), with no breaking change to files or the command line.
+
+## 136. The sidebar search loads every schema's table list once and filters in the browser
+
+**Decision:** the first time the box is used, the table list of every schema is loaded (one request per schema, in parallel, through the same `loadAllTables` the overview uses), and the text is matched in the browser: case-insensitive, contains, with names that start with the text first. Views and materialized views are listed like tables. Columns are not searched (the canvas search does that), and there is no keyboard shortcut.
+
+**Why:** filtering only the schemas that are open would miss the table the person is looking for, and the server's search route is capped and built for a dropdown. This way no new route is needed and the typed text never leaves the browser. Measured: on 5,011 tables in 50 schemas the first result appears in about 0.3 s and further typing in about 20 ms, so the fallback to the server's search was not needed (`e2e/performance.spec.ts`). **Left over:** the first keystroke on a very large database waits for the lists, and the box says so.
+
+## 137. A preview only applies to the table it was made for
+
+**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it. The guard pins identity only: a plan that creates a table has nothing to pin, and a changed type, default or NULL setting on a column is not detected.
+
+**Why:** a preview can wait up to five minutes. A table dropped and recreated under the same name in that time is a different table, and applying the old plan to it would change something the person never saw. Found in the review of the 1.4.0 pull request.

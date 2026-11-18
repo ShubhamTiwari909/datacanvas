@@ -45,7 +45,16 @@ export interface SecurityConfig {
    * to refuse everything (fail closed), never to let everything in.
    */
   tokenRequired: boolean;
+  /**
+   * DataCanvas was started with `--enable-writes` (decision 125). Only the CLI
+   * sets the variable, and it removes any value inherited from the shell, so
+   * this reflects the flag. Nothing in the API can change it.
+   */
+  writesEnabled: boolean;
 }
+
+/** Name of the environment variable through which the CLI says writes are enabled (exactly "1"). */
+export const ENABLE_WRITES_ENV = "DATACANVAS_ENABLE_WRITES";
 
 /** Read the configuration from environment variables (the CLI sets them). */
 export function readSecurityConfig(
@@ -54,7 +63,12 @@ export function readSecurityConfig(
   const rawPort = Number(env.PORT);
   const port = Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535 ? rawPort : null;
   const token = env[SESSION_TOKEN_ENV] ? env[SESSION_TOKEN_ENV] : null;
-  return { port, token, tokenRequired: token !== null || env.NODE_ENV === "production" };
+  return {
+    port,
+    token,
+    tokenRequired: token !== null || env.NODE_ENV === "production",
+    writesEnabled: env[ENABLE_WRITES_ENV] === "1",
+  };
 }
 
 /** What the guard needs to know about a request. */

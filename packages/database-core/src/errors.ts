@@ -31,6 +31,33 @@ export const DATABASE_ERROR_CODES = [
   "too_slow",
   /** Anything we did not anticipate. */
   "unexpected",
+  // ---- Writes (1.4.0). Messages are fixed or name structure only, never a value (decision 129).
+  /** An update or delete found no row with the key and the values the person saw: nothing was written. */
+  "row_changed",
+  /** The table's rows cannot be edited (no key, a view, a foreign table). */
+  "not_editable",
+  /** A change that cannot be made as asked (a name, a type, a column that does not fit). */
+  "invalid_change",
+  /** SQLSTATE 23505. */
+  "unique_violation",
+  /** SQLSTATE 23503. */
+  "foreign_key_violation",
+  /** SQLSTATE 23502. */
+  "not_null_violation",
+  /** SQLSTATE 23514 and 23P01. */
+  "check_violation",
+  /** SQLSTATE class 22: a value that the column's type does not accept. */
+  "invalid_value",
+  /** SQLSTATE 55P03: the lock was not granted within the lock timeout. */
+  "locked",
+  /** SQLSTATE 40001 and 40P01. */
+  "retry",
+  /** SQLSTATE 42501 on a write. */
+  "write_denied",
+  /** Other objects depend on what was to be dropped or changed (no CASCADE, decision 130). */
+  "has_dependents",
+  /** A table, column, constraint or index with that name already exists. */
+  "already_exists",
 ] as const;
 
 export type DatabaseErrorCode = (typeof DATABASE_ERROR_CODES)[number];
@@ -53,6 +80,20 @@ export const DEFAULT_ERROR_MESSAGES: Record<DatabaseErrorCode, string> = {
   too_slow:
     "This took longer than 5 seconds, so it was stopped. On a large table, sort or filter by a column that has an index, or narrow the filter.",
   unexpected: "An unexpected database error occurred.",
+  row_changed:
+    "This row was changed or deleted since you loaded it, so nothing was written. Reload the page and try again.",
+  not_editable: "The rows of this table cannot be edited here.",
+  invalid_change: "This change cannot be made.",
+  unique_violation: "A row with the same value already exists.",
+  foreign_key_violation: "This breaks a foreign key.",
+  not_null_violation: "A column that cannot be empty was left empty.",
+  check_violation: "A rule of the table refused this change.",
+  invalid_value: "A value is not valid for its column's type.",
+  locked: "The table is locked by another session. Nothing was changed. Try again.",
+  retry: "The database asked for the change to be retried. Nothing was changed. Try again.",
+  write_denied: "The database role cannot change this table.",
+  has_dependents: "Other objects depend on this, so nothing was changed.",
+  already_exists: "Something with this name already exists.",
 };
 
 export interface DatabaseErrorOptions {

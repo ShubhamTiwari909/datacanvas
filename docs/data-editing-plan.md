@@ -1,6 +1,6 @@
 # Plan: editing rows and designing tables
 
-Status: **proposal, nothing built.** This builds on `docs/data-viewer-plan.md` (the read-only data viewer) and is the "editing" work that plan deliberately left out (its section 13). The decisions already made are in section 3; the open ones, each with a recommendation, are in section 13.
+Status: **built in 1.4.0 (milestones E0 to E6). Decisions settled (2026-11-16, decisions 124 to 135 in `docs/decisions.md`); every recommendation in section 13 was accepted, S3 is confirmed as "the connection's host is loopback", and the Appendix A wording is agreed.** This builds on `docs/data-viewer-plan.md` (the read-only data viewer) and is the "editing" work that plan deliberately left out (its section 13). The decisions already made are in section 3; the open ones, each with a recommendation, are in section 13. Version 1.4.0 also carries a small, independent feature, **searching tables from the sidebar** (`docs/sidebar-table-search-plan.md`), which is not part of this plan's milestones.
 
 ## 1. Goal
 
@@ -26,7 +26,7 @@ Made by the requester, 2026-11-16:
 
 - **S1. Row changes include insert and delete**, not only update.
 - **S2. The table builder both creates new tables and alters existing ones.**
-- **S3. Writes only on a local database.** A remote or production database stays read-only whatever else is switched on. _Reading of "yes, only local db":_ writes are allowed only when the connection is local and blocked on everything else. Section 6.1 says what "local" can and cannot prove; please confirm this reading.
+- **S3. Writes only on a local database.** A remote or production database stays read-only whatever else is switched on. _Reading of "yes, only local db":_ writes are allowed only when the connection is local and blocked on everything else. Section 6.1 says what "local" can and cannot prove. _Confirmed 2026-11-16._
 - **S4. Warn when the connected database role has more rights than the task needs.**
 
 ## 4. What changes, and what must not
@@ -221,7 +221,7 @@ Each milestone ends with `npm run check`, the browser tests and the tarball test
 
 ## 13. Open decisions
 
-For each: the question, the options, and a recommendation.
+For each: the question, the options, and a recommendation. _All ten recommendations were accepted on 2026-11-16._
 
 1. **Drop column and drop table: in the first release?** (a) yes, behind the typed name and the dependents check; (b) no, later. _Recommendation: (a), in E5 only, refused whenever dependents exist._ Without them "alter" is half a feature, and the guardrails make them safe enough.
 2. **Session history: memory only, or also a file?** _Recommendation: memory only_ (no values are recorded either way, but a file is one more thing to protect and to document).

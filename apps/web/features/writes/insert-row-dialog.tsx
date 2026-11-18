@@ -22,6 +22,7 @@ import type { ChangeRequest } from "./change-dialog";
 import {
   buildInsert,
   checkValue,
+  controlKind,
   initialInsertMode,
   insertBeforeAfter,
   insertModes,
@@ -99,11 +100,20 @@ function InsertForm({
     .filter(Boolean)
     .join(", ");
 
+  // A boolean with nothing chosen is not false: it cannot be previewed until true or false is picked.
+  const unsetBoolean = fields.some(
+    (f) =>
+      f.mode === "value" &&
+      f.value === "" &&
+      controlKind(info.columns.find((c) => c.name === f.column)?.dataType ?? "") === "boolean",
+  );
+
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
+        if (unsetBoolean) return;
         onPreview({
           change: buildInsert(table, fields),
           title: `Add a row to ${table.schema}.${table.name}`,
@@ -176,7 +186,9 @@ function InsertForm({
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit">Preview</Button>
+        <Button type="submit" disabled={unsetBoolean}>
+          Preview
+        </Button>
         <p
           role="status"
           className="self-center text-xs text-muted-foreground sm:order-first sm:mr-auto"

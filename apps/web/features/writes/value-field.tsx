@@ -77,8 +77,14 @@ export function ValueField({
           disabled={locked}
           onCheckedChange={(checked) => type(checked ? "true" : "false")}
         />
-        <span className={cn("text-sm", active ? "font-mono" : "text-muted-foreground")}>
-          {active ? (on ? "true" : "false") : placeholder}
+        {/* An empty boolean is "not set", not false: the form will not preview it until a choice is made. */}
+        <span
+          className={cn(
+            "text-sm",
+            active && state.text !== "" ? "font-mono" : "text-muted-foreground",
+          )}
+        >
+          {active ? (state.text === "" ? "Not set" : on ? "true" : "false") : placeholder}
         </span>
       </div>
     );

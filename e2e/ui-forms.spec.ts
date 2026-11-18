@@ -576,3 +576,45 @@ test("a phone can pick a table, unlock writes and edit a row", async ({
   await page.waitForTimeout(350);
   await page.screenshot({ path: path.join(shots, "phone-drawer.png") });
 });
+
+test("a required boolean with nothing chosen is 'Not set' and cannot be previewed", async ({
+  page,
+  writableApp,
+  database,
+}) => {
+  const client = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await client.connect();
+  try {
+    await client.query(
+      "CREATE TABLE public.ui_flags (id integer PRIMARY KEY, flag boolean NOT NULL)",
+    );
+    await client.query("INSERT INTO public.ui_flags VALUES (1, true)");
+  } finally {
+    await client.end();
+  }
+  await connect(page, writableApp.link, database);
+  await page.getByRole("switch", { name: "Allow changes to UI shop" }).click();
+  await page.getByRole("textbox", { name: "Database name" }).fill(database.name);
+  await page.getByRole("button", { name: "Allow changes" }).click();
+  await expect(page.getByText("Writes on")).toBeVisible();
+  await page.getByRole("tab", { name: "Table details" }).click();
+  await page
+    .getByRole("button", { name: /^ui_flags\b/ })
+    .first()
+    .click();
+  await expect(page.getByRole("grid")).toBeVisible();
+  await page.getByRole("button", { name: "Add row" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Value for id" }).fill("2");
+  await expect(dialog.getByText("Not set")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Preview" })).toBeDisabled();
+  await dialog.getByRole("switch", { name: "Value for flag" }).click();
+  await expect(dialog.getByText("Not set")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Preview" })).toBeEnabled();
+});

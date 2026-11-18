@@ -576,3 +576,77 @@ test("a phone can pick a table, unlock writes and edit a row", async ({
   await page.waitForTimeout(350);
   await page.screenshot({ path: path.join(shots, "phone-drawer.png") });
 });
+
+test("a long value stays on one short line, the eye shows it all, and the buttons stay in view", async ({
+  page,
+  writableApp,
+  database,
+}) => {
+  const hash = "c6d19453ac076ead82ad1e6258022c26e63f9e8ec43deb491395f8c6a34c33416".repeat(2);
+  const client = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await client.connect();
+  try {
+    await client.query("CREATE TABLE public.ui_hashes (id integer PRIMARY KEY, digest text)");
+    await client.query("INSERT INTO public.ui_hashes VALUES (1, $1)", [hash]);
+  } finally {
+    await client.end();
+  }
+  await connect(page, writableApp.link, database);
+  await page.getByRole("switch", { name: "Allow changes to UI shop" }).click();
+  await page.getByRole("textbox", { name: "Database name" }).fill(database.name);
+  await page.getByRole("button", { name: "Allow changes" }).click();
+  await expect(page.getByText("Writes on")).toBeVisible();
+  await page.getByRole("tab", { name: "Table details" }).click();
+  await page
+    .getByRole("button", { name: /^ui_hashes\b/ })
+    .first()
+    .click();
+  await expect(page.getByRole("grid")).toBeVisible();
+  await page.getByRole("button", { name: "Edit row 1" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(350);
+
+  // The dialog never scrolls sideways, and Cancel and Preview sit inside it.
+  const fits = async () => {
+    expect(
+      await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      "no sideways scroll",
+    ).toBe(true);
+    const outer = (await dialog.boundingBox())!;
+    for (const name of ["Cancel", "Preview"]) {
+      const b = (await dialog.getByRole("button", { name }).boundingBox())!;
+      expect(b.x >= outer.x && b.x + b.width <= outer.x + outer.width, `${name} is inside`).toBe(
+        true,
+      );
+    }
+  };
+  await fits();
+
+  // Collapsed: one short line, read-only until opened.
+  const value = dialog.getByRole("textbox", { name: "digest", exact: true });
+  expect((await value.boundingBox())!.height).toBeLessThanOrEqual(34);
+  await expect(value).toHaveJSProperty("readOnly", true);
+  await expect(value, "focus starts on the long field, still folded").toBeFocused();
+
+  // The eye shows the whole value (wrapped, editable) and the dialog still fits.
+  await dialog.getByRole("button", { name: "Show the whole value of digest" }).click();
+  await expect(value).toHaveValue(hash);
+  await expect(value).toBeEditable();
+  expect((await value.boundingBox())!.height).toBeGreaterThan(34);
+  await fits();
+  mkdirSync(shots, { recursive: true });
+  await dialog.screenshot({ path: path.join(shots, "long-value-open.png") });
+
+  // And back to one line.
+  await dialog.getByRole("button", { name: "Hide the whole value of digest" }).click();
+  await expect(value).toHaveJSProperty("readOnly", true);
+  expect((await value.boundingBox())!.height, "folded back to one line").toBeLessThanOrEqual(34);
+  await dialog.screenshot({ path: path.join(shots, "long-value-collapsed.png") });
+});

@@ -78,7 +78,7 @@ function DialogContent({
             cn(
               DIALOG_SIZE[size],
               // No bottom padding: the footer is pinned to the bottom edge, so a strip of padding there would show scrolled content under it.
-              "max-h-[calc(100dvh-2rem)] gap-5 overflow-y-auto p-(--dialog-pad) pb-0 [--dialog-footer-mb:0px] [--dialog-pad:1.5rem]",
+              "max-h-[calc(100dvh-2rem)] gap-5 overflow-x-hidden overflow-y-auto *:min-w-0 p-(--dialog-pad) pb-0 [--dialog-footer-mb:0px] [--dialog-pad:1.5rem]",
               // Under 640 px a form is a full-screen sheet: no corners, no margin, the whole screen to work in.
               "max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:[--dialog-pad:1rem]",
             ),

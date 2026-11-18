@@ -60,7 +60,7 @@ export function WritesControl({ connection }: { connection: ConnectionSummary })
           className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400"
           aria-hidden="true"
         />
-        <span id={noteId} className={cn("min-w-0 flex-1", !noteOpen && "truncate")}>
+        <span id={noteId} className={cn("min-w-0 flex-1", !noteOpen && "line-clamp-2")}>
           {noteText}
         </span>
         <Tip label={noteOpen ? "Show less" : "Show all"}>

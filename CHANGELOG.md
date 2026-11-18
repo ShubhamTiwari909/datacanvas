@@ -4,6 +4,21 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-18
+
+### Added
+
+- **DataCanvas works on a phone.** Below 768 px the sidebar is a drawer opened by a menu button in the header; picking a table or a connection closes it. The view tabs and the Data toolbar scroll sideways, and every form dialog is a full-screen sheet under 640 px.
+- A **"Changed" marker and a Reset button** on each field of the row editor, a footer that says how many columns changed (or why Preview is waiting), and **Ctrl or Cmd plus Enter** to preview from any field. Focus starts on the first editable column that is not the key.
+- Tooltips on the icon buttons of the sidebar and the row actions.
+
+### Changed
+
+- **The forms that change data were redone on shared pieces**: three dialog sizes (448, 640 and 768 px), one type scale (nothing under 12 px in a dialog), one spacing rhythm, and a footer that stays in view while the body scrolls. Values use a control that fits them (a switch for a boolean, a one-line field for a number or a date, a field that grows for long text); NULL and Default are small toggle buttons beside the field instead of radios. The add-row dialog no longer changes height as you work.
+- **The table builder** puts each column and foreign key on one grid with a header; "Array" and "Can be NULL" are toggle buttons; the heading shows the column count.
+- **The sidebar's writes bar** is one line (badge, lock, changes); the read-mode role note takes two lines and expands. The Data toolbar is grouped into paging, actions and view, and the row actions are 32 px targets. The unlock dialog says each thing once.
+- Muted text in light theme is darker, to reach the 4.5:1 contrast minimum.
+
 ## [1.4.0] - 2026-11-16
 
 ### Added

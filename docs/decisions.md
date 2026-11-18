@@ -852,3 +852,9 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** the first time the box is used, the table list of every schema is loaded (one request per schema, in parallel, through the same `loadAllTables` the overview uses), and the text is matched in the browser: case-insensitive, contains, with names that start with the text first. Views and materialized views are listed like tables. Columns are not searched (the canvas search does that), and there is no keyboard shortcut.
 
 **Why:** filtering only the schemas that are open would miss the table the person is looking for, and the server's search route is capped and built for a dropdown. This way no new route is needed and the typed text never leaves the browser. Measured: on 5,011 tables in 50 schemas the first result appears in about 0.3 s and further typing in about 20 ms, so the fallback to the server's search was not needed (`e2e/performance.spec.ts`). **Left over:** the first keystroke on a very large database waits for the lists, and the box says so.
+
+## 137. A preview only applies to the table it was made for
+
+**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it.
+
+**Why:** a preview can wait up to five minutes. A table dropped and recreated under the same name in that time is a different table, and applying the old plan to it would change something the person never saw. Found in the review of the 1.4.0 pull request.

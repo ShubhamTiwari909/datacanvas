@@ -52,7 +52,11 @@ function ViewTabs() {
   const view = useWorkspaceStore((s) => s.view);
   const setView = useWorkspaceStore((s) => s.setView);
   return (
-    <div role="tablist" aria-label="View" className="flex gap-1 border-b px-3 py-1.5">
+    <div
+      role="tablist"
+      aria-label="View"
+      className="flex gap-1 overflow-x-auto border-b px-3 py-1.5 [mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-24px),transparent)] [scrollbar-width:none] md:[mask-image:none] [&>*]:shrink-0"
+    >
       {TABS.map(({ view: value, label, icon: Icon }) => (
         <Button
           key={value}

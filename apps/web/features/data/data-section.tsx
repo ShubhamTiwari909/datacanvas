@@ -152,7 +152,7 @@ function Rows({
     <div className="flex flex-col gap-3">
       <div
         data-slot="data-toolbar"
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-2 py-1.5"
+        className="flex items-center gap-x-4 gap-y-2 overflow-x-auto rounded-lg border bg-muted/30 px-2 py-1.5 whitespace-nowrap sm:flex-wrap sm:overflow-visible [&>*]:shrink-0"
       >
         <div role="group" aria-label="Paging" className="flex items-center gap-2">
           <Button

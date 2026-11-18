@@ -59,7 +59,7 @@ async function plant(database: TestDb): Promise<void> {
   }
 }
 
-async function connect(page: Page, link: string, database: TestDb): Promise<void> {
+async function connect(page: Page, link: string, database: TestDb, phone = false): Promise<void> {
   await page.goto(link);
   await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
   await page.getByLabel("Connection name").fill("UI shop");
@@ -67,7 +67,9 @@ async function connect(page: Page, link: string, database: TestDb): Promise<void
   await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
   await page.getByLabel("Allow viewing table data").check();
   await page.getByRole("button", { name: /^Connect$/ }).click();
-  await expect(page.getByRole("button", { name: "Disconnect UI shop" })).toBeVisible();
+  // On a phone the sidebar is a drawer, so connecting is confirmed by the dialog closing.
+  if (phone) await expect(page.getByRole("dialog")).toHaveCount(0);
+  else await expect(page.getByRole("button", { name: "Disconnect UI shop" })).toBeVisible();
 }
 
 /** Screenshot the open dialog and run axe on it; the name is the file name. */
@@ -484,4 +486,93 @@ test("the sidebar writes bar, the Data toolbar and the row actions stay compact"
   }
   await page.getByRole("button", { name: "Edit row 1" }).hover();
   await expect(page.getByRole("tooltip")).toHaveText("Edit row 1");
+});
+
+/** U5: a 375 px phone can connect, pick a table, edit a row and unlock writes (docs/ui-polish-plan.md). */
+test("a phone can pick a table, unlock writes and edit a row", async ({
+  page,
+  writableApp,
+  database,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await plant(database);
+  await connect(page, writableApp.link, database, true);
+  const noOverflow = async (when: string) => {
+    const wide = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(wide, `the page does not scroll sideways ${when}`).toBeLessThanOrEqual(0);
+  };
+  await noOverflow("after connecting");
+
+  // --- the sidebar is a drawer behind a menu button in the header
+  const sidebar = page.getByRole("complementary", { name: "Connections and schema explorer" });
+  await expect(sidebar).toBeHidden();
+  const menu = page.getByRole("button", { name: "Open connections and tables" });
+  await expect(menu).toBeVisible();
+  await menu.click();
+  await expect(sidebar).toBeVisible();
+  const drawer = await sidebar.boundingBox();
+  expect(drawer!.x, "the drawer starts at the left edge").toBeLessThanOrEqual(0);
+  expect(drawer!.width, "the drawer leaves room to see the page behind it").toBeLessThan(375);
+
+  // --- unlock from the drawer
+  await sidebar.getByRole("switch", { name: "Allow changes to UI shop" }).click();
+  await page.getByRole("textbox", { name: "Database name" }).fill(database.name);
+  await page.getByRole("button", { name: "Allow changes" }).click();
+  await expect(sidebar.getByText("Writes on")).toBeVisible();
+
+  // --- picking a table closes the drawer
+  await sidebar.getByRole("textbox", { name: "Find a table" }).fill("ui_people");
+  await sidebar
+    .getByRole("list", { name: "Matches in public" })
+    .getByRole("button")
+    .first()
+    .click();
+  await expect(sidebar).toBeHidden();
+
+  // --- the view tabs scroll, and the Data controls are one scrolling row
+  await page
+    .getByRole("tab", { name: "Table details" })
+    .click({ trial: true })
+    .catch(() => {});
+  const tabs = page.getByRole("tablist", { name: "View" });
+  const scrolls = await tabs.evaluate(
+    (el) => el.scrollWidth > el.clientWidth && getComputedStyle(el).overflowX !== "visible",
+  );
+  expect(scrolls, "the view tabs scroll sideways").toBe(true);
+  await page.getByRole("tab", { name: "Table details" }).scrollIntoViewIfNeeded();
+  await page.getByRole("tab", { name: "Table details" }).click();
+  await expect(page.getByRole("grid")).toBeVisible();
+  const bar = await page.locator("[data-slot=data-toolbar]").evaluate((el) => {
+    const tops = new Set<number>();
+    for (const c of el.querySelectorAll("button, select, [role=switch]")) {
+      const r = c.getBoundingClientRect();
+      tops.add(Math.round((r.top + r.height / 2) / 16));
+    }
+    return { lines: tops.size, scrolls: el.scrollWidth > el.clientWidth };
+  });
+  expect(bar.lines, "the Data controls are one row").toBe(1);
+  expect(bar.scrolls, "and that row scrolls").toBe(true);
+  await noOverflow("on the Data section");
+
+  // --- a form dialog is a full-screen sheet
+  await page.getByRole("button", { name: "Edit row 1" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(350);
+  const box = await dialog.boundingBox();
+  expect(Math.round(box!.width), "the sheet is as wide as the screen").toBe(375);
+  expect(Math.round(box!.height), "the sheet is as tall as the screen").toBe(812);
+  await expect(dialog.getByRole("button", { name: "Preview" })).toBeInViewport({ ratio: 1 });
+  mkdirSync(shots, { recursive: true });
+  await page.screenshot({ path: path.join(shots, "phone-edit-row.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.screenshot({ path: path.join(shots, "phone-data.png") });
+  await page.getByRole("button", { name: "Open connections and tables" }).click();
+  await expect(sidebar).toBeVisible();
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: path.join(shots, "phone-drawer.png") });
 });

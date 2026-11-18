@@ -43,6 +43,7 @@ import {
   type CatalogColumn,
   type CatalogTable,
 } from "./catalog.js";
+import { guardRelation } from "./guard.js";
 import { displayName, invalidChange, listWords, onDeleteWords, onUpdateWords } from "./sql.js";
 
 // --------------------------------------------------------------- builders ---
@@ -323,16 +324,15 @@ async function planUpdate(db: Queryable, change: UpdateRowChange): Promise<Plann
   await checkValues(db, set, fullType);
 
   const warnings = await rowWarnings(db, change.table, table, TRIGGER_EVENT.update);
-  const keyChanged = set.filter((s) => key.includes(s.column)).map((s) => s.column);
-  if (keyChanged.length > 0) {
-    const referenced = referencedWarning(
-      await listIncomingForeignKeys(db, table.oid),
-      "update",
-      keyChanged,
-    );
-    if (referenced) warnings.push(referenced);
-  }
   const names = set.map((s) => s.column);
+  // Any changed column that a foreign key points at (the row's key, or another unique key) can
+  // trigger that key's ON UPDATE action, so all of them are compared, not only the key.
+  const referenced = referencedWarning(
+    await listIncomingForeignKeys(db, table.oid),
+    "update",
+    names,
+  );
+  if (referenced) warnings.push(referenced);
   return {
     change,
     statements: [buildUpdateRow(change.table, typed, set, change.expected)],
@@ -341,7 +341,36 @@ async function planUpdate(db: Queryable, change: UpdateRowChange): Promise<Plann
     effect: `Changes ${names.length === 1 ? "one column" : `${names.length} columns`} (${listWords(names)}) of one row of ${displayName(change.table.schema, change.table.name)}, found by its key, if ${names.length === 1 ? "it still holds" : "they still hold"} the value${names.length === 1 ? "" : "s"} you saw.`,
     warnings,
     destructive: false,
+    guard: { relations: [guardRelation(table, [...key, ...names], "row_exclusive")] },
   };
+}
+
+/**
+ * What happens to the columns an insert leaves out, truthfully: a column with a
+ * default gets it, one filled by the database (identity or generated) is
+ * computed, and one with neither gets NULL.
+ */
+function omittedWords(table: CatalogTable, given: readonly TypedValue[]): string {
+  const left = table.columns.filter((c) => !given.some((g) => g.column === c.name));
+  const filled = left.filter((c) => c.generated || c.identity !== null).map((c) => c.name);
+  const defaulted = left
+    .filter((c) => !c.generated && c.identity === null && c.hasDefault)
+    .map((c) => c.name);
+  const empty = left
+    .filter((c) => !c.generated && c.identity === null && !c.hasDefault)
+    .map((c) => c.name);
+  const parts: string[] = [];
+  if (defaulted.length > 0)
+    parts.push(`${listWords(defaulted)} get${defaulted.length === 1 ? "s its" : " their"} default`);
+  if (filled.length > 0)
+    parts.push(
+      `${listWords(filled)} ${filled.length === 1 ? "is" : "are"} filled in by the database`,
+    );
+  if (empty.length > 0)
+    parts.push(
+      `${listWords(empty)} ${empty.length === 1 ? "has" : "have"} no default and will be NULL`,
+    );
+  return parts.length > 0 ? `; ${parts.join("; ")}` : "";
 }
 
 async function planInsert(db: Queryable, change: InsertRowChange): Promise<PlannedChange> {
@@ -353,15 +382,23 @@ async function planInsert(db: Queryable, change: InsertRowChange): Promise<Plann
   });
   await checkValues(db, values, (name) => findColumn(table, name).dataType);
   const warnings = await rowWarnings(db, change.table, table, TRIGGER_EVENT.insert);
-  const left = table.columns.length - values.length;
   return {
     change,
     statements: [buildInsertRow(change.table, values)],
     expect: "one_row",
     category: "row",
-    effect: `Adds one row to ${displayName(change.table.schema, change.table.name)}${left > 0 ? `; the ${left === 1 ? "column" : `${left} columns`} left out get${left === 1 ? "s its" : " their"} default` : ""}.`,
+    effect: `Adds one row to ${displayName(change.table.schema, change.table.name)}${omittedWords(table, values)}.`,
     warnings,
     destructive: false,
+    guard: {
+      relations: [
+        guardRelation(
+          table,
+          values.map((v) => v.column),
+          "row_exclusive",
+        ),
+      ],
+    },
   };
 }
 
@@ -385,6 +422,7 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
     effect: `Deletes one row of ${displayName(change.table.schema, change.table.name)}, found by its key.`,
     warnings,
     destructive: true,
+    guard: { relations: [guardRelation(table, key, "row_exclusive")] },
   };
 }
 

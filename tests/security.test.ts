@@ -498,8 +498,11 @@ describe("writes: only the write service reaches the write capability", () => {
     for (const file of appCode.filter((f) => /app\/api/.test(rel(f)))) {
       expect(codeOf(rel(file)), rel(file)).not.toMatch(/writesEnabled|ENABLE_WRITES/);
     }
-    // The CLI drops a value inherited from the shell: only the flag can turn writes on.
-    expect(codeOf("packages/cli/src/web-server.ts")).toMatch(/delete rest\[ENABLE_WRITES_ENV\]/);
+    // The CLI drops a value inherited from the shell, in every spelling (Windows environment
+    // names ignore case): only the flag can turn writes on.
+    expect(codeOf("packages/cli/src/web-server.ts")).toMatch(
+      /key\.toLowerCase\(\) === ENABLE_WRITES_ENV\.toLowerCase\(\)\) delete rest\[key\]/,
+    );
   });
 
   it("the unlock is memory only: no saved or shared type has a place for it", () => {

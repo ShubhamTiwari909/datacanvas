@@ -82,8 +82,14 @@ describe("canvas-engine stays framework-free", () => {
 });
 
 describe("writes are a separate capability (1.4.0)", () => {
+  // Line endings are normalised first: a CRLF checkout (Windows) must read the same as an LF one.
   const strip = (text: string) =>
-    text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    text
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  // Paths are written with `/` in the rules, whatever the platform's separator is.
+  const posix = (file: string) => file.split(path.sep).join("/");
   const adapterSource = strip(readFileSync(path.join(coreDir, "src/adapter.ts"), "utf8"));
   const inBody = (source: string, header: string): string => {
     const start = source.indexOf(header);
@@ -119,18 +125,18 @@ describe("writes are a separate capability (1.4.0)", () => {
     );
     for (const file of implementers) {
       expect(
-        /testing\/mock-adapter\.ts$|postgres-adapter\/src\/.*\.ts$/.test(file),
-        path.relative(root, file),
+        /testing\/mock-adapter\.ts$|postgres-adapter\/src\/.*\.ts$/.test(posix(file)),
+        posix(path.relative(root, file)),
       ).toBe(true);
     }
-    expect(implementers.some((f) => f.endsWith("testing/mock-adapter.ts"))).toBe(true);
+    expect(implementers.some((f) => posix(f).endsWith("testing/mock-adapter.ts"))).toBe(true);
   });
 
   it("the web app's server code imports the write capability in one file only", () => {
     const users = sourceFiles(path.join(root, "apps/web"))
       .filter((f) => !f.endsWith(".test.ts") && !f.includes("node_modules") && !f.includes(".next"))
       .filter((f) => /\b(WritableAdapter|isWritableAdapter)\b/.test(strip(readFileSync(f, "utf8"))))
-      .map((f) => path.relative(root, f));
+      .map((f) => posix(path.relative(root, f)));
     expect(users).toEqual(["apps/web/lib/server/write-service.ts"]);
   });
 

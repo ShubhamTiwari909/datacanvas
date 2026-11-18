@@ -34,6 +34,7 @@ describe("write path source rules", () => {
   it("covers the files of the write path", () => {
     expect(all.map((s) => s.file).sort()).toEqual([
       "catalog.ts",
+      "guard.ts",
       "index.ts",
       "rows.ts",
       "sql.ts",

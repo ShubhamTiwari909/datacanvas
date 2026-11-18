@@ -1,5 +1,5 @@
 import { PREVIEW_TTL_MS, type PlannedChange } from "@datacanvas/database-core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_PREVIEWS_PER_CONNECTION, PreviewStore } from "./preview-store";
 
 const plan = (effect = "Changes one row."): PlannedChange => ({
@@ -77,5 +77,120 @@ describe("PreviewStore", () => {
     store.clear("c1");
     expect(store.take("c1", a)).toBeNull();
     expect(store.take("c2", b)).not.toBeNull();
+  });
+});
+
+describe("PreviewStore: retention is bounded by the time to live", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("drops an expired plan on a timer, without any further use of the store", () => {
+    vi.useFakeTimers();
+    let clock = 1_000_000;
+    const store = new PreviewStore({
+      now: () => clock,
+      ttlMs: 60_000,
+      sweepIntervalMs: 10_000,
+    });
+    store.put("c1", plan());
+    store.put("c2", plan());
+    expect(store.heldCount()).toBe(2);
+
+    // Not expired yet: the timer runs but keeps both.
+    clock += 30_000;
+    vi.advanceTimersByTime(30_000);
+    expect(store.heldCount()).toBe(2);
+
+    // Expired, and nobody called the store: the timer still drops them.
+    clock += 31_000;
+    vi.advanceTimersByTime(10_000);
+    expect(store.heldCount()).toBe(0);
+    store.dispose();
+  });
+
+  it("stops its timer when it is empty, and starts again with the next preview", () => {
+    vi.useFakeTimers();
+    let clock = 0;
+    const store = new PreviewStore({ now: () => clock, ttlMs: 1_000, sweepIntervalMs: 500 });
+    expect(vi.getTimerCount()).toBe(0);
+    store.put("c1", plan());
+    expect(vi.getTimerCount()).toBe(1);
+    clock += 2_000;
+    vi.advanceTimersByTime(500);
+    expect(store.heldCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    store.put("c1", plan());
+    expect(vi.getTimerCount()).toBe(1);
+    store.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(store.heldCount()).toBe(0);
+  });
+
+  it("never keeps the process alive: the timer is unref'd", () => {
+    const store = new PreviewStore();
+    store.put("c1", plan());
+    // A ref'd 30 second timer would hold a finished program open; the store must not.
+    const handles = (process as unknown as { _getActiveHandles?: () => unknown[] })
+      ._getActiveHandles?.()
+      .filter((h) => typeof (h as { hasRef?: () => boolean }).hasRef === "function");
+    store.dispose();
+    expect(handles?.some((h) => (h as { hasRef: () => boolean }).hasRef() === false)).not.toBe(
+      undefined,
+    );
+  });
+});
+
+describe("PreviewStore: retention is bounded by the time to live", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("drops an expired plan on a timer, without any further use of the store", () => {
+    vi.useFakeTimers();
+    let clock = 1_000_000;
+    const store = new PreviewStore({
+      now: () => clock,
+      ttlMs: 60_000,
+      sweepIntervalMs: 10_000,
+    });
+    store.put("c1", plan());
+    store.put("c2", plan());
+    expect(store.heldCount()).toBe(2);
+
+    // Not expired yet: the timer runs but keeps both.
+    clock += 30_000;
+    vi.advanceTimersByTime(30_000);
+    expect(store.heldCount()).toBe(2);
+
+    // Expired, and nobody called the store: the timer still drops them.
+    clock += 31_000;
+    vi.advanceTimersByTime(10_000);
+    expect(store.heldCount()).toBe(0);
+    store.dispose();
+  });
+
+  it("stops its timer when it is empty, and starts again with the next preview", () => {
+    vi.useFakeTimers();
+    let clock = 0;
+    const store = new PreviewStore({ now: () => clock, ttlMs: 1_000, sweepIntervalMs: 500 });
+    expect(vi.getTimerCount()).toBe(0);
+    store.put("c1", plan());
+    expect(vi.getTimerCount()).toBe(1);
+    clock += 2_000;
+    vi.advanceTimersByTime(500);
+    expect(store.heldCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    store.put("c1", plan());
+    expect(vi.getTimerCount()).toBe(1);
+    store.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(store.heldCount()).toBe(0);
+  });
+
+  it("never keeps the process alive: the timer is unref'd", () => {
+    const store = new PreviewStore();
+    store.put("c1", plan());
+    const timer = (store as unknown as { timer?: { hasRef(): boolean } }).timer;
+    // A ref'd timer would hold a finished program open for as long as a plan waits.
+    expect(timer).toBeDefined();
+    expect(timer?.hasRef()).toBe(false);
+    store.dispose();
   });
 });

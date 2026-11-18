@@ -107,6 +107,10 @@ const SQL = `
 
   CREATE TABLE w_rls (id int PRIMARY KEY, owner text, v text);
   ALTER TABLE w_rls ENABLE ROW LEVEL SECURITY;
+  CREATE TABLE w_alt (id int PRIMARY KEY, code text UNIQUE NOT NULL, v text);
+  CREATE TABLE w_alt_child (id int PRIMARY KEY, c text REFERENCES w_alt (code) ON UPDATE CASCADE);
+  INSERT INTO w_alt VALUES (1, 'k1', 'x');
+  INSERT INTO w_alt_child VALUES (1, 'k1');
   CREATE TABLE w_readonly (id int PRIMARY KEY, v text);
   INSERT INTO w_readonly VALUES (1, 'x');
 `;
@@ -191,6 +195,8 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
     await adapter?.disconnect();
     await sql?.end();
     await db?.dispose();
+    // A setup that failed before the database existed must not hide its own error behind this one.
+    if (!db) return;
     const { host, port, username, password } = db.connection;
     const admin = new pg.Client({ host, port, user: username, password, database: "postgres" });
     await admin.connect();
@@ -462,6 +468,24 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
     });
   });
 
+  describe("an alternate unique key that other rows point at", () => {
+    it("warns about the ON UPDATE action when that key changes, though it is not the row's key", async () => {
+      const plan = await adapter.previewChange(
+        update("w_alt", { id: "1" }, { code: "k2" }, { code: "k1" }),
+      );
+      const referenced = plan.warnings.find((w) => w.code === "referenced");
+      expect(referenced?.message).toContain("public.w_alt_child.c");
+      expect(referenced?.message).toContain("those rows get the new key");
+      await adapter.applyChange(plan);
+      expect(await rows("SELECT c FROM w_alt_child")).toEqual([{ c: "k2" }]);
+      // A column no foreign key points at gives no warning.
+      const plain = await adapter.previewChange(
+        update("w_alt", { id: "1" }, { v: "y" }, { v: "x" }),
+      );
+      expect(plain.warnings.some((w) => w.code === "referenced")).toBe(false);
+    });
+  });
+
   describe("every allow-list type", () => {
     const VALUES: Record<string, [string, string]> = {
       c_smallint: ["-32768", "-32768"],
@@ -540,6 +564,10 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
           values: ["d@x.test", "", null],
         },
       ]);
+      // The sentence tells the truth about each column left out.
+      expect(plan.effect).toContain("id and required get their default");
+      expect(plan.effect).toContain("total is filled in by the database");
+      expect(plan.effect).toMatch(/score[^;]* no default and will be NULL/);
       expect(await adapter.applyChange(plan)).toEqual({ rowCount: 1 });
       expect(
         await rows("SELECT note, name, required, score FROM w_users WHERE email = 'd@x.test'"),
@@ -680,6 +708,59 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
       );
       expect(error.code).toBe("write_denied");
       expect(await rows("SELECT v FROM w_readonly")).toEqual([{ v: "x" }]);
+    });
+  });
+
+  describe("a plan that went stale", () => {
+    const recreate = (extra = "") =>
+      sql.query(
+        `DROP TABLE IF EXISTS w_stale; CREATE TABLE w_stale (id int PRIMARY KEY, v text${extra}); INSERT INTO w_stale (id, v) VALUES (1, 'old')`,
+      );
+    const stale = (): Promise<TableRef> => recreate().then(() => ref("w_stale"));
+
+    it("is refused when the table was dropped and created again, and writes nothing", async () => {
+      await stale();
+      const plans = [
+        await adapter.previewChange(update("w_stale", { id: "1" }, { v: "new" }, { v: "old" })),
+        await adapter.previewChange(insert("w_stale", { id: "2", v: "added" })),
+        await adapter.previewChange(remove("w_stale", { id: "1" })),
+      ];
+      // Another session drops the table and creates a look-alike with the same names and a row.
+      await recreate();
+      for (const plan of plans) {
+        const error = await failure(adapter.applyChange(plan));
+        expect(error.code).toBe("row_changed");
+      }
+      expect(await rows("SELECT id, v FROM w_stale")).toEqual([{ id: 1, v: "old" }]);
+    });
+
+    it("is refused when a column it names was dropped and added again", async () => {
+      await stale();
+      const plan = await adapter.previewChange(
+        update("w_stale", { id: "1" }, { v: "new" }, { v: "old" }),
+      );
+      // Same name and type, but a different column (a new position in the table).
+      await sql.query("ALTER TABLE w_stale DROP COLUMN v; ALTER TABLE w_stale ADD COLUMN v text");
+      await sql.query("UPDATE w_stale SET v = 'old'");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("row_changed");
+      expect(await rows("SELECT v FROM w_stale")).toEqual([{ v: "old" }]);
+    });
+
+    it("is refused when the table is gone, with a fixed message", async () => {
+      await stale();
+      const plan = await adapter.previewChange(remove("w_stale", { id: "1" }));
+      await sql.query("DROP TABLE w_stale");
+      const error = await failure(adapter.applyChange(plan));
+      expect(error.code).toBe("not_found");
+    });
+
+    it("still applies when nothing changed in between", async () => {
+      await stale();
+      const plan = await adapter.previewChange(
+        update("w_stale", { id: "1" }, { v: "new" }, { v: "old" }),
+      );
+      await sql.query("ALTER TABLE w_stale ADD COLUMN extra int"); // an unrelated change
+      expect(await adapter.applyChange(plan)).toEqual({ rowCount: 1 });
     });
   });
 

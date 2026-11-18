@@ -6,7 +6,7 @@
  *
  * Every write needs all of these, checked on every call, in this order:
  *   1. the process was started with `--enable-writes` (not reachable from the API),
- *   2. the connection's host is this machine (loopback or a Unix socket),
+ *   2. the connection's host is this machine (`localhost`, `127.0.0.0/8` or `::1`),
  *   3. viewing table data is on for the connection,
  *   4. the person unlocked writes for it in this session, by typing its
  *      database name (memory only; cleared by disconnecting, by switching data
@@ -21,11 +21,12 @@
  *
  * PRIVACY: values of a change are never logged, stored in the history, put in
  * an error or sent back. The history holds the kind of change, the table, the
- * column names, the time, the outcome and, for a change of structure only,
- * its SQL. Nothing here writes to a log: a rule in tests/security.test.ts
+ * column names, the time, the outcome and, for a change of structure only
+ * (and not one that carries a literal default or a comment), its SQL. Nothing here writes to a log: a rule in tests/security.test.ts
  * fails if any file of the write path does.
  */
 import {
+  changeCarriesUserText,
   changeColumns,
   changeTable,
   DatabaseError,
@@ -91,6 +92,9 @@ export class WriteService {
     this.generateId = dependencies.generateId ?? (() => randomBytes(12).toString("base64url"));
     // A disconnect (or shutdown) forgets everything that belonged to the connection.
     this.connections.onRemove((id) => this.forget(id));
+    // Locking writes, or switching data viewing off (which locks them), drops the
+    // plans made while they were unlocked: they hold the person's values.
+    this.connections.onWriteLocked((id) => this.previews.clear(id));
   }
 
   /** Whether writes are possible on a connection, and which of the switches are off. */
@@ -171,9 +175,11 @@ export class WriteService {
 
     this.busy.add(id);
     try {
-      const applied = await this.connections.use(id, (adapter) =>
-        writable(adapter).applyChange(plan),
-      );
+      const applied = await this.connections.use(id, (adapter) => {
+        // `use` may have waited to reconnect: writes can have been locked meanwhile.
+        this.requireUnlocked(id);
+        return writable(adapter).applyChange(plan);
+      });
       return { rowCount: applied.rowCount, entry: this.record(id, plan, null) };
     } catch (error) {
       this.record(id, plan, errorCode(error));
@@ -240,8 +246,12 @@ export class WriteService {
       kind: plan.change.kind,
       table: { ...changeTable(plan.change) },
       columns: changeColumns(plan.change),
-      // A change of structure has no row values in its SQL; a row change's SQL is not kept.
-      statement: plan.category === "structure" ? statementText(plan) : null,
+      // A row change's SQL is not kept. A change of structure keeps its SQL, unless it carries
+      // text the person typed (a literal default or a comment): the history is names only.
+      statement:
+        plan.category === "structure" && !changeCarriesUserText(plan.change)
+          ? statementText(plan)
+          : null,
       outcome: failure === null ? "applied" : "failed",
       errorCode: failure,
     };

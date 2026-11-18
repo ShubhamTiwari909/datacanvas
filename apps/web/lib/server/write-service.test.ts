@@ -5,6 +5,7 @@
  * history, a preview answer, an error or the console.
  */
 import {
+  DEFAULT_ERROR_MESSAGES,
   DatabaseError,
   PREVIEW_TTL_MS,
   type AppliedChange,
@@ -15,6 +16,7 @@ import { MockDatabaseAdapter } from "@datacanvas/database-core/testing";
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionRegistry } from "./connection-registry";
+import { PreviewStore } from "./preview-store";
 import { MAX_HISTORY_PER_CONNECTION, WRITE_MESSAGES, WriteService } from "./write-service";
 
 const details: Omit<ConnectionSummary, "id"> = {
@@ -131,11 +133,6 @@ describe("WriteService: the switches", () => {
     const { service, id } = setup();
     expect(service.unlock(id, "shop").unlocked).toBe(true);
     expect(service.lock(id).unlocked).toBe(false);
-  });
-
-  it("accepts a Unix socket as this machine", () => {
-    const { service, id } = setup({ summary: { host: "/var/run/postgresql" } });
-    expect(service.unlock(id, "shop").unlocked).toBe(true);
   });
 
   it("refuses everything for an unknown connection", async () => {
@@ -299,9 +296,15 @@ describe("WriteService: preview and apply", () => {
     const { previewId } = await service.preview(id, updateEmail(SECRET, "not-what-is-there"));
     const error = await refusal(() => service.apply(id, previewId));
     expect(error.code).toBe("row_changed");
-    expect(error.message).not.toContain(SECRET);
+    // Neither the new value, nor the value the person saw, nor what is really there is in the error.
+    for (const supplied of [SECRET, "not-what-is-there", "a@x.test"]) {
+      expect(error.message).not.toContain(supplied);
+    }
     const [entry] = service.history(id);
     expect(entry).toMatchObject({ outcome: "failed", errorCode: "row_changed" });
+    for (const supplied of [SECRET, "not-what-is-there"]) {
+      expect(JSON.stringify(entry)).not.toContain(supplied);
+    }
     const next = await service.preview(id, updateEmail("ok@x.test"));
     expect((await service.apply(id, next.previewId)).rowCount).toBe(1);
   });
@@ -339,7 +342,84 @@ describe("WriteService: preview and apply", () => {
     vi.spyOn(adapter, "previewChange").mockRejectedValueOnce(new DatabaseError("not_editable"));
     const { service, id } = setup({ adapter });
     service.unlock(id, "shop");
-    expect((await refusal(() => service.preview(id, updateEmail()))).code).toBe("not_editable");
+    const error = await refusal(() => service.preview(id, updateEmail()));
+    expect(error.code).toBe("not_editable");
+    // The adapter's fixed sentence arrives as it is, not rewritten and not extended.
+    expect(error.message).toBe(DEFAULT_ERROR_MESSAGES.not_editable);
+  });
+});
+
+describe("WriteService: locking while a write is on its way", () => {
+  it("does not apply when writes are locked while the connection is reconnecting", async () => {
+    const adapter = new MockDatabaseAdapter();
+    const { service, registry, id } = setup({ adapter });
+    service.unlock(id, "shop");
+    const { previewId } = await service.preview(id, updateEmail("late@x.test"));
+
+    // The connection was closed as idle: the next use has to reconnect, and waits for it.
+    let finishReconnect: () => void = () => {};
+    vi.spyOn(adapter, "connect").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReconnect = resolve;
+        }),
+    );
+    const applySpy = vi.spyOn(adapter, "applyChange");
+    const applying = refusal(() => service.apply(id, previewId));
+    await Promise.resolve();
+
+    // The person locks writes (or switches data viewing off) while it waits.
+    expect(registry.isWriteUnlocked(id)).toBe(true);
+    service.lock(id);
+    finishReconnect();
+
+    expect((await applying).code).toBe("write_not_unlocked");
+    expect(applySpy).not.toHaveBeenCalled();
+    const [entry] = service.history(id);
+    expect(entry).toMatchObject({ outcome: "failed", errorCode: "write_not_unlocked" });
+    const page = await readUsers(adapter);
+    expect(page.rows[0]?.[1]?.value).toBe("a@x.test");
+  });
+
+  it("drops the previews at once when data viewing is switched off", async () => {
+    const clock = 1_700_000_000_000;
+    const previews = new PreviewStore({ now: () => clock });
+    const registry = new ConnectionRegistry();
+    const service = new WriteService({
+      connections: registry,
+      writesEnabled: true,
+      previews,
+      now: () => clock,
+    });
+    const { id } = registry.add(details, new MockDatabaseAdapter());
+    service.unlock(id, "shop");
+    const { previewId } = await service.preview(id, updateEmail(SECRET));
+    expect(previews.count(id)).toBe(1);
+
+    registry.setDataAccess(id, false);
+    // Gone now, not when the store is next used: it held the person's values.
+    expect(previews.heldCount()).toBe(0);
+
+    registry.setDataAccess(id, true);
+    service.unlock(id, "shop");
+    expect((await refusal(() => service.apply(id, previewId))).code).toBe("preview_expired");
+    previews.dispose();
+  });
+
+  it("does not touch another connection's previews", async () => {
+    const previews = new PreviewStore();
+    const registry = new ConnectionRegistry();
+    const service = new WriteService({ connections: registry, writesEnabled: true, previews });
+    const a = registry.add(details, new MockDatabaseAdapter()).id;
+    const b = registry.add(details, new MockDatabaseAdapter()).id;
+    service.unlock(a, "shop");
+    service.unlock(b, "shop");
+    await service.preview(a, updateEmail());
+    await service.preview(b, updateEmail());
+    registry.setDataAccess(a, false);
+    expect(previews.count(a)).toBe(0);
+    expect(previews.count(b)).toBe(1);
+    previews.dispose();
   });
 });
 
@@ -371,17 +451,66 @@ describe("WriteService: history and privacy", () => {
   it("keeps a bounded history, newest first", async () => {
     const { service, id } = setup();
     service.unlock(id, "shop");
-    for (let i = 0; i < MAX_HISTORY_PER_CONNECTION + 5; i += 1) {
+    const total = MAX_HISTORY_PER_CONNECTION + 5;
+    const applied: string[] = [];
+    for (let i = 0; i < total; i += 1) {
       const preview = await service.preview(
         id,
         updateEmail(`v${i}@x.test`, i === 0 ? "a@x.test" : `v${i - 1}@x.test`),
       );
-      await service.apply(id, preview.previewId);
+      applied.push((await service.apply(id, preview.previewId)).entry.id);
     }
     const history = service.history(id);
     expect(history).toHaveLength(MAX_HISTORY_PER_CONNECTION);
-    // Newest first: the last change made is at the top, and the oldest ones were dropped.
-    expect(new Set(history.map((entry) => entry.id)).size).toBe(MAX_HISTORY_PER_CONNECTION);
+    // Newest first: the last change made is at the top, the oldest kept one at the bottom,
+    // and the first five were evicted.
+    expect(history.map((entry) => entry.id)).toEqual(applied.slice(5).reverse());
+    expect(history.some((entry) => applied.slice(0, 5).includes(entry.id))).toBe(false);
+  });
+
+  it("keeps no SQL for a change of structure that carries text the person typed", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    const typed = [
+      // A literal default, and a comment.
+      {
+        kind: "set_default",
+        table: users,
+        column: "full_name",
+        default: { kind: "literal", value: `${SECRET}-default` },
+      },
+      {
+        kind: "add_column",
+        table: users,
+        column: {
+          name: "note",
+          type: { name: "text" },
+          nullable: true,
+          default: { kind: "none" },
+          identity: null,
+          comment: `${SECRET}-comment`,
+        },
+      },
+    ] satisfies Change[];
+    for (const change of typed) {
+      const preview = await service.preview(id, change);
+      // The preview is what the person typed and must see, exactly.
+      expect(preview.statement).toContain(change.kind === "set_default" ? SECRET : "note");
+      const { entry } = await service.apply(id, preview.previewId);
+      expect(entry.statement).toBeNull();
+      expect(entry).toMatchObject({ kind: change.kind, outcome: "applied" });
+    }
+    expect(JSON.stringify(service.history(id))).not.toContain(SECRET);
+
+    // A change without such text keeps its SQL, as before.
+    const plain = await service.preview(id, {
+      kind: "set_default",
+      table: users,
+      column: "created_at",
+      default: { kind: "now" },
+    });
+    const { entry } = await service.apply(id, plain.previewId);
+    expect(entry.statement).toContain("SET DEFAULT now()");
   });
 
   it("forgets the previews and the history when the connection is closed", async () => {

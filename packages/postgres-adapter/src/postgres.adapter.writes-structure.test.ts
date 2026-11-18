@@ -398,6 +398,25 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
       );
     });
 
+    it("never picks a same-named user function for the uuid default", async () => {
+      // A decoy that sorts before every real schema name, and returns a recognisable constant.
+      await sql.query(`
+        CREATE SCHEMA a_decoy;
+        CREATE FUNCTION a_decoy.gen_random_uuid() RETURNS uuid LANGUAGE sql
+          AS $$ SELECT '00000000-0000-0000-0000-00000000dec0'::uuid $$;
+      `);
+      const change = create("s_uuid_decoy", [
+        col("id", "uuid", { default: { kind: "gen_random_uuid" }, nullable: false }),
+      ]);
+      if (serverVersion < 130000) await sql.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+      const plan = await apply(change);
+      expect(plan.statements[0]!.text).not.toContain("a_decoy");
+      await sql.query("INSERT INTO s_uuid_decoy DEFAULT VALUES");
+      const [row] = await rows<{ id: string }>("SELECT id FROM s_uuid_decoy");
+      expect(row?.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(row?.id).not.toBe("00000000-0000-0000-0000-00000000dec0");
+    });
+
     it("refuses what cannot be created, naming structure only", async () => {
       const refuse = async (change: Change, code: string, word: string) => {
         const error = await failure(adapter.previewChange(change));
@@ -889,6 +908,38 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
       expect((await columnsOf("s_alter")).map((c) => c.name)).toContain("viewed");
     });
 
+    it("refuses to drop a column that a generated column is computed from, and names it", async () => {
+      await sql.query(
+        "CREATE TABLE s_gen (id int PRIMARY KEY, base int, doubled int GENERATED ALWAYS AS (base * 2) STORED)",
+      );
+      const error = await failure(
+        adapter.previewChange({
+          kind: "drop_column",
+          table: ref("s_gen"),
+          column: "base",
+          confirm: "s_gen",
+        }),
+      );
+      expect(error.code).toBe("has_dependents");
+      expect(error.message).toContain("doubled");
+      // The generated column itself has only its own default expression: nothing else depends on it.
+      const own = await adapter.previewChange({
+        kind: "drop_column",
+        table: ref("s_gen"),
+        column: "doubled",
+        confirm: "s_gen",
+      });
+      expect(statementText(own)).toBe('ALTER TABLE "public"."s_gen" DROP COLUMN "doubled";');
+      // A table's own generated column does not stop the table being dropped.
+      const table = await adapter.previewChange({
+        kind: "drop_table",
+        table: ref("s_gen"),
+        confirm: "s_gen",
+      });
+      expect(table.statements[0]?.text).toBe('DROP TABLE "public"."s_gen"');
+      await sql.query("DROP TABLE s_gen");
+    });
+
     it("drops a column nothing uses, and one that only owns a sequence", async () => {
       await sql.query("DROP INDEX s_alter_free_idx");
       const plan = await apply(dropColumn("free"));
@@ -937,6 +988,109 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
       expect(statementText(plan)).not.toMatch(/cascade/i);
       expect((await failure(adapter.applyChange(plan))).code).toBe("has_dependents");
       expect(await exists("s_late")).toBe(true);
+    });
+  });
+
+  describe("a plan that went stale", () => {
+    const fresh = () =>
+      sql.query(
+        "DROP TABLE IF EXISTS s_stale CASCADE; CREATE TABLE s_stale (id int PRIMARY KEY, n int, label text)",
+      );
+
+    it("is refused when the table was dropped and created again, and changes nothing", async () => {
+      await fresh();
+      const plans = [
+        await adapter.previewChange({
+          kind: "set_nullable",
+          table: ref("s_stale"),
+          column: "n",
+          nullable: false,
+        }),
+        await adapter.previewChange({ kind: "rename_table", table: ref("s_stale"), to: "s_moved" }),
+        await adapter.previewChange({
+          kind: "drop_table",
+          table: ref("s_stale"),
+          confirm: "s_stale",
+        }),
+        await adapter.previewChange({
+          kind: "create_index",
+          table: ref("s_stale"),
+          columns: ["label"],
+          unique: false,
+        }),
+      ];
+      // Another session drops it and creates a table with the same names (and some data).
+      await fresh();
+      await sql.query("INSERT INTO s_stale VALUES (1, 1, 'keep me')");
+      for (const plan of plans) {
+        const error = await failure(adapter.applyChange(plan));
+        expect([error.code, error.message]).toEqual([
+          "invalid_change",
+          "The table changed since you previewed this, so nothing was changed. Preview again.",
+        ]);
+      }
+      // The look-alike is untouched: still there under its name, data intact, no index, still nullable.
+      expect(await rows("SELECT label FROM s_stale")).toEqual([{ label: "keep me" }]);
+      expect(await exists("s_moved")).toBe(false);
+      expect(
+        await rows(
+          "SELECT 1 FROM pg_indexes WHERE tablename = 's_stale' AND indexname <> 's_stale_pkey'",
+        ),
+      ).toEqual([]);
+    });
+
+    it("is refused when a column it names was dropped and added again", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "drop_column",
+        table: ref("s_stale"),
+        column: "label",
+        confirm: "s_stale",
+      });
+      await sql.query(
+        "ALTER TABLE s_stale DROP COLUMN label; ALTER TABLE s_stale ADD COLUMN label text",
+      );
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect((await columnsOf("s_stale")).map((c) => c.name)).toContain("label");
+    });
+
+    it("is refused when the table a foreign key points at was replaced", async () => {
+      await fresh();
+      await sql.query("DROP TABLE IF EXISTS s_ref; CREATE TABLE s_ref (id int PRIMARY KEY)");
+      const plan = await adapter.previewChange({
+        kind: "add_foreign_key",
+        table: ref("s_stale"),
+        foreignKey: {
+          columns: ["n"],
+          references: { schema: "public", table: "s_ref", columns: ["id"] },
+          onDelete: "no_action",
+          onUpdate: "no_action",
+        },
+      });
+      await sql.query("DROP TABLE s_ref; CREATE TABLE s_ref (id int PRIMARY KEY)");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect(
+        await rows(
+          "SELECT 1 FROM pg_constraint WHERE conrelid = 's_stale'::regclass AND contype = 'f'",
+        ),
+      ).toEqual([]);
+    });
+
+    it("applies when nothing relevant changed in between", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "set_nullable",
+        table: ref("s_stale"),
+        column: "n",
+        nullable: false,
+      });
+      await sql.query("ALTER TABLE s_stale ADD COLUMN unrelated int");
+      await adapter.applyChange(plan);
+      expect(
+        await rows(
+          "SELECT attnotnull FROM pg_attribute WHERE attrelid = 's_stale'::regclass AND attname = 'n'",
+        ),
+      ).toEqual([{ attnotnull: true }]);
     });
   });
 

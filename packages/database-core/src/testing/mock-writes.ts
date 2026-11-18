@@ -22,9 +22,12 @@ import {
   type AppliedChange,
   type Change,
   type ChangeWarning,
+  type ColumnDefault,
   type ColumnDefinition,
   type ColumnType,
   type ColumnValue,
+  type ForeignKeyDefinition,
+  type IdentityKind,
   type IncomingForeignKey,
   type KeyValue,
   type PlannedChange,
@@ -34,7 +37,7 @@ import {
   type TableEditInfo,
 } from "../changes.js";
 import { DatabaseError } from "../errors.js";
-import type { ColumnInfo, TableRef } from "../models.js";
+import type { ColumnInfo, ReferentialAction, TableRef } from "../models.js";
 import { quoteIdentifier, quoteQualified } from "../sql-text.js";
 import type { MockDatabaseData } from "./ecommerce-fixture.js";
 
@@ -56,13 +59,13 @@ export function renderColumnType(type: ColumnType): string {
   return type.array ? `${text}[]` : text;
 }
 
-function renderDefault(column: ColumnDefinition): string {
-  const type = renderColumnType(column.type);
-  switch (column.default.kind) {
+/** `DEFAULT ...` for a default of a column of type `type` (the column's own type, as the catalog prints it). */
+function renderDefaultFor(value: ColumnDefault, type: string): string {
+  switch (value.kind) {
     case "none":
       return "";
     case "literal":
-      return ` DEFAULT CAST('${column.default.value.replace(/'/g, "''")}' AS ${type})`;
+      return ` DEFAULT CAST('${value.value.replace(/'/g, "''")}' AS ${type})`;
     case "now":
       return " DEFAULT now()";
     case "current_date":
@@ -70,8 +73,44 @@ function renderDefault(column: ColumnDefinition): string {
     case "gen_random_uuid":
       return " DEFAULT gen_random_uuid()";
     case "boolean":
-      return ` DEFAULT ${column.default.value ? "true" : "false"}`;
+      return ` DEFAULT ${value.value ? "true" : "false"}`;
   }
+}
+
+function renderDefault(column: ColumnDefinition): string {
+  return renderDefaultFor(column.default, renderColumnType(column.type));
+}
+
+/** A default as the catalog keeps it (`pg_get_expr`), so later inserts and edit info can use it. */
+function catalogDefault(column: ColumnDefinition): string | null {
+  const type = renderColumnType(column.type);
+  switch (column.default.kind) {
+    case "none":
+      return null;
+    case "literal":
+      return `'${column.default.value.replace(/'/g, "''")}'::${type}`;
+    case "now":
+      return "now()";
+    case "current_date":
+      return "CURRENT_DATE";
+    case "gen_random_uuid":
+      return "gen_random_uuid()";
+    case "boolean":
+      return column.default.value ? "true" : "false";
+  }
+}
+
+const ACTION_SQL: Record<ReferentialAction, string> = {
+  no_action: "NO ACTION",
+  restrict: "RESTRICT",
+  cascade: "CASCADE",
+  set_null: "SET NULL",
+  set_default: "SET DEFAULT",
+};
+
+/** A foreign key with the actions the person chose (finding 22), as the real adapter writes it. */
+function renderForeignKey(fk: ForeignKeyDefinition): string {
+  return `FOREIGN KEY (${columnList(fk.columns)}) REFERENCES ${quoteQualified(fk.references.schema, fk.references.table)} (${columnList(fk.references.columns)}) ON DELETE ${ACTION_SQL[fk.onDelete]} ON UPDATE ${ACTION_SQL[fk.onUpdate]}`;
 }
 
 function renderColumn(column: ColumnDefinition): string {
@@ -87,6 +126,9 @@ const columnList = (names: readonly string[]): string => names.map(quoteIdentifi
 export class MockWrites {
   /** Structure changes that were applied but do not change the sample data. */
   readonly appliedStructure: StructureChange[] = [];
+
+  /** Identity columns of tables created here (the sample columns have none), by table and column. */
+  private readonly identities = new Map<string, Map<string, IdentityKind>>();
 
   constructor(private readonly data: MockDatabaseData) {}
 
@@ -111,16 +153,19 @@ export class MockWrites {
       editable: reason === null,
       reason,
       key,
-      columns: columns.map((c) => ({
-        name: c.name,
-        dataType: c.dataType,
-        nullable: c.nullable,
-        hasDefault: c.defaultValue !== null,
-        generated: false,
-        identity: null,
-        editable: !/^bytea\b/.test(c.dataType),
-        inKey: key.includes(c.name),
-      })),
+      columns: columns.map((c) => {
+        const identity = this.identityOf(mapKey, c.name);
+        return {
+          name: c.name,
+          dataType: c.dataType,
+          nullable: c.nullable,
+          hasDefault: c.defaultValue !== null || identity !== null,
+          generated: identity === "always",
+          identity,
+          editable: !/^bytea\b/.test(c.dataType) && identity !== "always",
+          inKey: key.includes(c.name),
+        };
+      }),
       triggers: this.data.objects.triggers
         .filter((t) => t.schema === ref.schema && t.table === ref.name && t.state !== "disabled")
         .filter((t) => t.events.some((e) => e === "insert" || e === "update" || e === "delete"))
@@ -277,11 +322,7 @@ export class MockWrites {
       if (change.primaryKey.length > 0)
         parts.push(`PRIMARY KEY (${columnList(change.primaryKey)})`);
       for (const unique of change.unique) parts.push(`UNIQUE (${columnList(unique)})`);
-      for (const fk of change.foreignKeys) {
-        parts.push(
-          `FOREIGN KEY (${columnList(fk.columns)}) REFERENCES ${quoteQualified(fk.references.schema, fk.references.table)} (${columnList(fk.references.columns)})`,
-        );
-      }
+      for (const fk of change.foreignKeys) parts.push(renderForeignKey(fk));
       statements.push({
         text: `CREATE TABLE ${quoteQualified(change.schema, change.name)} (\n  ${parts.join(",\n  ")}\n)`,
         values: [],
@@ -351,14 +392,10 @@ export class MockWrites {
         alter(
           change.default.kind === "none"
             ? `ALTER COLUMN ${quoteIdentifier(change.column)} DROP DEFAULT`
-            : `ALTER COLUMN ${quoteIdentifier(change.column)} SET${renderDefault({
-                name: change.column,
-                type: { name: "text" },
-                nullable: true,
-                default: change.default,
-                identity: null,
-                comment: null,
-              })}`,
+            : `ALTER COLUMN ${quoteIdentifier(change.column)} SET${renderDefaultFor(
+                change.default,
+                columns.find((c) => c.name === change.column)?.dataType ?? "text",
+              )}`,
         );
         lock();
         break;
@@ -372,9 +409,7 @@ export class MockWrites {
         break;
       case "add_foreign_key":
         change.foreignKey.columns.forEach(hasColumn);
-        alter(
-          `ADD FOREIGN KEY (${columnList(change.foreignKey.columns)}) REFERENCES ${quoteQualified(change.foreignKey.references.schema, change.foreignKey.references.table)} (${columnList(change.foreignKey.references.columns)})`,
-        );
+        alter(`ADD ${renderForeignKey(change.foreignKey)}`);
         warnings.push({ code: "scan", message: "Reads every row to check the foreign key." });
         lock();
         break;
@@ -499,20 +534,34 @@ export class MockWrites {
     const next: Row = {};
     for (const column of columns) {
       const given = change.values.find((v) => v.column === column.name);
-      next[column.name] = given ? given.value : this.defaultFor(column, rows);
+      next[column.name] = given
+        ? given.value
+        : this.defaultFor(column, rows, this.identityOf(mapKey, column.name));
     }
     this.checkRow(change.table, columns, next, rows);
     rows.push(next);
     return 1;
   }
 
-  private defaultFor(column: ColumnInfo, rows: Row[]): string | null {
+  /** What the database puts in a column that an insert leaves out. */
+  private defaultFor(
+    column: ColumnInfo,
+    rows: Row[],
+    identity: IdentityKind | null,
+  ): string | null {
     const definition = column.defaultValue ?? "";
-    if (definition.startsWith("nextval(")) {
+    if (identity !== null || definition.startsWith("nextval(")) {
       return String(rows.reduce((max, row) => Math.max(max, Number(row[column.name] ?? 0)), 0) + 1);
     }
     if (definition === "now()") return "2026-11-16 12:00:00+00";
-    return null;
+    if (definition === "CURRENT_DATE") return "2026-11-16";
+    if (definition === "true" || definition === "false") return definition;
+    if (/^-?\d+(\.\d+)?$/.test(definition)) return definition;
+    if (definition === "gen_random_uuid()") {
+      return `00000000-0000-4000-8000-${(rows.length + 1).toString(16).padStart(12, "0")}`;
+    }
+    const literal = /^'((?:[^']|'')*)'::/.exec(definition);
+    return literal ? (literal[1] ?? "").replace(/''/g, "'") : null;
   }
 
   /** NOT NULL, primary key and unique, with fixed messages that name structure only. */
@@ -556,22 +605,40 @@ export class MockWrites {
         name: c.name,
         ordinalPosition: i + 1,
         dataType: renderColumnType(c.type),
-        nullable: c.nullable && c.identity === null,
-        defaultValue: null,
+        // A primary key column and an identity column are NOT NULL, as in PostgreSQL.
+        nullable: c.nullable && c.identity === null && !change.primaryKey.includes(c.name),
+        defaultValue: catalogDefault(c),
         comment: c.comment,
       }));
-      this.data.constraints[mapKey] =
-        change.primaryKey.length > 0
-          ? [
-              {
-                name: `${change.name}_pkey`,
-                kind: "primary_key",
-                columns: [...change.primaryKey],
-                definition: `PRIMARY KEY (${change.primaryKey.join(", ")})`,
-              },
-            ]
-          : [];
-      this.data.indexes[mapKey] = [];
+      const identities = new Map<string, IdentityKind>();
+      for (const c of change.columns) if (c.identity !== null) identities.set(c.name, c.identity);
+      if (identities.size > 0) this.identities.set(mapKey, identities);
+      const constraints: MockDatabaseData["constraints"][string] = [];
+      const indexes: MockDatabaseData["indexes"][string] = [];
+      const keyed = (name: string, kind: "primary_key" | "unique", columns: string[]) => {
+        const list = columns.map(quoteIdentifier).join(", ");
+        constraints.push({
+          name,
+          kind,
+          columns: [...columns],
+          definition: `${kind === "primary_key" ? "PRIMARY KEY" : "UNIQUE"} (${columns.join(", ")})`,
+        });
+        indexes.push({
+          name,
+          columns: [...columns],
+          unique: true,
+          primary: kind === "primary_key",
+          method: "btree",
+          definition: `CREATE UNIQUE INDEX ${quoteIdentifier(name)} ON ${quoteQualified(change.schema, change.name)} USING btree (${list})`,
+        });
+      };
+      if (change.primaryKey.length > 0) {
+        keyed(`${change.name}_pkey`, "primary_key", change.primaryKey);
+      }
+      for (const unique of change.unique)
+        keyed(`${change.name}_${unique.join("_")}_key`, "unique", unique);
+      this.data.constraints[mapKey] = constraints;
+      this.data.indexes[mapKey] = indexes;
       return;
     }
     if (change.kind === "drop_table") {
@@ -581,6 +648,13 @@ export class MockWrites {
       );
       if (at < 0) throw new DatabaseError("not_found");
       this.data.tables.splice(at, 1);
+      // Its own foreign keys go with it (the preview refused the drop while others pointed at it).
+      this.data.relationships = this.data.relationships.filter(
+        (r) =>
+          !(r.source.schema === change.table.schema && r.source.table === change.table.name) &&
+          !(r.target.schema === change.table.schema && r.target.table === change.table.name),
+      );
+      this.identities.delete(mapKey);
       for (const source of [
         this.data.columns,
         this.data.constraints,
@@ -602,6 +676,10 @@ export class MockWrites {
       throw new DatabaseError("not_found");
     }
     return Object.hasOwn(this.data.columns, mapKey) ? this.data.columns[mapKey]! : [];
+  }
+
+  private identityOf(mapKey: string, column: string): IdentityKind | null {
+    return this.identities.get(mapKey)?.get(column) ?? null;
   }
 
   private keyColumns(mapKey: string): string[] {

@@ -13,6 +13,7 @@ import {
 } from "@datacanvas/database-core";
 import type { WriteClient } from "../connection/write.js";
 import type { Queryable } from "../introspection/types.js";
+import { verifyGuard } from "./guard.js";
 import { planRowChange } from "./rows.js";
 import { planStructureChange } from "./structure.js";
 
@@ -37,6 +38,8 @@ export function planChange(db: Queryable, change: Change): Promise<PlannedChange
  * the transaction roll back, so nothing is written in either case.
  */
 export async function runPlan(db: WriteClient, plan: PlannedChange): Promise<AppliedChange> {
+  // Lock what the plan is about and check it is still the same table, before anything runs.
+  await verifyGuard(db, plan);
   let rowCount = 0;
   for (const statement of plan.statements) {
     const result = await db.query(statement.text, statement.values);

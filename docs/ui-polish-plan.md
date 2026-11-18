@@ -1,0 +1,117 @@
+# Plan: polishing the forms and the dashboard UI
+
+Status: **proposal, nothing built.** Requested 2026-11-18, after 1.4.0 shipped, as the work to do **before** new features: the edit forms do not look good and the spacing is uneven. This plan lists what is wrong, with evidence, and a small set of changes that fix it, in an order that ships useful improvements early. It is a UI-only plan: no route, no stored data and no behaviour of the database changes.
+
+## 1. Goal
+
+Make the screens people use to change data feel as careful as the preview step already does: forms with an even rhythm, one consistent set of sizes, controls that fit the kind of value they hold, and a sidebar and toolbar that do not wrap into clutter. Then go one step beyond fixing: use the forms to make mistakes harder (show what changed, say why a button is disabled) and make the app usable on a phone.
+
+## 2. How this was reviewed (and what was not)
+
+- **Method.** A planning pass using the design-critique rubric, in a single context. It is **not** a full `/impeccable critique` run: no isolated sub-agents, no saved score.
+- **Measured in the running app.** DataCanvas started with `--enable-writes`, a local sample database (users and products with a few rows), a Chromium pane at 1280 by 800 and at 375 by 812. Sizes below were read from the page (`getBoundingClientRect` and computed styles), not estimated from screenshots. The row editor was also viewed in light theme.
+- **Deterministic scan.** The design detector over `apps/web/features` and `apps/web/components` reported **no findings**. The problems below are about consistency and rhythm, which it does not look for.
+- **Not reviewed.** The forms with many columns or very long values, the Overview, Paths, Health, Objects and Snapshots tabs, the canvas inspector, reduced-motion behaviour. Findings marked _(code)_ come from reading the source and should be confirmed when the work starts.
+- **Isolation.** The review used a throwaway data folder and a throwaway database; nothing of the user's was touched.
+
+## 3. What already works (keep it)
+
+- The **preview dialog**: the exact statement in a monospace block with a copy button, a before and after table, warnings, and Apply that waits for a tick on destructive changes. It is the best screen in the product.
+- Focus rings are visible everywhere checked, the labels are tied to their fields, and light and dark themes match.
+- The builders use one control height (32 px inputs and selects) and the app's own `Input` component.
+- The unlock dialog's role warning is clear and placed where the decision is made.
+
+## 4. Findings
+
+Severity: **P1** blocks or seriously confuses a task, **P2** a visible flaw people will notice, **P3** polish.
+
+### 4.1 Edit row form (`features/writes/row-editor-dialog.tsx`)
+
+| #   | Sev | Finding                                                                                                                                                                                                                                                                                     | Evidence                                       |
+| --- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 1   | P2  | Every value is a `textarea`: 30 px tall with a drag-resize grip on a one-line integer, and 12 px monospace text while every other input in the app is 14 px.                                                                                                                                | measured                                       |
+| 2   | P2  | **Uneven vertical rhythm.** The hint ("A whole number.") and the NULL checkbox sit under a field only sometimes, so the distance from one field to the next is 82, 66 and 82 px.                                                                                                            | measured                                       |
+| 3   | P2  | Tiny type: field name 12 px, the type badge and the "key" tag 10 px. Text of 10 or 11 px appears in 8 places across the features, and `text-xs` (12 px) on 58 lines of `features/writes`. The type is information people need (is it `integer` or `text`?) and is the hardest text to read. | measured, counted in code                      |
+| 4   | P3  | Fields are 640 px wide whatever they hold, so an `id` or a timestamp sits in a long empty bar and the form is tall.                                                                                                                                                                         | measured                                       |
+| 5   | P2  | Focus lands on the **primary key** field (the strongest focus ring on the first field). Opening a row to change a name should focus the first editable non-key field, or the cell that was clicked.                                                                                         | screenshot                                     |
+| 6   | P2  | Nothing shows **which fields changed**, and **Preview is disabled with no explanation** until something does.                                                                                                                                                                               | screenshot                                     |
+| 7   | P3  | NULL is a bare native checkbox (14 px, default style) under the field, unlike the app's `Switch`.                                                                                                                                                                                           | screenshot                                     |
+| 8   | P3  | Dialog padding is 16 px on a 672 px dialog; header, body and footer feel tight against the edges.                                                                                                                                                                                           | measured (`p-4` in `components/ui/dialog.tsx`) |
+
+### 4.2 Add row form (`insert-row-dialog.tsx`)
+
+| #   | Sev | Finding                                                                                                                                                                                                                 | Evidence |
+| --- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 9   | P2  | Each column is a **radio group of up to three modes** (Default, NULL, Value). A required column such as `email` shows a **single radio** labelled "Value": a control that offers no choice. 13 px radios, 12 px labels. | measured |
+| 10  | P2  | Choosing Value makes a textarea appear, so the dialog changes height as you click (a field is 32 px, then 66 px). Fields are separated by 12 px only and blur together.                                                 | measured |
+
+### 4.3 Table builders (`create-table-dialog.tsx`, `alter-table-dialog.tsx`)
+
+| #   | Sev | Finding                                                                                                                                                                                                                                             | Evidence              |
+| --- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 11  | P3  | **Three dialog widths** for the same family: 448 px (unlock), 672 px (row editor, add row, structure, preview, history) and 768 px (new table). Each file sets its own `max-w-*`; there is no shared size.                                          | measured, code        |
+| 12  | P2  | **Three label styles in one dialog.** The structure editor uses 14 px/400 ("What to change"), 12 px/500 (the "Column 1" legend) and 12 px/400 ("Name", "Type"). The new-table form uses 14 px/500 for section labels and 12 px/400 inside a column. | measured              |
+| 13  | P2  | **Rows do not share columns.** In a column card the first row is name 504 px, type 141 px and "Array"; the second is identity 171 px, a hint and comment 323 px. Only the right edges line up, so the eye cannot run down a column.                 | measured              |
+| 14  | P3  | "Array" and "Can be NULL" are lone checkboxes hanging off the end of a row, with no group around them.                                                                                                                                              | screenshot            |
+| 15  | P2  | The dialog body and footer scroll **together** (`max-h-[90vh] overflow-y-auto` on the whole dialog), so with several columns the Preview button scrolls out of view. _(code; the new-table form is already 638 px tall at 800 px with one column.)_ | measured height, code |
+
+### 4.4 Unlock dialog, sidebar and Data toolbar
+
+| #   | Sev | Finding                                                                                                                                                                                             | Evidence   |
+| --- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 16  | P3  | The unlock dialog says the same thing three times: the title ("Allow changes to ui_review?"), the first sentence (the same words plus the address), and the list below it (host and address again). | screenshot |
+| 17  | P2  | In the 288 px sidebar the **"Writes on", "Lock writes" and "Changes" row wraps** and "Changes" drops to its own line. In read mode the amber role note takes four lines under each connection.      | screenshot |
+| 18  | P2  | The Data toolbar has five clusters (paging, Add row, Blur values, Rows per page, Filter) that wrap unevenly. The row actions are 16 px icon-only buttons with no visible label, close together.     | screenshot |
+
+### 4.5 Phones
+
+| #   | Sev | Finding                                                                                                                                                                                                                                                                                   | Evidence       |
+| --- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| 19  | P1  | Below the `md` breakpoint the sidebar is `hidden`, so **on a phone there is no way to pick a table, switch connection, use the search or unlock writes.** The view tabs are cut off after "Health" with no sign that they scroll. The Data controls stack into five rows before the grid. | measured, code |
+
+## 5. Design direction
+
+One small set of rules, applied through shared pieces instead of per-file classes (today each form hand-rolls its label, hint and control classes).
+
+- **Type scale for forms.** Section label 14 px/500, field label 13 px/500, control text 14 px (monospace only where the value is code or data), hint and error 12 px, and nothing below 11 px. The column type moves out of a 10 px badge into the label row at 12 px.
+- **Rhythm.** 16 px between fields, 6 px from label to control, 4 px from control to hint, and **space for the hint always reserved or never**: either every field has a hint line or none does, so the pitch is constant. Dialog padding 24 px at 640 px and wider.
+- **Three dialog sizes** as variants of `DialogContent`: small (448, confirmations and unlock), medium (640, row forms, structure, preview) and large (768, new table). Nobody writes a `max-w-*` in a feature file again.
+- **Controls fit the value.** A one-line `Input` for numbers, dates, UUIDs and short text; a `textarea` only for text that can be long, JSON and values that already contain a line break, auto-sized and without the resize grip; a `Switch` or a two-option segmented control for booleans. Numeric inputs get the right `inputMode`.
+- **NULL and default as part of the field.** A small "NULL" toggle inside the control's trailing edge (and "Default" where the column has one) replaces the radio triples and the lone checkbox. A required column simply shows its input.
+- **Show the change.** A field that differs from what was loaded gets a left accent and a small reset button; the footer says "2 columns changed" and, when nothing changed, why Preview is disabled.
+- **Footer stays put.** Body scrolls, header and footer do not.
+- **Keyboard.** Focus the first editable non-key field (or the clicked cell's column). Ctrl or Cmd plus Enter opens the preview.
+
+Everything keeps the accessible names the browser tests use (`Edit row N`, `Value for <column>`, `NULL for <column>`, `Database name`, and the rest) except where a control is deliberately replaced (the insert form's radios); the tests that name them are updated in the same change.
+
+## 6. Milestones
+
+Sizes are relative (S, M, L). Each ends with `npm run check`, the browser tests, light and dark screenshots of every changed dialog, and an axe-core scan of them (axe-core is already installed and was used on the Data section in 1.2.0), and is a separate commit.
+
+|     | Milestone                                                                                                                                                                                                                                                                             | Size | Done when                                                                                                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| U0  | **Decisions and baseline:** settle section 8, capture "before" screenshots (light and dark) of the nine forms and dialogs, add `e2e/ui-forms.spec.ts` that opens each one and runs axe                                                                                                | S    | Questions answered; the spec passes on today's UI and saves the screenshots                                                                |
+| U1  | **Foundations:** `FormField` (label, hint, error, `aria-describedby` wiring), a field grid, dialog size variants, the type scale and spacing as tokens, a sticky footer in `components/ui/dialog.tsx`; add `textarea`, `select`                                                       | M    | Every writes dialog uses the shared pieces; widths are 448, 640 or 768; nothing under 11 px; the body scrolls and the footer stays visible |
+| U2  | **Row forms:** single-line inputs, auto-sized textarea only where needed, booleans as a switch, NULL and default inside the field, changed-field marker and reset, focus rule, disabled-Preview reason, Ctrl/Cmd+Enter                                                                | M    | Findings 1 to 10 closed; the field pitch is constant; the row, add-row and preview browser tests pass (radio tests updated)                |
+| U3  | **Builders:** a 12-column grid for column cards, one label style, "Array" and "Can be NULL" as inline toggles, a header on each column card (number, remove), a column count, foreign key and unique rows on the same grid                                                            | M    | Findings 11 to 15 closed; the left edges of name, type and identity line up in every card                                                  |
+| U4  | **Sidebar and Data toolbar:** the writes cluster as one compact bar (badge, and icon buttons with tooltips), the role note as one line that expands, the toolbar grouped (paging, actions, view), row actions with a 32 px target and a tooltip, the unlock dialog without repetition | S    | Findings 16 to 18 closed; "Writes on" never wraps at 288 px; the toolbar breaks into at most two rows                                      |
+| U5  | **Phones:** the sidebar as a drawer opened from the header, scrollable view tabs with an edge fade, dialogs as full-height sheets under 640 px, the Data controls in one row that scrolls                                                                                             | M    | Finding 19 closed: connect, pick a table, edit a row and unlock writes on a 375 px screen, checked in the browser                          |
+| U6  | **Release:** update the README and guide screenshots (`npm run screenshots`), changelog, version                                                                                                                                                                                      | S    | Release gate green; version bumped (see decision 4)                                                                                        |
+
+Order: U0, U1, then U2 to U4 in any order (they only share U1), then U5. U1 to U4 are visual and safe to ship alone as a patch release; U5 adds a capability.
+
+## 7. Risks
+
+- **Breaking the tests that name controls.** The browser tests use accessible names. Mitigation: keep the names, and change a test only where a control is deliberately replaced.
+- **Regressing the privacy rules.** `features/writes` must never use browser storage or the console, and a value must never be put in a title or tooltip. The rules in `privacy.test.ts` keep running; changed-field markers show values only inside the dialog the person typed them in.
+- **Scope creep into a redesign.** This plan fixes consistency and adds a few aids to forms. It does not change the product's look, colours or layout of the canvas.
+- **Native selects.** Keeping native `select` elements is cheaper and accessible, but they cannot be styled consistently across systems (see decision 3).
+
+## 8. Open decisions
+
+1. **How far U2 goes.** (a) Fix the form (single-line inputs, NULL toggle, change markers); (b) also add type-aware pickers (a date and time picker, a JSON editor). _Recommendation: (a)._ Pickers are a feature with their own accessibility cost; (a) removes the visible problems.
+2. **Replace the insert form's radios.** _Recommendation: yes_, with an inline Default or NULL toggle. It removes the single-option radio and the layout jump. The radio browser tests change.
+3. **Native selects or a styled select.** _Recommendation: keep native selects_ for now and fix their height, font and label; revisit if the builder grows.
+4. **Version.** U1 to U4 are visual only. _Recommendation: 1.4.1 for U1 to U4 and 1.5.0 when U5 (phones) ships_, so the drawer is announced as a capability.
+5. **Phones: how far.** (a) Make the app usable on a phone (U5); (b) leave phones as they are and say so. _Recommendation: (a)_, since the current state hides the whole sidebar. If the product is meant for desktops only, say that in the guide instead and skip U5.
+6. **The other tabs.** Overview, Paths, Health, Objects and Snapshots were not reviewed. _Recommendation:_ review them after U1, when the shared pieces exist, in a short second plan rather than widening this one.

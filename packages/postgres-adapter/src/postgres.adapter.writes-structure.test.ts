@@ -398,6 +398,25 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
       );
     });
 
+    it("never picks a same-named user function for the uuid default", async () => {
+      // A decoy that sorts before every real schema name, and returns a recognisable constant.
+      await sql.query(`
+        CREATE SCHEMA a_decoy;
+        CREATE FUNCTION a_decoy.gen_random_uuid() RETURNS uuid LANGUAGE sql
+          AS $$ SELECT '00000000-0000-0000-0000-00000000dec0'::uuid $$;
+      `);
+      const change = create("s_uuid_decoy", [
+        col("id", "uuid", { default: { kind: "gen_random_uuid" }, nullable: false }),
+      ]);
+      if (serverVersion < 130000) await sql.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+      const plan = await apply(change);
+      expect(plan.statements[0]!.text).not.toContain("a_decoy");
+      await sql.query("INSERT INTO s_uuid_decoy DEFAULT VALUES");
+      const [row] = await rows<{ id: string }>("SELECT id FROM s_uuid_decoy");
+      expect(row?.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(row?.id).not.toBe("00000000-0000-0000-0000-00000000dec0");
+    });
+
     it("refuses what cannot be created, naming structure only", async () => {
       const refuse = async (change: Change, code: string, word: string) => {
         const error = await failure(adapter.previewChange(change));
@@ -887,6 +906,38 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
         "invalid_change",
       );
       expect((await columnsOf("s_alter")).map((c) => c.name)).toContain("viewed");
+    });
+
+    it("refuses to drop a column that a generated column is computed from, and names it", async () => {
+      await sql.query(
+        "CREATE TABLE s_gen (id int PRIMARY KEY, base int, doubled int GENERATED ALWAYS AS (base * 2) STORED)",
+      );
+      const error = await failure(
+        adapter.previewChange({
+          kind: "drop_column",
+          table: ref("s_gen"),
+          column: "base",
+          confirm: "s_gen",
+        }),
+      );
+      expect(error.code).toBe("has_dependents");
+      expect(error.message).toContain("doubled");
+      // The generated column itself has only its own default expression: nothing else depends on it.
+      const own = await adapter.previewChange({
+        kind: "drop_column",
+        table: ref("s_gen"),
+        column: "doubled",
+        confirm: "s_gen",
+      });
+      expect(statementText(own)).toBe('ALTER TABLE "public"."s_gen" DROP COLUMN "doubled";');
+      // A table's own generated column does not stop the table being dropped.
+      const table = await adapter.previewChange({
+        kind: "drop_table",
+        table: ref("s_gen"),
+        confirm: "s_gen",
+      });
+      expect(table.statements[0]?.text).toBe('DROP TABLE "public"."s_gen"');
+      await sql.query("DROP TABLE s_gen");
     });
 
     it("drops a column nothing uses, and one that only owns a sequence", async () => {

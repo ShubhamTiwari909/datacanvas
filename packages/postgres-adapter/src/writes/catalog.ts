@@ -323,7 +323,7 @@ export async function hasUniqueKeyOn(
  * `index users_email_idx`).
  *
  * For a COLUMN: every normal and automatic dependency (views, indexes,
- * constraints, other columns of its type), except its own default and the
+ * constraints, generated columns computed from it, other columns of its type), except its own default and the
  * sequence a serial column owns, which go with it anyway.
  * For a TABLE: only things OUTSIDE the table (views, other tables' foreign
  * keys, inheritance children, columns or functions using its row type); its
@@ -355,7 +355,9 @@ export async function listDependents(
        )
        AND d.deptype = ANY (CASE WHEN $2::int IS NULL THEN ARRAY['n']::"char"[]
                                  ELSE ARRAY['n', 'a']::"char"[] END)
-       AND d.classid <> 'pg_catalog.pg_attrdef'::regclass
+       AND NOT (d.classid = 'pg_catalog.pg_attrdef'::regclass AND EXISTS (
+         SELECT 1 FROM pg_catalog.pg_attrdef ad
+         WHERE ad.oid = d.objid AND ad.adrelid = $1::oid AND ($2::int IS NULL OR ad.adnum = $2::int)))
        AND NOT (d.classid = 'pg_catalog.pg_class'::regclass AND EXISTS (
          SELECT 1 FROM pg_catalog.pg_class s
          WHERE s.oid = d.objid AND (s.relkind = 'S' OR s.oid = $1::oid)))
@@ -423,7 +425,8 @@ export async function relationNameTaken(
 
 /**
  * The `gen_random_uuid()` this server has, qualified, or null. Built in from
- * PostgreSQL 13; on 12 only when an extension (pgcrypto) provides it.
+ * PostgreSQL 13; on 12 only when the pgcrypto extension provides it. A function of that
+ * name in any other schema is ignored: it would run as the default of later inserts.
  */
 export async function findUuidFunction(db: Queryable): Promise<{ schema: string } | null> {
   const { rows } = await db.query<{ schema: string }>(
@@ -431,6 +434,17 @@ export async function findUuidFunction(db: Queryable): Promise<{ schema: string 
      FROM pg_catalog.pg_proc p
      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE p.proname = 'gen_random_uuid' AND p.pronargs = 0
+       AND (
+         n.nspname = 'pg_catalog'
+         OR EXISTS (
+           SELECT 1
+           FROM pg_catalog.pg_depend d
+           JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
+           WHERE d.classid = 'pg_catalog.pg_proc'::regclass AND d.objid = p.oid
+             AND d.refclassid = 'pg_catalog.pg_extension'::regclass AND d.deptype = 'e'
+             AND e.extname = 'pgcrypto'
+         )
+       )
      ORDER BY (n.nspname = 'pg_catalog') DESC, n.nspname
      LIMIT 1`,
   );

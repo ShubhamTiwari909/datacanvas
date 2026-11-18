@@ -333,7 +333,7 @@ describe("preview then apply", () => {
             name: "label",
             type: { name: "text" },
             nullable: false,
-            default: { kind: "literal", value: "plain" },
+            default: { kind: "none" },
             identity: null,
             comment: null,
           },
@@ -356,6 +356,39 @@ describe("preview then apply", () => {
       outcome: "applied",
     });
     expect(list[0].statement).toContain('CREATE TABLE "public"."tags"');
+  });
+
+  it("shows a literal default in the preview but keeps it out of the history", async () => {
+    const id = await unlocked();
+    const planned = await preview(id, {
+      change: {
+        kind: "create_table",
+        schema: "public",
+        name: "tags_typed",
+        columns: [
+          {
+            name: "label",
+            type: { name: "text" },
+            nullable: true,
+            default: { kind: "literal", value: "typed-by-the-person" },
+            identity: null,
+            comment: "also typed by the person",
+          },
+        ],
+        primaryKey: [],
+        unique: [],
+        foreignKeys: [],
+        comment: null,
+      },
+    });
+    // The person sees exactly what they typed...
+    expect(planned.body.preview.statement).toContain("typed-by-the-person");
+    await apply(id, { previewId: planned.body.preview.previewId });
+    // ...but the session history is names only.
+    const [entry] = (await history(id)).body.history;
+    expect(entry).toMatchObject({ kind: "create_table", columns: ["label"], statement: null });
+    expect(JSON.stringify((await history(id)).body)).not.toContain("typed-by-the-person");
+    expect(JSON.stringify((await history(id)).body)).not.toContain("also typed");
   });
 
   it("refuses a drop without the table's name typed, and a drop that has dependents", async () => {

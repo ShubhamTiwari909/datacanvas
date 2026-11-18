@@ -152,6 +152,85 @@ async function designRules(page: Page, name: string): Promise<void> {
   }
 }
 
+/** U2: the row forms use the control that fits the value, with one rhythm (docs/ui-polish-plan.md). */
+async function editRowRules(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  // No native radios or checkboxes (the switch's own hidden one is not counted): NULL, Default and Reset are buttons beside the field.
+  expect(
+    await dialog
+      .locator("input[type=radio]:not([aria-hidden]), input[type=checkbox]:not([aria-hidden])")
+      .count(),
+    "edit-row: no radios or checkboxes",
+  ).toBe(0);
+  // A boolean is a switch; a number, a date and text are fields.
+  await expect(dialog.getByRole("switch", { name: "active" })).toBeVisible();
+  // Focus starts on the first column that is not part of the key, not on the key.
+  const focused = await page.evaluate(
+    () =>
+      document.activeElement?.closest("[data-slot=form-field]")?.querySelector("label")
+        ?.textContent,
+  );
+  expect(focused, "edit-row: first focus").toBe("name");
+  // One rhythm: every field is the same distance from the next.
+  const tops = await dialog
+    .locator("[data-slot=form-field]")
+    .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+  const pitches = tops.slice(1).map((top, i) => top - (tops[i] ?? 0));
+  expect(new Set(pitches).size, `edit-row: one pitch, got ${pitches.join(", ")}`).toBe(1);
+  // Preview says why it waits, then how many columns changed.
+  await expect(dialog.getByRole("status")).toContainText("No changes yet");
+  await expect(dialog.getByRole("button", { name: "Preview" })).toBeDisabled();
+  // A changed field says so and can be put back; the count follows.
+  await dialog.getByRole("textbox", { name: "name", exact: true }).fill("Someone Else");
+  await expect(dialog.getByText("Changed", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status")).toContainText("1 column changed");
+  await dialog.getByRole("button", { name: "Reset name" }).click();
+  await expect(dialog.getByText("Changed", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("status")).toContainText("No changes yet");
+}
+
+async function addRowRules(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  expect(
+    await dialog
+      .locator("input[type=radio]:not([aria-hidden]), input[type=checkbox]:not([aria-hidden])")
+      .count(),
+    "add-row: no radios or checkboxes",
+  ).toBe(0);
+  // Nothing is an error before anyone has typed.
+  await expect(dialog.getByText(/This column takes/)).toHaveCount(0);
+  // A required column with no default shows just its field: there is no choice to make.
+  await expect(dialog.getByRole("textbox", { name: "Value for name" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "NULL for name" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Default for name" })).toHaveCount(0);
+  // A nullable column offers both, and Default is where it starts.
+  await expect(dialog.getByRole("button", { name: "Default for note" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(dialog.getByRole("button", { name: "NULL for note" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  // Typing makes it a value, and the dialog does not change height as you work.
+  const before = (await dialog.boundingBox())?.height ?? 0;
+  await dialog.getByRole("textbox", { name: "Value for note" }).fill("typed");
+  await expect(dialog.getByRole("button", { name: "Default for note" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await dialog.getByRole("button", { name: "NULL for note" }).click();
+  await expect(dialog.getByRole("button", { name: "NULL for note" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  const after = (await dialog.boundingBox())?.height ?? 0;
+  expect(Math.abs(after - before), "add-row: the dialog keeps its height").toBeLessThanOrEqual(1);
+  await expect(dialog.getByRole("status")).toContainText("1 NULL");
+  // Required fields still waiting for a value are counted as such, not as set.
+  await expect(dialog.getByRole("status")).toContainText("2 to fill in");
+}
+
 async function closeDialog(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -182,6 +261,7 @@ for (const theme of ["light", "dark"] as const) {
     // --- row editor, then its preview
     await page.getByRole("button", { name: "Edit row 1" }).click();
     await inspect(page, "edit-row", theme);
+    await editRowRules(page);
     await page.getByRole("textbox", { name: "name", exact: true }).fill("Ada King");
     await page.getByRole("button", { name: "Preview" }).click();
     await expect(page.getByLabel("The statement that will run")).toBeVisible();
@@ -192,6 +272,7 @@ for (const theme of ["light", "dark"] as const) {
     // --- add row
     await page.getByRole("button", { name: "Add row" }).click();
     await inspect(page, "add-row", theme);
+    await addRowRules(page);
     await closeDialog(page);
 
     // --- new table, with three columns so the form is tall

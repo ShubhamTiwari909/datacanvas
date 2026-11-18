@@ -16,10 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FIELD_ERROR, FIELD_HINT, FIELD_LABEL, FIELD_META, FormStack } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
-import { BLUR_CLASSES, useBlurStore } from "@/features/data/blur-store";
-import { cn } from "@/lib/utils";
+import { FormField, FormStack } from "@/components/ui/field";
+import { useBlurStore } from "@/features/data/blur-store";
 import type { ChangeRequest } from "./change-dialog";
 import {
   buildInsert,
@@ -31,12 +29,7 @@ import {
   type InsertField,
   type InsertMode,
 } from "./row-edit";
-
-const MODE_LABEL: Record<InsertMode, string> = {
-  default: "Default",
-  null: "NULL",
-  value: "Value",
-};
+import { ValueField, type ValueState } from "./value-field";
 
 export function InsertRowDialog({
   table,
@@ -89,8 +82,22 @@ function InsertForm({
     })),
   );
 
-  const set = (name: string, next: Partial<InsertField>) =>
-    setFields((current) => current.map((f) => (f.column === name ? { ...f, ...next } : f)));
+  const set = (name: string, next: ValueState) =>
+    setFields((current) =>
+      current.map((f) => (f.column === name ? { ...f, mode: next.mode, value: next.text } : f)),
+    );
+
+  const count = (mode: InsertMode) => fields.filter((f) => f.mode === mode).length;
+  const filled = fields.filter((f) => f.mode === "value" && f.value !== "").length;
+  const toFill = count("value") - filled;
+  const summary = [
+    filled > 0 ? `${filled} set` : null,
+    toFill > 0 ? `${toFill} to fill in` : null,
+    count("null") > 0 ? `${count("null")} NULL` : null,
+    count("default") > 0 ? `${count("default")} left to the database` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <form
@@ -103,82 +110,64 @@ function InsertForm({
           beforeAfter: insertBeforeAfter(fields),
         });
       }}
+      onKeyDown={(event) => {
+        // Ctrl or Cmd plus Enter previews from anywhere in the form, including a text field.
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          event.currentTarget.requestSubmit();
+        }
+      }}
     >
       <DialogHeader>
         <DialogTitle>
           Add a row to {table.schema}.{table.name}
         </DialogTitle>
         <DialogDescription>
-          Choose for each column: its default, NULL or a value. NULL and an empty value are
-          different.
+          Fill in the columns you want. Default leaves a column to the database, and NULL gives it
+          no value. NULL and an empty value are different.
         </DialogDescription>
       </DialogHeader>
 
-      <FormStack>
+      <FormStack className="gap-3">
         {info.columns.map((column) => {
           const field = fields.find((f) => f.column === column.name);
           if (!field) return null;
           const modes = insertModes(column);
-          const id = `insert-${column.name}`;
-          const hint = typeHint(column.dataType);
-          const problem = field.mode === "value" ? checkValue(column.dataType, field.value) : null;
+          const locked = modes.length === 1 && modes[0] === "default";
+          // An empty field is not an error yet: the person has not typed, and the database says so
+          // when a required column is still empty.
+          const problem =
+            field.mode === "value" && field.value !== ""
+              ? checkValue(column.dataType, field.value)
+              : null;
           return (
-            <fieldset key={column.name} className="flex flex-col gap-1.5">
-              <legend className="flex flex-wrap items-baseline gap-2">
-                <span className={cn("font-mono", FIELD_LABEL)}>{column.name}</span>
-                <span className={FIELD_META}>{column.dataType}</span>
-              </legend>
-              <div
-                className="flex flex-wrap items-center gap-3"
-                role="radiogroup"
-                aria-label={`What to put in ${column.name}`}
-              >
-                {modes.map((mode) => (
-                  <label key={mode} className="flex items-center gap-1.5 text-xs">
-                    <input
-                      type="radio"
-                      name={id}
-                      value={mode}
-                      checked={field.mode === mode}
-                      onChange={() => set(column.name, { mode })}
-                    />
-                    {MODE_LABEL[mode]}
-                    <span className="sr-only"> for {column.name}</span>
-                  </label>
-                ))}
-                {field.mode === "default" ? (
-                  <span className="text-xs text-muted-foreground">{defaultText(column)}</span>
-                ) : null}
-              </div>
-              {field.mode === "value" ? (
-                <>
-                  <Textarea
-                    id={id}
-                    aria-label={`Value for ${column.name}`}
-                    rows={1}
-                    value={field.value}
-                    onChange={(event) => set(column.name, { value: event.target.value })}
-                    aria-invalid={problem !== null}
-                    aria-describedby={
-                      [hint ? `${id}-hint` : null, problem ? `${id}-problem` : null]
-                        .filter(Boolean)
-                        .join(" ") || undefined
-                    }
-                    className={cn("font-mono", blurred && BLUR_CLASSES)}
-                  />
-                  {hint ? (
-                    <span id={`${id}-hint`} className={FIELD_HINT}>
-                      {hint}
-                    </span>
-                  ) : null}
-                  {problem ? (
-                    <p id={`${id}-problem`} className={FIELD_ERROR}>
-                      {problem}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-            </fieldset>
+            <FormField
+              key={column.name}
+              label={<span className="font-mono">{column.name}</span>}
+              meta={column.dataType}
+              hint={typeHint(column.dataType)}
+              error={problem}
+              reserveHint
+            >
+              {(control) => (
+                <ValueField
+                  field={control}
+                  dataType={column.dataType}
+                  column={column.name}
+                  ariaLabel={`Value for ${column.name}`}
+                  state={{ mode: field.mode, text: field.value }}
+                  // A choice is offered only where there is one: a required column shows just its field.
+                  offers={{
+                    null: modes.includes("null"),
+                    default: modes.includes("default") && modes.length > 1,
+                  }}
+                  defaultText={defaultText(column)}
+                  locked={locked}
+                  blurred={blurred}
+                  onChange={(next) => set(column.name, next)}
+                />
+              )}
+            </FormField>
           );
         })}
       </FormStack>
@@ -188,6 +177,12 @@ function InsertForm({
           Cancel
         </Button>
         <Button type="submit">Preview</Button>
+        <p
+          role="status"
+          className="self-center text-xs text-muted-foreground sm:order-first sm:mr-auto"
+        >
+          {summary}
+        </p>
       </DialogFooter>
     </form>
   );

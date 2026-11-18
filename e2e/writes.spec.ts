@@ -145,7 +145,7 @@ test.describe("with writes unlocked", () => {
 
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox", { name: "name", exact: true }).fill(`Anna ${SECRET}`);
-    await dialog.getByLabel("NULL for note").check();
+    await dialog.getByRole("button", { name: "NULL for note" }).click();
     await dialog.getByRole("button", { name: "Preview" }).click();
 
     // The statement is shown with $n for values, and the values before and after in a table.
@@ -198,11 +198,9 @@ test.describe("with writes unlocked", () => {
     await page.getByRole("button", { name: "Add row" }).click();
 
     const dialog = page.getByRole("dialog");
-    await dialog.getByRole("radio", { name: "Value for id" }).check();
     await dialog.getByRole("textbox", { name: "Value for id" }).fill("10");
-    await dialog.getByRole("radio", { name: "Value for name" }).check();
     await dialog.getByRole("textbox", { name: "Value for name" }).fill("Dee");
-    await dialog.getByRole("radio", { name: "NULL for note" }).check();
+    await dialog.getByRole("button", { name: "NULL for note" }).click();
     await dialog.getByRole("button", { name: "Preview" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
     await expect(page.getByText("The row was added.")).toBeVisible();
@@ -230,9 +228,7 @@ test.describe("with writes unlocked", () => {
     await expect(grid(page)).toBeVisible();
     await page.getByRole("button", { name: "Add row" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByRole("radio", { name: "Value for id" }).check();
     await dialog.getByRole("textbox", { name: "Value for id" }).fill("1"); // already taken
-    await dialog.getByRole("radio", { name: "Value for name" }).check();
     await dialog.getByRole("textbox", { name: "Value for name" }).fill(SECRET);
     await dialog.getByRole("button", { name: "Preview" }).click();
     const preview = page.getByRole("dialog");

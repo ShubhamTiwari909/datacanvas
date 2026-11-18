@@ -47,6 +47,8 @@ export function FormField({
   hint,
   error,
   alertOnError = false,
+  reserveHint = false,
+  aside,
   className,
   children,
 }: {
@@ -57,6 +59,13 @@ export function FormField({
   error?: ReactNode;
   /** Announce the error when it appears: for an answer from the server, not for checks made while typing. */
   alertOnError?: boolean;
+  /**
+   * Keep the hint line's height even when there is no hint, so every field in a
+   * form is the same height and the rhythm does not change from field to field.
+   */
+  reserveHint?: boolean;
+  /** Something at the end of the label row, such as a "Changed" marker. */
+  aside?: ReactNode;
   className?: string;
   children: (field: FieldControlProps) => ReactNode;
 }) {
@@ -71,6 +80,7 @@ export function FormField({
           {label}
         </label>
         {meta ? <span className={FIELD_META}>{meta}</span> : null}
+        {aside ? <span className="ml-auto">{aside}</span> : null}
       </div>
       {children({
         id,
@@ -86,6 +96,8 @@ export function FormField({
         <p id={hintId} className={FIELD_HINT}>
           {hint}
         </p>
+      ) : reserveHint && !error ? (
+        <div aria-hidden="true" className="h-4" />
       ) : null}
     </div>
   );

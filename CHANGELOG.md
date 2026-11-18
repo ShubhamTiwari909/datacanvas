@@ -4,6 +4,16 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-18
+
+### Fixed
+
+- **A long value no longer breaks the edit form.** A value with no spaces, such as a 64-character hash, stretched the dialog sideways, so Cancel and Preview were only reachable by scrolling to the right. Dialogs never scroll sideways now.
+
+### Changed
+
+- A long text value (over 48 characters, or with line breaks) now starts as one short line in the row forms. An **eye button** beside it shows the whole value, wrapped and editable, and a second press folds it back.
+
 ## [1.5.0] - 2026-11-18
 
 ### Added

@@ -9,6 +9,10 @@
  */
 "use client";
 
+import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tooltip";
 import type { FieldControlProps } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -23,6 +27,10 @@ export interface ValueState {
   /** Kept while the mode is NULL or default, so pressing the button again brings it back. */
   text: string;
 }
+
+/** A value longer than this (or with a line break) is shown on one short line until the eye is pressed. */
+const LONG_VALUE = 48;
+const isLong = (text: string) => text.length > LONG_VALUE || text.includes("\n");
 
 export function ValueField({
   field,
@@ -56,6 +64,11 @@ export function ValueField({
 }) {
   const kind = controlKind(dataType);
   const active = state.mode === "value";
+  // A long text starts as one short line, so a hash or a document does not stretch the form; the eye
+  // shows all of it. Decided once, when the field first appears with a value; typing never collapses it.
+  const [collapsed, setCollapsed] = useState(() => kind === "text" && active && isLong(state.text));
+  const [opened, setOpened] = useState(false);
+  const canCollapse = kind === "text" && active && isLong(state.text);
   const placeholder =
     state.mode === "null"
       ? "NULL"
@@ -82,12 +95,30 @@ export function ValueField({
         </span>
       </div>
     );
+  } else if (kind === "text" && collapsed && canCollapse) {
+    control = (
+      <Input
+        {...field}
+        aria-label={ariaLabel}
+        readOnly
+        disabled={locked}
+        value={state.text.replace(/\r?\n/g, " ↵ ")}
+        onFocus={() => {
+          setOpened(true);
+          setCollapsed(false);
+        }}
+        className={cn(
+          "min-w-0 flex-1 cursor-text font-mono text-ellipsis",
+          blurred && BLUR_CLASSES,
+        )}
+      />
+    );
   } else if (kind === "text") {
     control = (
       <Textarea
         {...field}
         aria-label={ariaLabel}
-        autoFocus={autoFocus}
+        autoFocus={autoFocus || opened}
         rows={Math.min(6, Math.max(1, state.text.split("\n").length))}
         disabled={locked || state.mode === "null"}
         value={active ? state.text : ""}
@@ -123,6 +154,23 @@ export function ValueField({
   return (
     <div className="flex items-start gap-2">
       {control}
+      {canCollapse ? (
+        <Tip label={collapsed ? "Show the whole value" : "Show one line"}>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={`${collapsed ? "Show" : "Hide"} the whole value of ${column}`}
+            aria-pressed={!collapsed}
+            onClick={() => {
+              setOpened(!collapsed ? false : true);
+              setCollapsed(!collapsed);
+            }}
+          >
+            {collapsed ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
+          </Button>
+        </Tip>
+      ) : null}
       {offers.default || offers.null ? (
         <div className="flex shrink-0 items-start gap-1.5">
           {offers.default ? (

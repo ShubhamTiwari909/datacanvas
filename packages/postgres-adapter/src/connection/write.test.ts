@@ -138,6 +138,7 @@ describe("mapWriteError", () => {
     ["0A000", "invalid_change"],
     ["42P01", "not_found"],
     ["42703", "not_found"],
+    ["42704", "not_found"],
     ["57014", "timeout"],
     ["XX000", "unexpected"],
     ["08006", "unreachable"],

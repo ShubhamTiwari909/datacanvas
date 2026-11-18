@@ -85,6 +85,9 @@ export function mapWriteError(error: unknown): DatabaseError {
       return fail("not_found", "The table does not exist (any more).");
     case "42703":
       return fail("not_found", "A column does not exist (any more).");
+    case "42704":
+      // A constraint or index named by a preview that has gone stale.
+      return fail("not_found", "A constraint, index or type does not exist (any more).");
     case "42830":
       return fail(
         "invalid_change",

@@ -29,7 +29,7 @@ import {
   findIndex,
   findUuidFunction,
   foreignKeysUsingIndex,
-  hasAssignmentCast,
+  castContext,
   hasUniqueKeyOn,
   listConstraints,
   listDependentViews,
@@ -257,8 +257,9 @@ function plan(
   statements: PlannedStatement[],
   effect: string,
   warnings: ChangeWarning[],
+  alsoDestructive = false,
 ): PlannedChange {
-  const destructive = DESTRUCTIVE_CHANGE_KINDS.includes(change.kind);
+  const destructive = alsoDestructive || DESTRUCTIVE_CHANGE_KINDS.includes(change.kind);
   return {
     change,
     statements,
@@ -463,12 +464,17 @@ async function planAlterOn(
       const target = await resolveType(db, renderBaseType(change.type));
       if (!target) throw invalidChange("This type does not exist on this server.");
       const sameType = target.oid === column.typeOid;
+      const context =
+        sameType || column.isArray || target.category === "A" || target.category === "S"
+          ? null
+          : await castContext(db, column.rootTypeOid, target.oid);
       const castable =
         sameType ||
         (!column.isArray &&
           target.category !== "A" &&
-          (target.category === "S" ||
-            (await hasAssignmentCast(db, column.rootTypeOid, target.oid))));
+          (target.category === "S" || context !== null));
+      // An assignment cast (not a widening one) may round or cut values, and nothing undoes that.
+      const lossy = context === "a";
       if (!castable) {
         throw invalidChange(
           `PostgreSQL cannot convert ${column.dataType} to ${typeSql} on its own; this change would need a conversion expression, which is not offered.`,
@@ -488,7 +494,16 @@ async function planAlterOn(
           LOCK_WARNING,
           rewriteWarning(table),
           { code: "may_fail", message: "It fails if a value does not convert to the new type." },
+          ...(lossy
+            ? [
+                {
+                  code: "lossy" as const,
+                  message: `Values may be rounded or cut to fit ${typeSql}, and that cannot be undone.`,
+                },
+              ]
+            : []),
         ],
+        lossy,
       );
     }
 

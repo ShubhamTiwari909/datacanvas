@@ -18,6 +18,7 @@ import { POST as editInfo } from "./connections/[id]/writes/edit-info/route";
 import { POST as previewChange } from "./connections/[id]/writes/preview/route";
 import { POST as applyChange } from "./connections/[id]/writes/apply/route";
 import { GET as getHistory } from "./connections/[id]/writes/history/route";
+import { GET as getMigration } from "./connections/[id]/writes/migration/route";
 import { GET as getRole } from "./connections/[id]/role/route";
 import { POST as readRows } from "./connections/[id]/rows/route";
 
@@ -88,6 +89,8 @@ const apply = (id: string, body: unknown) =>
   call(applyChange(json(at(id, "writes/apply"), "POST", body), params({ id })));
 const history = (id: string) =>
   call(getHistory(new Request(at(id, "writes/history")), params({ id })));
+const migration = (id: string) =>
+  call(getMigration(new Request(at(id, "writes/migration")), params({ id })));
 const rows = (id: string) =>
   call(
     readRows(
@@ -389,6 +392,31 @@ describe("preview then apply", () => {
     expect(entry).toMatchObject({ kind: "create_table", columns: ["label"], statement: null });
     expect(JSON.stringify((await history(id)).body)).not.toContain("typed-by-the-person");
     expect(JSON.stringify((await history(id)).body)).not.toContain("also typed");
+    // The migration file is the one place the typed text goes: it is the person's own SQL,
+    // asked for on purpose, and it is never part of the history.
+    const file = (await migration(id)).body.migration;
+    expect(file).toMatchObject({ steps: 1, rowChanges: 0 });
+    expect(file.script).toContain("typed-by-the-person");
+    expect(file.script).toContain("COMMIT;");
+  });
+
+  it("exports the migration of a session and counts the row changes it leaves out", async () => {
+    const id = await unlocked();
+    const planned = await preview(id, {
+      change: {
+        kind: "update_row",
+        table: users,
+        key: [{ column: "id", value: "1" }],
+        set: [{ column: "email", value: "row-secret@x.test" }],
+        expected: [{ column: "email", value: "a@x.test" }],
+      },
+    });
+    await apply(id, { previewId: planned.body.preview.previewId });
+    const result = await migration(id);
+    expect(result.status).toBe(200);
+    expect(result.body.migration).toMatchObject({ steps: 0, rowChanges: 1 });
+    expect(result.text).not.toContain("row-secret@x.test");
+    expect((await migration("missing")).status).toBe(404);
   });
 
   it("refuses a drop without the table's name typed, and a drop that has dependents", async () => {

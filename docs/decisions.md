@@ -858,3 +858,21 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it. The guard pins identity only: a plan that creates a table has nothing to pin, and a changed type, default or NULL setting on a column is not detected.
 
 **Why:** a preview can wait up to five minutes. A table dropped and recreated under the same name in that time is a different table, and applying the old plan to it would change something the person never saw. Found in the review of the 1.4.0 pull request.
+
+## 138. The migration file holds the structure changes of a session, and only those
+
+**Decision:** "Export migration (.sql)" in the session history writes the changes of structure that were applied through the connection as one script in a `BEGIN`/`COMMIT`, in the order they ran. Row changes (insert, update, delete) are counted in a comment and never written. The full SQL of each applied structure change is kept in memory in a separate list, never in the history, so a default or a comment the person typed can be in the file but not in the history (decision 131 stands). Names in `--` comments are flattened to one line, because a quoted name may hold a line break. The file is built on the server and downloaded by the browser; nothing is saved to disk by DataCanvas.
+
+**Why:** a migration is the way a change made by hand reaches other databases. Row values are exactly what decision 131 keeps out of every record, and data is not structure, so rows stay out. The history is shown on screen and sent often; the migration is asked for once, on purpose, by the person who typed the text.
+
+## 139. A narrowing type change is destructive and says so
+
+**Decision:** changing a column's type through an assignment cast (bigint to integer, numeric to integer, timestamptz to date) is marked destructive and carries a `lossy` warning ("values may be rounded or cut"). A widening (implicit) cast is not. The plan guard of decision 137 now also pins each named column's type.
+
+**Why:** PostgreSQL applies those casts without complaint, nothing undoes them, and the preview looked like any other. Found in the 1.5.2 review of the write path.
+
+## 140. Writes need a session token
+
+**Decision:** the writes switch is on only when the process was started with `--enable-writes` AND has a session token. The CLI always sets a token; a development server (`npm run dev`) has none, so writes stay off there.
+
+**Why:** without a token only the Host check stands in front of the write routes. Found in the 1.5.2 review.

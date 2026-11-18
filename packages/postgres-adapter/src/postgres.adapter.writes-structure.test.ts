@@ -90,6 +90,12 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
   ): Promise<T[]> => (await sql.query(text, values)).rows as T[];
   const apply = async (change: Change): Promise<PlannedChange> => {
     const plan = await adapter.previewChange(change);
+    // Structure statements carry no parameters, so they are sent as text: none may hold a
+    // second statement. Outside quoted names and literals there must be no semicolon.
+    for (const statement of plan.statements) {
+      const bare = statement.text.replace(/"(?:[^"]|"")*"|E?'(?:[^'\\]|''|\\.)*'/g, "");
+      expect(bare, statement.text).not.toContain(";");
+    }
     await adapter.applyChange(plan);
     return plan;
   };
@@ -663,6 +669,13 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
         "s_alter_view",
       );
       await refuse(retype("nope", { name: "text" }), "invalid_change", "nope");
+      // A narrowing cast that PostgreSQL accepts silently (it rounds or cuts) is flagged and destructive;
+      // a widening one (n int -> bigint above) is not.
+      const narrowing = await adapter.previewChange(retype("big", { name: "integer" }));
+      expect(narrowing.destructive).toBe(true);
+      expect(narrowing.warnings.map((w) => w.code)).toContain("lossy");
+      expect(widen.destructive).toBe(false);
+      expect(widen.warnings.map((w) => w.code)).not.toContain("lossy");
       // A value that does not fit the new type: a fixed message, never the value.
       const error = await failure(
         adapter.applyChange(await adapter.previewChange(retype("big", { name: "integer" }))),
@@ -1037,6 +1050,23 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
           "SELECT 1 FROM pg_indexes WHERE tablename = 's_stale' AND indexname <> 's_stale_pkey'",
         ),
       ).toEqual([]);
+    });
+
+    it("is refused when the type of a column it names changed after the preview", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "set_nullable",
+        table: ref("s_stale"),
+        column: "n",
+        nullable: false,
+      });
+      await sql.query("ALTER TABLE s_stale ALTER COLUMN n TYPE bigint");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect(
+        await rows(
+          "SELECT is_nullable FROM information_schema.columns WHERE table_name = 's_stale' AND column_name = 'n'",
+        ),
+      ).toEqual([{ is_nullable: "YES" }]);
     });
 
     it("is refused when a column it names was dropped and added again", async () => {

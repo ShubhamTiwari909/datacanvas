@@ -349,6 +349,70 @@ describe("WriteService: preview and apply", () => {
   });
 });
 
+describe("WriteService: the migration file", () => {
+  const rename: Change = {
+    kind: "rename_column",
+    table: users,
+    column: "full_name",
+    to: "display_name",
+  };
+
+  it("holds the structure changes that were applied, in order, as one script", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    const first = await service.preview(id, rename);
+    await service.apply(id, first.previewId);
+    const migration = service.migration(id);
+    expect(migration).toMatchObject({
+      steps: 1,
+      rowChanges: 0,
+      filename: "datacanvas-shop-2023-11-14.sql",
+    });
+    expect(migration.script).toContain("BEGIN;");
+    expect(migration.script).toContain('RENAME COLUMN "full_name" TO "display_name"');
+    expect(migration.script.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("counts row changes and never writes their values", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    const planned = await service.preview(id, updateEmail());
+    await service.apply(id, planned.previewId);
+    const migration = service.migration(id);
+    expect(migration).toMatchObject({ steps: 0, rowChanges: 1 });
+    expect(migration.script).not.toContain(SECRET);
+    expect(JSON.stringify(migration)).not.toContain(SECRET);
+  });
+
+  it("leaves out a change that failed, and needs no unlock to be read", async () => {
+    const adapter = new MockDatabaseAdapter();
+    const { service, id } = setup({ adapter });
+    service.unlock(id, "shop");
+    const planned = await service.preview(id, rename);
+    vi.spyOn(adapter, "applyChange").mockRejectedValueOnce(new DatabaseError("not_editable"));
+    await refusal(() => service.apply(id, planned.previewId));
+    service.lock(id);
+    expect(service.migration(id)).toMatchObject({ steps: 0, rowChanges: 0 });
+  });
+
+  it("is forgotten with the connection and refused for an unknown one", async () => {
+    const { service, registry, id } = setup();
+    service.unlock(id, "shop");
+    const planned = await service.preview(id, rename);
+    await service.apply(id, planned.previewId);
+    registry.remove(id);
+    expect((await refusal(() => service.migration(id))).code).toBe("connection_not_found");
+  });
+
+  it("keeps the migration out of the history", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    const planned = await service.preview(id, rename);
+    await service.apply(id, planned.previewId);
+    expect(service.history(id)[0]).not.toHaveProperty("sql");
+  });
+});
+
 describe("WriteService: locking while a write is on its way", () => {
   it("does not apply when writes are locked while the connection is reconnecting", async () => {
     const adapter = new MockDatabaseAdapter();

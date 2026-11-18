@@ -213,6 +213,32 @@ export async function listIncomingForeignKeys(
   }));
 }
 
+/**
+ * The tables whose rows can be deleted through a CHAIN of `ON DELETE CASCADE` keys that starts at a
+ * table, one step further than the direct keys (those are listed by `listIncomingForeignKeys`).
+ * Bounded in depth, so a cycle of cascading keys ends.
+ */
+export async function listCascadeChain(db: Queryable, oid: string): Promise<string[]> {
+  const { rows } = await db.query<{ name: string }>(
+    `WITH RECURSIVE chain(relid, depth) AS (
+       SELECT con.conrelid, 1 FROM pg_catalog.pg_constraint con
+       WHERE con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = $1::oid
+       UNION
+       SELECT con.conrelid, chain.depth + 1 FROM chain
+       JOIN pg_catalog.pg_constraint con
+         ON con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = chain.relid
+       WHERE chain.depth < 8
+     )
+     SELECT DISTINCT n.nspname::text || '.' || c.relname::text AS name
+     FROM chain JOIN pg_catalog.pg_class c ON c.oid = chain.relid
+     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE chain.depth >= 2 AND chain.relid <> $1::oid
+     ORDER BY 1`,
+    [oid],
+  );
+  return rows.map((r) => String(r.name));
+}
+
 // ------------------------------------------------- constraints and indexes ---
 
 export interface CatalogConstraint {
@@ -470,16 +496,30 @@ export async function resolveType(
   return row?.oid && row.category ? { oid: row.oid, category: row.category } : null;
 }
 
+/**
+ * The context of the cast between two types (decision 132): `i` implicit (a widening one),
+ * `a` assignment (PostgreSQL applies it silently but may round or cut, such as bigint to
+ * integer or numeric to integer), or null when there is none.
+ */
+export async function castContext(
+  db: Queryable,
+  fromOid: string,
+  toOid: string,
+): Promise<"i" | "a" | null> {
+  const { rows } = await db.query(
+    `SELECT castcontext::text AS context FROM pg_catalog.pg_cast
+     WHERE castsource = $1::oid AND casttarget = $2::oid AND castcontext IN ('i', 'a')`,
+    [fromOid, toOid],
+  );
+  const contexts = rows.map((r) => String(r.context));
+  return contexts.includes("i") ? "i" : contexts.includes("a") ? "a" : null;
+}
+
 /** Is there an implicit or assignment cast from one type to another (decision 132)? */
 export async function hasAssignmentCast(
   db: Queryable,
   fromOid: string,
   toOid: string,
 ): Promise<boolean> {
-  const { rows } = await db.query(
-    `SELECT 1 FROM pg_catalog.pg_cast
-     WHERE castsource = $1::oid AND casttarget = $2::oid AND castcontext IN ('i', 'a')`,
-    [fromOid, toOid],
-  );
-  return rows.length > 0;
+  return (await castContext(db, fromOid, toOid)) !== null;
 }

@@ -12,11 +12,13 @@ import {
   applyChangeResponseSchema,
   editInfoResponseSchema,
   historyResponseSchema,
+  migrationResponseSchema,
   previewChangeResponseSchema,
   roleResponseSchema,
   writesStatusResponseSchema,
   type ChangePreview,
   type HistoryEntry,
+  type MigrationFile,
   type RoleResponse,
   type WritesStatus,
 } from "@datacanvas/shared-types";
@@ -105,6 +107,15 @@ export async function requestApply(
 export async function getWritesHistory(connectionId: string): Promise<ApiResult<HistoryEntry[]>> {
   const result = await apiRequest(`${base(connectionId)}/writes/history`, historyResponseSchema);
   return unwrap(result, (d) => d.history);
+}
+
+/** The changes of structure made since connecting, as one SQL script (row changes only counted). */
+export async function getWritesMigration(connectionId: string): Promise<ApiResult<MigrationFile>> {
+  const result = await apiRequest(
+    `${base(connectionId)}/writes/migration`,
+    migrationResponseSchema,
+  );
+  return unwrap(result, (d) => d.migration);
 }
 
 /** What the connected database role can do, and the warnings for reading and for writing. */

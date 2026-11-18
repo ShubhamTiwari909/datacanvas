@@ -379,7 +379,7 @@ const writeRoutes = routeFiles.filter(
 );
 
 describe("writes: every route is guarded, JSON only and never cached", () => {
-  it("finds the eight routes", () => {
+  it("finds the nine routes", () => {
     expect(writeRoutes.map(rel).sort()).toEqual(
       [
         "apps/web/app/api/connections/[id]/role/route.ts",
@@ -387,6 +387,7 @@ describe("writes: every route is guarded, JSON only and never cached", () => {
         "apps/web/app/api/connections/[id]/writes/edit-info/route.ts",
         "apps/web/app/api/connections/[id]/writes/history/route.ts",
         "apps/web/app/api/connections/[id]/writes/lock/route.ts",
+        "apps/web/app/api/connections/[id]/writes/migration/route.ts",
         "apps/web/app/api/connections/[id]/writes/preview/route.ts",
         "apps/web/app/api/connections/[id]/writes/route.ts",
         "apps/web/app/api/connections/[id]/writes/unlock/route.ts",

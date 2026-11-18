@@ -40,14 +40,22 @@ import {
   type TableRef,
   type WritableAdapter,
 } from "@datacanvas/database-core";
-import type { ChangePreview, HistoryEntry, WritesStatus } from "@datacanvas/shared-types";
+import type {
+  ChangePreview,
+  HistoryEntry,
+  MigrationFile,
+  WritesStatus,
+} from "@datacanvas/shared-types";
 import { randomBytes } from "node:crypto";
 import { isLocalHost, type ConnectionRegistry } from "./connection-registry";
+import { buildMigration, migrationFilename, type MigrationStep } from "./migration-file";
 import { PreviewStore } from "./preview-store";
 import { ServiceError } from "./service-error";
 
 /** At most this many history lines are kept per connection; the oldest go first. */
 export const MAX_HISTORY_PER_CONNECTION = 200;
+/** At most this many steps go into the migration file; past it the oldest are dropped. */
+export const MAX_MIGRATION_STEPS = 500;
 
 export const WRITE_MESSAGES = {
   connectionNotFound: "This connection does not exist.",
@@ -81,6 +89,12 @@ export class WriteService {
   private readonly now: () => number;
   private readonly generateId: () => string;
   private readonly histories = new Map<string, HistoryEntry[]>();
+  /**
+   * The applied changes of structure with their full SQL, for the migration file only
+   * (decision 138). Never part of the history: it may hold a default or a comment the
+   * person typed. Memory only, bounded, gone with the connection.
+   */
+  private readonly migrations = new Map<string, { steps: MigrationStep[]; rowChanges: number }>();
   /** Connections with a change running right now (one at a time per connection). */
   private readonly busy = new Set<string>();
 
@@ -195,10 +209,32 @@ export class WriteService {
     return [...(this.histories.get(id) ?? [])].reverse();
   }
 
+  /**
+   * The changes of structure applied through this connection as one SQL script
+   * (a row change is only counted). Needs no unlock: it reads nothing from the database.
+   */
+  migration(id: string): MigrationFile {
+    const summary = this.summary(id);
+    const log = this.migrations.get(id) ?? { steps: [], rowChanges: 0 };
+    const generatedAt = new Date(this.now()).toISOString();
+    return {
+      filename: migrationFilename(summary.database, generatedAt),
+      script: buildMigration({
+        database: summary.database,
+        generatedAt,
+        steps: log.steps,
+        rowChanges: log.rowChanges,
+      }),
+      steps: log.steps.length,
+      rowChanges: log.rowChanges,
+    };
+  }
+
   /** Drop everything that belongs to a connection (it was disconnected). */
   forget(id: string): void {
     this.previews.clear(id);
     this.histories.delete(id);
+    this.migrations.delete(id);
     this.busy.delete(id);
   }
 
@@ -239,6 +275,23 @@ export class WriteService {
     return this.connections.use(id, (adapter) => work(writable(adapter)));
   }
 
+  /** Keep an applied change for the migration file: its SQL (structure) or a count (rows). */
+  private remember(id: string, plan: PlannedChange, at: string): void {
+    const log = this.migrations.get(id) ?? { steps: [], rowChanges: 0 };
+    if (plan.category === "row") {
+      log.rowChanges += 1;
+    } else {
+      log.steps.push({
+        at,
+        kind: plan.change.kind,
+        table: { ...changeTable(plan.change) },
+        sql: statementText(plan),
+      });
+      if (log.steps.length > MAX_MIGRATION_STEPS) log.steps.shift();
+    }
+    this.migrations.set(id, log);
+  }
+
   private record(id: string, plan: PlannedChange, failure: string | null): HistoryEntry {
     const entry: HistoryEntry = {
       id: this.generateId(),
@@ -255,6 +308,7 @@ export class WriteService {
       outcome: failure === null ? "applied" : "failed",
       errorCode: failure,
     };
+    if (failure === null) this.remember(id, plan, entry.at);
     const list = this.histories.get(id) ?? [];
     list.push(entry);
     if (list.length > MAX_HISTORY_PER_CONNECTION)

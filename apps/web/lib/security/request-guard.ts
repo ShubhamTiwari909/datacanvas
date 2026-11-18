@@ -67,7 +67,9 @@ export function readSecurityConfig(
     port,
     token,
     tokenRequired: token !== null || env.NODE_ENV === "production",
-    writesEnabled: env[ENABLE_WRITES_ENV] === "1",
+    // Writes need the session token as well: without one only the Host check would stand in
+    // front of them (a development server has no token), so they stay off.
+    writesEnabled: env[ENABLE_WRITES_ENV] === "1" && token !== null,
   };
 }
 

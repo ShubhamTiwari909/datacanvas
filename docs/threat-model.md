@@ -83,6 +83,21 @@ New capability: **changing and destroying data and structure**. The worst case o
 | A role with far more rights than needed          | The role check and its warnings, in read-only mode and with writes unlocked                                                                                                                                                                             | A warning can be ignored                                                                                                                                                |
 | Writes enabled by habit                          | A notice at every start with the flag; the unlock is per connection and per session and is never saved                                                                                                                                                  | A person who always starts with the flag                                                                                                                                |
 
+### 7b. Review of the write path (1.5.2)
+
+Before 1.5.2 the write path was read end to end by a second reviewer working only from the code, looking for injection, a bypass of the unlock or the preview, reaching writes from another origin, leaks, and resource abuse. It found no way to run SQL of its own, to apply something other than what was previewed, or to reach a write without the token. What it did find, and what was done:
+
+| Finding                                                                                                          | Result                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A type change that rounds or cuts values (for example bigint to integer, numeric to integer) was a quiet preview | Fixed: such a change is marked destructive and carries a `lossy` warning (decision 139)                                                                            |
+| The plan guard did not notice a column whose type changed after the preview                                      | Fixed: the guard pins each named column's type too                                                                                                                 |
+| A delete listed only the foreign keys that point straight at the row, not a chain of `ON DELETE CASCADE`         | Fixed: the warning names the tables further down the chain                                                                                                         |
+| `npm run dev` with the writes variable set had writes on and no session token                                    | Fixed: writes need a session token as well (decision 140)                                                                                                          |
+| Structure statements are sent as text, so one stray `;` in a builder would start a second statement              | Guarded by a test that no structure statement has a semicolon outside quotes; every name already comes from the catalog or the new-name check                      |
+| The session token is a cookie, and cookies are shared across ports                                               | **Accepted**, as in attacker 2: a hostile local web server could replay it. A second secret held in memory by the page is the fix, and is left for a later release |
+| Unlock and the typed table name are friction, not authentication                                                 | **Accepted** and now said here: anyone holding the token can type them                                                                                             |
+| Many large previews, or slow user-defined casts, can hold memory or a pooled connection                          | **Accepted** for a local single-user tool: previews are capped at 20 per connection and expire after five minutes                                                  |
+
 ## What happens on connection failure
 
 The API returns a fixed message and a stable code (`unreachable`, `authentication_failed`, `ssl_error`, `timeout`...). The raw driver error, which can contain host names, user names or SQL, is never returned.
@@ -99,4 +114,4 @@ Write tests: the statement builders and the strict operation schemas (no `sql`, 
 
 ## Not covered
 
-Independent review, other operating systems and browsers, a full Content-Security-Policy, and hardening against a same-user attacker.
+A review by a person or an outside party (the 1.5.2 review of the write path was done by a second model session), other operating systems and browsers, a full Content-Security-Policy, and hardening against a same-user attacker.

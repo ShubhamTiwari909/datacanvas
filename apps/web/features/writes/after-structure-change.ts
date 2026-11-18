@@ -57,7 +57,9 @@ export async function afterStructureChange(connectionId: string, change: Change)
     const id = tableRefKey(gone);
     const canvas = useCanvasStore.getState();
     wasOnCanvas = canvas.canvases[connectionId]?.nodes.some((n) => n.id === id) ?? false;
-    if (wasOnCanvas) canvas.applyChanges(connectionId, [{ type: "remove", id }]);
+    // A dropped table leaves the canvas now. A renamed one stays, and is renamed in place below,
+    // once the metadata under its new name is loaded (a node is never drawn without its columns).
+    if (wasOnCanvas && !renamedTo) canvas.applyChanges(connectionId, [{ type: "remove", id }]);
 
     const workspace = useWorkspaceStore.getState();
     const selected = workspace.selectedTable;
@@ -70,9 +72,22 @@ export async function afterStructureChange(connectionId: string, change: Change)
     }
   }
 
+  if (renamedTo && wasOnCanvas && gone) {
+    // Done before the old entry is dropped, so the node never lacks its columns. Only the node's
+    // identity changes: its position, size and view state stay.
+    const loaded = await useMetadataStore.getState().ensureTables(connectionId, [renamedTo]);
+    if (loaded.ok) {
+      useCanvasStore.getState().renameNode(connectionId, gone, renamedTo);
+    } else {
+      // Could not read the renamed table: take the old node off and let adding it report why.
+      useCanvasStore
+        .getState()
+        .applyChanges(connectionId, [{ type: "remove", id: tableRefKey(gone) }]);
+      await addTablesToCanvas(connectionId, [renamedTo]);
+    }
+  }
+
   await useMetadataStore
     .getState()
     .refreshAfterChange(connectionId, { reload, drop: gone ? [gone] : [] });
-
-  if (renamedTo && wasOnCanvas) await addTablesToCanvas(connectionId, [renamedTo]);
 }

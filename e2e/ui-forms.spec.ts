@@ -408,3 +408,80 @@ test("a tall form scrolls its body and keeps the footer in view", async ({
   // ...while Preview stays reachable without scrolling.
   await expect(dialog.getByRole("button", { name: "Preview" })).toBeInViewport({ ratio: 1 });
 });
+
+/** U4: the sidebar's writes bar, the Data toolbar and the row actions (docs/ui-polish-plan.md). */
+test("the sidebar writes bar, the Data toolbar and the row actions stay compact", async ({
+  page,
+  writableApp,
+  database,
+}) => {
+  await plant(database);
+  await connect(page, writableApp.link, database);
+  const sidebar = page.getByRole("complementary", { name: "Connections and schema explorer" });
+
+  // --- unlock: the words are not repeated
+  await page.getByRole("switch", { name: "Allow changes to UI shop" }).click();
+  const dialog = page.getByRole("dialog");
+  const text = (await dialog.innerText()).toLowerCase();
+  expect(
+    text.split("allow changes to").length - 1,
+    "the question is asked once",
+  ).toBeLessThanOrEqual(1);
+  expect(
+    text.split(database.name.toLowerCase()).length - 1,
+    "the name is shown twice at most",
+  ).toBeLessThanOrEqual(2);
+  await page.getByRole("textbox", { name: "Database name" }).fill(database.name);
+  await page.getByRole("button", { name: "Allow changes" }).click();
+
+  // --- the bar: badge and two icon buttons on one line, each button at least 28 px, each with a tooltip
+  const badge = sidebar.getByText("Writes on");
+  await expect(badge).toBeVisible();
+  const lock = sidebar.getByRole("button", { name: "Lock writes for UI shop" });
+  const history = sidebar.getByRole("button", { name: "Changes made to UI shop in this session" });
+  const boxes = await Promise.all([badge, lock, history].map((l) => l.boundingBox()));
+  const tops = boxes.map((b) => Math.round((b!.y + b!.height / 2) / 4));
+  expect(new Set(tops).size, "badge, lock and changes share one line").toBe(1);
+  for (const b of boxes.slice(1)) expect(Math.min(b!.width, b!.height)).toBeGreaterThanOrEqual(28);
+  await lock.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Lock writes");
+
+  // --- the Data toolbar: at most two lines at 1280 and at 900
+  await page.getByRole("tab", { name: "Table details" }).click();
+  await page
+    .getByRole("button", { name: /^ui_people\b/ })
+    .first()
+    .click();
+  await expect(page.getByRole("grid")).toBeVisible();
+  for (const width of [1280, 900]) {
+    await page.setViewportSize({ width, height: 800 });
+    const lines = await page.evaluate(() => {
+      const next = [...document.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Next",
+      );
+      const bar = next?.closest("[data-slot=data-toolbar]");
+      if (!bar) return -1;
+      const tops = new Set<number>();
+      for (const el of bar.querySelectorAll("button, select, [role=switch], [role=status]")) {
+        const r = el.getBoundingClientRect();
+        tops.add(Math.round((r.top + r.height / 2) / 16));
+      }
+      return tops.size;
+    });
+    expect(lines, `the toolbar exists and has at most two lines at ${width}`).toBeGreaterThan(0);
+    expect(lines).toBeLessThanOrEqual(2);
+  }
+
+  // --- the row actions: a 32 px target and a tooltip
+  await page.setViewportSize({ width: 1280, height: 800 });
+  mkdirSync(shots, { recursive: true });
+  await page.screenshot({ path: path.join(shots, "data-toolbar.png") });
+  for (const name of ["Edit row 1", "Delete row 1"]) {
+    const box = await page.getByRole("button", { name }).boundingBox();
+    expect(Math.min(box!.width, box!.height), `${name} is at least 32 px`).toBeGreaterThanOrEqual(
+      32,
+    );
+  }
+  await page.getByRole("button", { name: "Edit row 1" }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Edit row 1");
+});

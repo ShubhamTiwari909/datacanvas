@@ -77,27 +77,21 @@ export function UnlockDialog({
           <DialogHeader>
             <DialogTitle>Allow changes to {connection.database}?</DialogTitle>
             <DialogDescription>
-              Allow changes to{" "}
-              <strong className="font-medium text-foreground">{connection.database}</strong>
-              {address.known ? (
-                <>
-                  {" "}
-                  on <strong className="font-medium text-foreground">{address.text}</strong>
-                </>
-              ) : null}
-              ? Changes are committed immediately and cannot be undone. Type the database name to
-              confirm, and make sure this is not a production database.
+              Changes are committed immediately and cannot be undone. Make sure this is not a
+              production database, then type its name to confirm.
             </DialogDescription>
           </DialogHeader>
 
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <dt className="text-muted-foreground">Host you connected to</dt>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Database</dt>
+            <dd className="font-mono">{connection.database}</dd>
+            <dt className="text-muted-foreground">Connected to</dt>
             <dd className="font-mono">{connection.host}</dd>
-            <dt className="text-muted-foreground">Address the server reports</dt>
+            <dt className="text-muted-foreground">Server reports</dt>
             <dd className="font-mono">{address.text}</dd>
             {role ? (
               <>
-                <dt className="text-muted-foreground">Database role</dt>
+                <dt className="text-muted-foreground">Role</dt>
                 <dd className="font-mono">{role.role.roleName}</dd>
               </>
             ) : null}

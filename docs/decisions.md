@@ -855,6 +855,6 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 
 ## 137. A preview only applies to the table it was made for
 
-**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it.
+**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it. The guard pins identity only: a plan that creates a table has nothing to pin, and a changed type, default or NULL setting on a column is not detected.
 
 **Why:** a preview can wait up to five minutes. A table dropped and recreated under the same name in that time is a different table, and applying the old plan to it would change something the person never saw. Found in the review of the 1.4.0 pull request.

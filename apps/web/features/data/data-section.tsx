@@ -150,8 +150,11 @@ function Rows({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div
+        data-slot="data-toolbar"
+        className="flex items-center gap-x-4 gap-y-2 overflow-x-auto rounded-lg border bg-muted/30 px-2 py-1.5 whitespace-nowrap sm:flex-wrap sm:overflow-visible [&>*]:shrink-0"
+      >
+        <div role="group" aria-label="Paging" className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -180,8 +183,12 @@ function Rows({
             {filtered ? " · filtered" : estimate ? ` · ${estimate}` : ""}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          {editing.toolbar}
+        {editing.toolbar ? (
+          <div role="group" aria-label="Actions" className="flex items-center gap-2">
+            {editing.toolbar}
+          </div>
+        ) : null}
+        <div role="group" aria-label="View" className="ml-auto flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={blurred} onCheckedChange={setBlurred} />
             Blur values

@@ -18,8 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FIELD_LABEL, FIELD_SECTION, FormField } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { afterStructureChange } from "./after-structure-change";
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
@@ -62,7 +62,7 @@ export function CreateTableDialog({
 }) {
   return (
     <Dialog open={schema !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent size="builder">
         {schema !== null ? (
           <NewTableForm
             key={schema}
@@ -118,31 +118,34 @@ function NewTableForm({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap gap-3">
-          <div className="flex min-w-60 flex-1 flex-col gap-1.5">
-            <Label htmlFor="create-table-name">Table name</Label>
-            <Input
-              id="create-table-name"
-              autoComplete="off"
-              spellCheck={false}
-              value={form.name}
-              // A foreign key that points at the table itself moves with its name.
-              onChange={(event) => setForm((f) => renameTableIn(f, event.target.value))}
-            />
-          </div>
-          <div className="flex min-w-60 flex-1 flex-col gap-1.5">
-            <Label htmlFor="create-table-comment">Comment (optional)</Label>
-            <Input
-              id="create-table-comment"
-              value={form.comment}
-              onChange={(event) => update({ comment: event.target.value })}
-            />
-          </div>
+        <div className="flex flex-wrap gap-4">
+          <FormField label="Table name" className="min-w-60 flex-1">
+            {(field) => (
+              <Input
+                {...field}
+                autoComplete="off"
+                spellCheck={false}
+                value={form.name}
+                // A foreign key that points at the table itself moves with its name.
+                onChange={(event) => setForm((f) => renameTableIn(f, event.target.value))}
+              />
+            )}
+          </FormField>
+          <FormField label="Comment (optional)" className="min-w-60 flex-1">
+            {(field) => (
+              <Input
+                {...field}
+                value={form.comment}
+                onChange={(event) => update({ comment: event.target.value })}
+              />
+            )}
+          </FormField>
         </div>
 
         <section aria-labelledby="create-columns" className="flex flex-col gap-2">
-          <h3 id="create-columns" className="text-sm font-medium">
-            Columns
+          <h3 id="create-columns" className={FIELD_SECTION}>
+            Columns{" "}
+            <span className="font-normal text-muted-foreground">({form.columns.length})</span>
           </h3>
           {form.columns.map((column, index) => (
             <ColumnFields
@@ -183,7 +186,7 @@ function NewTableForm({
         </section>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium">Primary key</legend>
+          <legend className={FIELD_SECTION}>Primary key</legend>
           {names.length === 0 ? (
             <p className="text-xs text-muted-foreground">Name a column first.</p>
           ) : (
@@ -212,7 +215,7 @@ function NewTableForm({
         </fieldset>
 
         <section aria-labelledby="create-unique" className="flex flex-col gap-2">
-          <h3 id="create-unique" className="text-sm font-medium">
+          <h3 id="create-unique" className={FIELD_SECTION}>
             Unique constraints
           </h3>
           {form.unique.map((set, index) => (
@@ -220,7 +223,7 @@ function NewTableForm({
               key={index}
               className="flex flex-wrap items-center gap-3 rounded-lg border p-2"
             >
-              <legend className="px-1 text-xs">Unique constraint {index + 1}</legend>
+              <legend className={`px-1 ${FIELD_LABEL}`}>Unique constraint {index + 1}</legend>
               {names.map((name) => (
                 <label key={name} className="flex items-center gap-1.5 text-xs">
                   <input
@@ -263,7 +266,7 @@ function NewTableForm({
         </section>
 
         <section aria-labelledby="create-fks" className="flex flex-col gap-2">
-          <h3 id="create-fks" className="text-sm font-medium">
+          <h3 id="create-fks" className={FIELD_SECTION}>
             Foreign keys
           </h3>
           {form.foreignKeys.map((fk, index) => (

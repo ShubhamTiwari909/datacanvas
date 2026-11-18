@@ -12,6 +12,7 @@ import { memo, useCallback, useRef, useState, type KeyboardEvent, type ReactNode
 import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock, Pencil, Trash2 } from "lucide-react";
 import type { RowCell, RowColumn, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { CellDialog, type OpenCell } from "./cell-dialog";
@@ -193,7 +194,7 @@ const GridRow = memo(function GridRow({
   return (
     <tr className="border-t hover:bg-muted/40">
       {editing ? (
-        <td className="px-1 py-0.5 align-top whitespace-nowrap">
+        <td className="px-1 py-0 align-middle whitespace-nowrap">
           <RowActionButton
             label={`Edit row ${r + 1}`}
             block={block}
@@ -359,17 +360,19 @@ function RowActionButton({
   children: ReactNode;
 }) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      aria-label={label}
-      aria-disabled={block !== null}
-      title={block ?? label}
-      className={cn(block !== null && "cursor-not-allowed opacity-40")}
-      onClick={block === null ? onClick : undefined}
-    >
-      {children}
-    </Button>
+    <Tip label={block ?? label}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={label}
+        aria-disabled={block !== null}
+        aria-description={block ?? undefined}
+        className={cn("size-8", block !== null && "cursor-not-allowed opacity-40")}
+        onClick={block === null ? onClick : undefined}
+      >
+        {children}
+      </Button>
+    </Tip>
   );
 }

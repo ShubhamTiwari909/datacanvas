@@ -11,11 +11,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, History, Lock, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, History, Lock, X } from "lucide-react";
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Tip } from "@/components/ui/tooltip";
+import { cn } from "cn";
 import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
 import { HistoryDialog } from "./history-dialog";
 import { UnlockDialog } from "./unlock-dialog";
@@ -33,6 +35,7 @@ export function WritesControl({ connection }: { connection: ConnectionSummary })
   const [unlocking, setUnlocking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
 
   // Ask again whenever the connection's data access changes: writing needs it.
   useEffect(() => {
@@ -45,6 +48,8 @@ export function WritesControl({ connection }: { connection: ConnectionSummary })
 
   const { status, role } = writes;
   const readWarnings = role?.warnings.read ?? [];
+  const noteText = readWarnings.map((w) => w.message).join(" ");
+  const noteId = `role-note-${connection.id}`;
   const roleNote =
     !status.unlocked && !writes.roleNoteDismissed && readWarnings.length > 0 ? (
       <div
@@ -55,17 +60,35 @@ export function WritesControl({ connection }: { connection: ConnectionSummary })
           className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400"
           aria-hidden="true"
         />
-        <span className="flex-1">{readWarnings.map((w) => w.message).join(" ")}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="-my-0.5"
-          onClick={() => dismissRoleNote(connection.id)}
-          aria-label={`Dismiss the role note for ${connection.name}`}
-        >
-          <X aria-hidden="true" />
-        </Button>
+        <span id={noteId} className={cn("min-w-0 flex-1", !noteOpen && "line-clamp-2")}>
+          {noteText}
+        </span>
+        <Tip label={noteOpen ? "Show less" : "Show all"}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="-my-0.5"
+            aria-expanded={noteOpen}
+            aria-controls={noteId}
+            onClick={() => setNoteOpen((open) => !open)}
+            aria-label={`The whole role note for ${connection.name}`}
+          >
+            <ChevronDown className={cn(noteOpen && "rotate-180")} aria-hidden="true" />
+          </Button>
+        </Tip>
+        <Tip label="Dismiss">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="-my-0.5"
+            onClick={() => dismissRoleNote(connection.id)}
+            aria-label={`Dismiss the role note for ${connection.name}`}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </Tip>
       </div>
     ) : null;
 
@@ -83,31 +106,34 @@ export function WritesControl({ connection }: { connection: ConnectionSummary })
   return (
     <div className="flex flex-col gap-1 px-2 pb-1">
       {status.unlocked ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <Badge variant="destructive">Writes on</Badge>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => {
-              setError(null);
-              void lock(connection.id).then((r) => setError(r.ok ? null : r.error.message));
-            }}
-            aria-label={`Lock writes for ${connection.name}`}
-          >
-            <Lock aria-hidden="true" />
-            Lock writes
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => setShowHistory(true)}
-            aria-label={`Changes made to ${connection.name} in this session`}
-          >
-            <History aria-hidden="true" />
-            Changes
-          </Button>
+          <span className="flex-1" />
+          <Tip label="Lock writes">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                setError(null);
+                void lock(connection.id).then((r) => setError(r.ok ? null : r.error.message));
+              }}
+              aria-label={`Lock writes for ${connection.name}`}
+            >
+              <Lock aria-hidden="true" />
+            </Button>
+          </Tip>
+          <Tip label="Changes made in this session">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setShowHistory(true)}
+              aria-label={`Changes made to ${connection.name} in this session`}
+            >
+              <History aria-hidden="true" />
+            </Button>
+          </Tip>
         </div>
       ) : (
         <div className="flex items-center gap-2">

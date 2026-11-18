@@ -61,6 +61,54 @@ export function typeHint(dataType: string): string | null {
   return null;
 }
 
+/** Which kind of control fits a column's type (docs/ui-polish-plan.md, U2). */
+export type ControlKind =
+  /** A switch: true or false. */
+  | "boolean"
+  /** A one-line field for a number (the numeric keypad on a phone). */
+  | "number"
+  /** A one-line field for a short, structured value: a date, a time, a UUID, an address. */
+  | "line"
+  /** A field that grows with its text: text, JSON, arrays and anything else that can be long. */
+  | "text";
+
+export function controlKind(dataType: string): ControlKind {
+  const type = dataType.toLowerCase();
+  if (type.endsWith("[]")) return "text";
+  if (type === "boolean") return "boolean";
+  if (/^(smallint|integer|bigint|numeric|decimal|real|double precision)\b/.test(type))
+    return "number";
+  if (
+    type === "date" ||
+    type.startsWith("time") ||
+    type === "interval" ||
+    type === "uuid" ||
+    type === "inet" ||
+    type === "cidr"
+  )
+    return "line";
+  return "text";
+}
+
+/** Does a boolean's text mean true? (The database writes `true`; typed forms are accepted.) */
+export function isTrueText(text: string): boolean {
+  return /^(t|true|y|yes|on|1)$/i.test(text.trim());
+}
+
+/**
+ * The column to focus when a row editor opens: the one the person started from,
+ * else the first editable column that is not part of the key (a key is rarely
+ * what they came to change), else the first editable one.
+ */
+export function focusTarget(
+  requested: string | null,
+  columns: readonly { name: string; editable: boolean; inKey: boolean }[],
+): string | null {
+  const editable = columns.filter((c) => c.editable);
+  if (requested !== null && editable.some((c) => c.name === requested)) return requested;
+  return (editable.find((c) => !c.inKey) ?? editable[0])?.name ?? null;
+}
+
 /**
  * A quick check of a typed value, for convenience only: the database decides.
  * Returns a sentence (that never repeats the value) or null.

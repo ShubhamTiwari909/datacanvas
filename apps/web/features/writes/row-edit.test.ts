@@ -7,6 +7,9 @@ import {
   cellEditBlock,
   changedFields,
   checkValue,
+  controlKind,
+  focusTarget,
+  isTrueText,
   columnEditBlock,
   deleteBeforeAfter,
   initialInsertMode,
@@ -267,5 +270,58 @@ describe("value hints", () => {
     expect(checkValue("jsonb", "{")).toMatch(/JSON/);
     expect(checkValue("jsonb", "secret-value")).not.toContain("secret-value");
     expect(checkValue("text", "anything")).toBeNull();
+  });
+});
+
+describe("the control that fits a type", () => {
+  it.each([
+    ["boolean", "boolean"],
+    ["integer", "number"],
+    ["bigint", "number"],
+    ["numeric(10,2)", "number"],
+    ["double precision", "number"],
+    ["date", "line"],
+    ["timestamp with time zone", "line"],
+    ["time without time zone", "line"],
+    ["interval", "line"],
+    ["uuid", "line"],
+    ["inet", "line"],
+    ["text", "text"],
+    ["character varying(255)", "text"],
+    ["jsonb", "text"],
+    ["integer[]", "text"],
+    ["my_enum", "text"],
+  ])("%s gets a %s control", (type, kind) => {
+    expect(controlKind(type)).toBe(kind);
+  });
+
+  it("reads the forms of true the database and a person write", () => {
+    for (const yes of ["true", "t", "TRUE", " yes ", "on", "1"]) expect(isTrueText(yes)).toBe(true);
+    for (const no of ["false", "f", "no", "off", "0", ""]) expect(isTrueText(no)).toBe(false);
+  });
+});
+
+describe("where focus lands when a row editor opens", () => {
+  const columns = [
+    { name: "id", editable: true, inKey: true },
+    { name: "name", editable: true, inKey: false },
+    { name: "token", editable: false, inKey: false },
+    { name: "note", editable: true, inKey: false },
+  ];
+
+  it("starts from the cell the person clicked, when that column is editable", () => {
+    expect(focusTarget("note", columns)).toBe("note");
+  });
+
+  it("otherwise takes the first editable column that is not part of the key", () => {
+    expect(focusTarget(null, columns)).toBe("name");
+    expect(focusTarget("token", columns)).toBe("name"); // not editable
+    expect(focusTarget("nope", columns)).toBe("name");
+  });
+
+  it("falls back to a key column when nothing else can be edited, and to nothing", () => {
+    expect(focusTarget(null, [{ name: "id", editable: true, inKey: true }])).toBe("id");
+    expect(focusTarget(null, [{ name: "x", editable: false, inKey: false }])).toBeNull();
+    expect(focusTarget(null, [])).toBeNull();
   });
 });

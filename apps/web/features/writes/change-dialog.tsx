@@ -127,7 +127,7 @@ export function ChangeDialog({
 
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>{request?.title ?? "Preview the change"}</DialogTitle>
           <DialogDescription>

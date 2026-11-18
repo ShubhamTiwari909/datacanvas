@@ -18,8 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormField } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
 import { ADDRESS_UNKNOWN_WARNING, serverAddressText } from "./unlock";
 
@@ -43,7 +43,6 @@ export function UnlockDialog({
   // "not read yet", "could not be read" and "no address (a local socket)" are three different things.
   const address = serverAddressText(role, roleFailed);
   const warnings = role?.warnings.write ?? [];
-  const inputId = `unlock-${connection.id}`;
 
   // Ask again whenever the dialog opens without an answer (the first attempt may have failed).
   useEffect(() => {
@@ -67,7 +66,7 @@ export function UnlockDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && close()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="confirm">
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -78,27 +77,21 @@ export function UnlockDialog({
           <DialogHeader>
             <DialogTitle>Allow changes to {connection.database}?</DialogTitle>
             <DialogDescription>
-              Allow changes to{" "}
-              <strong className="font-medium text-foreground">{connection.database}</strong>
-              {address.known ? (
-                <>
-                  {" "}
-                  on <strong className="font-medium text-foreground">{address.text}</strong>
-                </>
-              ) : null}
-              ? Changes are committed immediately and cannot be undone. Type the database name to
-              confirm, and make sure this is not a production database.
+              Changes are committed immediately and cannot be undone. Make sure this is not a
+              production database, then type its name to confirm.
             </DialogDescription>
           </DialogHeader>
 
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <dt className="text-muted-foreground">Host you connected to</dt>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Database</dt>
+            <dd className="font-mono">{connection.database}</dd>
+            <dt className="text-muted-foreground">Connected to</dt>
             <dd className="font-mono">{connection.host}</dd>
-            <dt className="text-muted-foreground">Address the server reports</dt>
+            <dt className="text-muted-foreground">Server reports</dt>
             <dd className="font-mono">{address.text}</dd>
             {role ? (
               <>
-                <dt className="text-muted-foreground">Database role</dt>
+                <dt className="text-muted-foreground">Role</dt>
                 <dd className="font-mono">{role.role.roleName}</dd>
               </>
             ) : null}
@@ -134,23 +127,17 @@ export function UnlockDialog({
             </ul>
           ) : null}
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={inputId}>Database name</Label>
-            <Input
-              id={inputId}
-              autoComplete="off"
-              spellCheck={false}
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              aria-invalid={error !== null}
-              aria-describedby={error ? `${inputId}-error` : undefined}
-            />
-            {error ? (
-              <p id={`${inputId}-error`} role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-          </div>
+          <FormField label="Database name" error={error} alertOnError>
+            {(field) => (
+              <Input
+                {...field}
+                autoComplete="off"
+                spellCheck={false}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+              />
+            )}
+          </FormField>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={close}>

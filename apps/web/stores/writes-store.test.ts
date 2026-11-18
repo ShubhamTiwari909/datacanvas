@@ -184,6 +184,21 @@ describe("answers for a connection that was closed", () => {
   });
 });
 
+describe("the role", () => {
+  it("tells 'could not be read' from 'still loading', and a later success clears it", async () => {
+    getRole.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "unreachable", message: "No answer.", issues: [] },
+    });
+    await state().loadRole("c1");
+    expect(state().byConnection["c1"]).toMatchObject({ role: null, roleFailed: true });
+
+    getRole.mockResolvedValueOnce(ok(someRole));
+    await state().loadRole("c1");
+    expect(state().byConnection["c1"]).toMatchObject({ role: someRole, roleFailed: false });
+  });
+});
+
 describe("the history", () => {
   it("keeps the oldest first, as the server's newest-first answer is turned round once", async () => {
     getWritesHistory.mockResolvedValue(ok([entry("h3"), entry("h2"), entry("h1")]));
@@ -216,6 +231,7 @@ function emptyFor() {
   return {
     status: WRITES_OFF,
     role: null,
+    roleFailed: false,
     history: [],
     roleNoteDismissed: false,
     structureVersion: 0,

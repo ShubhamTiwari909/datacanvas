@@ -40,6 +40,8 @@ export interface ConnectionWrites {
   status: WritesStatus;
   /** null until loaded; it stays null if the role could not be read. */
   role: RoleResponse | null;
+  /** The last attempt to read the role failed (so null means "unavailable", not "still loading"). */
+  roleFailed: boolean;
   history: HistoryEntry[];
   /** The read-mode role note was dismissed for this session. */
   roleNoteDismissed: boolean;
@@ -50,6 +52,7 @@ export interface ConnectionWrites {
 const empty = (): ConnectionWrites => ({
   status: WRITES_OFF,
   role: null,
+  roleFailed: false,
   history: [],
   roleNoteDismissed: false,
   structureVersion: 0,
@@ -121,7 +124,11 @@ export const useWritesStore = create<WritesState>((set, get) => {
       const epoch = epochOf(connectionId);
       const result = await getRole(connectionId);
       if (epochOf(connectionId) !== epoch) return;
-      if (result.ok) update(connectionId, (c) => ({ ...c, role: result.data }));
+      update(connectionId, (c) => ({
+        ...c,
+        role: result.ok ? result.data : c.role,
+        roleFailed: !result.ok,
+      }));
     },
 
     async loadHistory(connectionId) {

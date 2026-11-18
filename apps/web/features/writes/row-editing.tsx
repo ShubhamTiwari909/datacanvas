@@ -60,6 +60,19 @@ export function useRowEditing({
   const [request, setRequest] = useState<ChangeRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // When writing stops being possible (locked, the connection gone, table data switched off) the
+  // server drops its previews, so an open editor or preview would offer an Apply that cannot run.
+  // Close them all as `ready` turns false (state adjusted while rendering, not in an effect).
+  const [wasReady, setWasReady] = useState(ready);
+  if (wasReady !== ready) {
+    setWasReady(ready);
+    if (!ready) {
+      setEditRow(null);
+      setInserting(false);
+      setRequest(null);
+    }
+  }
+
   // The confirmation goes after a few seconds.
   useEffect(() => {
     if (!notice) return;

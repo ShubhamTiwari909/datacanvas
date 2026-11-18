@@ -77,6 +77,7 @@ async function inspect(page: Page, name: string, theme: string): Promise<void> {
   await page.waitForTimeout(350); // the open animation
   mkdirSync(shots, { recursive: true });
   await dialog.screenshot({ path: path.join(shots, `${name}-${theme}.png`) });
+  await designRules(page, name);
 
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async () => {
@@ -98,6 +99,57 @@ async function inspect(page: Page, name: string, theme: string): Promise<void> {
   );
   // Soft, so one run reports every violation and saves every screenshot.
   expect.soft(found, `axe on ${name} (${theme})`).toEqual([]);
+}
+
+/** The widths a data-changing dialog may have (docs/ui-polish-plan.md, U1): confirm, form, builder. */
+const WIDTH: Record<string, number> = {
+  unlock: 448,
+  "edit-row": 640,
+  preview: 640,
+  "add-row": 640,
+  "new-table": 768,
+  "edit-structure": 640,
+  history: 640,
+};
+
+/** The U1 rules: one of three widths, no text under 11 px, and the footer inside the window. */
+async function designRules(page: Page, name: string): Promise<void> {
+  const m = await page.evaluate(() => {
+    const dialog = document.querySelector("[role=dialog]");
+    if (!dialog) throw new Error("no dialog");
+    const small: string[] = [];
+    for (const el of dialog.querySelectorAll("*")) {
+      const hasText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent?.trim());
+      if (!hasText) continue;
+      const size = parseFloat(getComputedStyle(el).fontSize);
+      if (size < 11)
+        small.push(
+          `${el.tagName.toLowerCase()} ${size}px "${el.textContent?.trim().slice(0, 20)}"`,
+        );
+    }
+    const footer = dialog.querySelector("[data-slot=dialog-footer]")?.getBoundingClientRect();
+    const frame = dialog.getBoundingClientRect();
+    return {
+      footerGap: footer ? Math.round(frame.bottom - footer.bottom) : null,
+      width: Math.round(dialog.getBoundingClientRect().width),
+      small,
+      footerBottom: footer ? Math.round(footer.bottom) : null,
+      innerHeight: window.innerHeight,
+    };
+  });
+  expect.soft(m.width, `${name}: width`).toBe(WIDTH[name]);
+  expect.soft(m.small, `${name}: text under 11px`).toEqual([]);
+  if (m.footerGap !== null) {
+    // Flush with the dialog's bottom edge: no strip of scrolled content under the footer.
+    expect
+      .soft(m.footerGap, `${name}: footer flush with the dialog's bottom`)
+      .toBeLessThanOrEqual(1);
+  }
+  if (m.footerBottom !== null) {
+    expect
+      .soft(m.footerBottom, `${name}: footer inside the window`)
+      .toBeLessThanOrEqual(m.innerHeight);
+  }
 }
 
 async function closeDialog(page: Page): Promise<void> {
@@ -164,3 +216,33 @@ for (const theme of ["light", "dark"] as const) {
     await closeDialog(page);
   });
 }
+
+test("a tall form scrolls its body and keeps the footer in view", async ({
+  page,
+  writableApp,
+  database,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await plant(database);
+  await connect(page, writableApp.link, database);
+  await page.getByRole("switch", { name: "Allow changes to UI shop" }).click();
+  await page.getByRole("textbox", { name: "Database name" }).fill(database.name);
+  await page.getByRole("button", { name: "Allow changes" }).click();
+  await expect(page.getByText("Writes on")).toBeVisible();
+
+  await page.getByRole("button", { name: "New table in public" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Table name" }).fill("ui_tall");
+  for (let column = 2; column <= 5; column += 1) {
+    await dialog.getByRole("button", { name: "Add a column" }).click();
+    await dialog.getByLabel(`Column ${column} name`).fill(`c${column}`);
+  }
+
+  // The dialog stays inside the window and its content scrolls...
+  const box = await dialog.boundingBox();
+  expect(box && box.y >= 0 && box.y + box.height <= 560, "the dialog fits the window").toBe(true);
+  const scrolls = await dialog.evaluate((el) => el.scrollHeight > el.clientHeight);
+  expect(scrolls, "the content scrolls").toBe(true);
+  // ...while Preview stays reachable without scrolling.
+  await expect(dialog.getByRole("button", { name: "Preview" })).toBeInViewport({ ratio: 1 });
+});

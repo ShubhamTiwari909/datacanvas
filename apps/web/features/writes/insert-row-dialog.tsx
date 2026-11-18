@@ -16,6 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FIELD_ERROR, FIELD_HINT, FIELD_LABEL, FIELD_META, FormStack } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import { BLUR_CLASSES, useBlurStore } from "@/features/data/blur-store";
 import { cn } from "@/lib/utils";
 import type { ChangeRequest } from "./change-dialog";
@@ -51,7 +53,7 @@ export function InsertRowDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="form">
         {open ? (
           <InsertForm table={table} info={info} onClose={onClose} onPreview={onPreview} />
         ) : null}
@@ -112,7 +114,7 @@ function InsertForm({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-3">
+      <FormStack>
         {info.columns.map((column) => {
           const field = fields.find((f) => f.column === column.name);
           if (!field) return null;
@@ -121,12 +123,10 @@ function InsertForm({
           const hint = typeHint(column.dataType);
           const problem = field.mode === "value" ? checkValue(column.dataType, field.value) : null;
           return (
-            <fieldset key={column.name} className="flex flex-col gap-1">
+            <fieldset key={column.name} className="flex flex-col gap-1.5">
               <legend className="flex flex-wrap items-baseline gap-2">
-                <span className="font-mono text-xs font-medium">{column.name}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {column.dataType}
-                </span>
+                <span className={cn("font-mono", FIELD_LABEL)}>{column.name}</span>
+                <span className={FIELD_META}>{column.dataType}</span>
               </legend>
               <div
                 className="flex flex-wrap items-center gap-3"
@@ -152,7 +152,7 @@ function InsertForm({
               </div>
               {field.mode === "value" ? (
                 <>
-                  <textarea
+                  <Textarea
                     id={id}
                     aria-label={`Value for ${column.name}`}
                     rows={1}
@@ -164,18 +164,15 @@ function InsertForm({
                         .filter(Boolean)
                         .join(" ") || undefined
                     }
-                    className={cn(
-                      "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30",
-                      blurred && BLUR_CLASSES,
-                    )}
+                    className={cn("font-mono", blurred && BLUR_CLASSES)}
                   />
                   {hint ? (
-                    <span id={`${id}-hint`} className="text-xs text-muted-foreground">
+                    <span id={`${id}-hint`} className={FIELD_HINT}>
                       {hint}
                     </span>
                   ) : null}
                   {problem ? (
-                    <p id={`${id}-problem`} className="text-xs text-destructive">
+                    <p id={`${id}-problem`} className={FIELD_ERROR}>
                       {problem}
                     </p>
                   ) : null}
@@ -184,7 +181,7 @@ function InsertForm({
             </fieldset>
           );
         })}
-      </div>
+      </FormStack>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>

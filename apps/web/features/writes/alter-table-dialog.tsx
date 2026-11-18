@@ -10,6 +10,8 @@
 import { useState } from "react";
 import type { ColumnInfo, ConstraintInfo, IndexInfo, TableRef } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
+import { FormField, WrappedField } from "@/components/ui/field";
+import { SELECT_CLASS } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { afterStructureChange } from "./after-structure-change";
 import {
   ALTER_OPERATIONS,
@@ -29,7 +30,7 @@ import {
   type AlterState,
 } from "./alter";
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
-import { ColumnFields, DefaultFields, SELECT_CLASS, TypeFields } from "./column-fields";
+import { ColumnFields, DefaultFields, TypeFields } from "./column-fields";
 import { ForeignKeyFields } from "./foreign-key-fields";
 import { CHANGE_LABEL, columnFormPatch, defaultKindsForDataType } from "./structure";
 
@@ -56,7 +57,7 @@ export function AlterTableDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="form">
         {open ? (
           <AlterForm
             connectionId={connectionId}
@@ -82,8 +83,7 @@ function ColumnSelect({
   label?: string;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-muted-foreground">{label}</span>
+    <WrappedField label={label}>
       <select
         aria-label={label}
         className={SELECT_CLASS}
@@ -97,7 +97,7 @@ function ColumnSelect({
           </option>
         ))}
       </select>
-    </label>
+    </WrappedField>
   );
 }
 
@@ -173,18 +173,17 @@ function AlterForm({
           {state.op === "rename_column" ? (
             <ColumnSelect columns={columns} value={state.column} onChange={chooseColumn} />
           ) : null}
-          <div className="flex min-w-48 flex-col gap-1">
-            <Label htmlFor="alter-new-name" className="text-xs">
-              New name
-            </Label>
-            <Input
-              id="alter-new-name"
-              autoComplete="off"
-              spellCheck={false}
-              value={state.newName}
-              onChange={(event) => set({ newName: event.target.value })}
-            />
-          </div>
+          <FormField label="New name" className="min-w-48">
+            {(field) => (
+              <Input
+                {...field}
+                autoComplete="off"
+                spellCheck={false}
+                value={state.newName}
+                onChange={(event) => set({ newName: event.target.value })}
+              />
+            )}
+          </FormField>
         </div>
       );
       break;
@@ -298,8 +297,7 @@ function AlterForm({
       break;
     case "drop_constraint":
       body = (
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Constraint</span>
+        <WrappedField label="Constraint">
           <select
             aria-label="Constraint"
             className={SELECT_CLASS}
@@ -313,13 +311,12 @@ function AlterForm({
               </option>
             ))}
           </select>
-        </label>
+        </WrappedField>
       );
       break;
     case "drop_index":
       body = (
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Index</span>
+        <WrappedField label="Index">
           <select
             aria-label="Index"
             className={SELECT_CLASS}
@@ -333,7 +330,7 @@ function AlterForm({
               </option>
             ))}
           </select>
-        </label>
+        </WrappedField>
       );
       break;
     case "drop_column":
@@ -350,18 +347,17 @@ function AlterForm({
             It cannot be undone. Nothing is dropped while a view, a foreign key or an index depends
             on it.
           </p>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="alter-confirm" className="text-xs">
-              Type {table.name} to confirm
-            </Label>
-            <Input
-              id="alter-confirm"
-              autoComplete="off"
-              spellCheck={false}
-              value={state.confirm}
-              onChange={(event) => set({ confirm: event.target.value })}
-            />
-          </div>
+          <FormField label={<>Type {table.name} to confirm</>}>
+            {(field) => (
+              <Input
+                {...field}
+                autoComplete="off"
+                spellCheck={false}
+                value={state.confirm}
+                onChange={(event) => set({ confirm: event.target.value })}
+              />
+            )}
+          </FormField>
         </div>
       );
       break;
@@ -386,8 +382,7 @@ function AlterForm({
           </DialogDescription>
         </DialogHeader>
 
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">What to change</span>
+        <WrappedField label="What to change">
           <select
             aria-label="What to change"
             className={SELECT_CLASS}
@@ -407,7 +402,7 @@ function AlterForm({
               </optgroup>
             ))}
           </select>
-        </label>
+        </WrappedField>
 
         {body}
 

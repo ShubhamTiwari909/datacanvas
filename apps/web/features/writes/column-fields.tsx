@@ -9,8 +9,9 @@
 
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FIELD_LABEL, WrappedField } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { SELECT_CLASS } from "@/components/ui/select";
 import {
   COLUMN_TYPE_NAMES,
   DEFAULT_LABEL,
@@ -22,26 +23,6 @@ import {
   takesLength,
   type ColumnForm,
 } from "./structure";
-
-export const SELECT_CLASS =
-  "h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
-
-function Field({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <label className={cn("flex flex-col gap-1 text-xs", className)}>
-      <span className="text-muted-foreground">{label}</span>
-      {children}
-    </label>
-  );
-}
 
 /** Type, length or precision and scale, and array: shared by a new column and "Change type". */
 export function TypeFields({
@@ -56,7 +37,7 @@ export function TypeFields({
 }) {
   return (
     <>
-      <Field label="Type">
+      <WrappedField label="Type">
         <select
           aria-label={`${prefix} type`}
           className={SELECT_CLASS}
@@ -69,35 +50,35 @@ export function TypeFields({
             </option>
           ))}
         </select>
-      </Field>
+      </WrappedField>
       {takesLength(form.typeName) ? (
-        <Field label="Length" className="w-24">
+        <WrappedField label="Length" className="w-24">
           <Input
             aria-label={`${prefix} length`}
             inputMode="numeric"
             value={form.length}
             onChange={(event) => onChange({ length: event.target.value })}
           />
-        </Field>
+        </WrappedField>
       ) : null}
       {form.typeName === "numeric" ? (
         <>
-          <Field label="Precision" className="w-24">
+          <WrappedField label="Precision" className="w-24">
             <Input
               aria-label={`${prefix} precision`}
               inputMode="numeric"
               value={form.precision}
               onChange={(event) => onChange({ precision: event.target.value })}
             />
-          </Field>
-          <Field label="Scale" className="w-20">
+          </WrappedField>
+          <WrappedField label="Scale" className="w-20">
             <Input
               aria-label={`${prefix} scale`}
               inputMode="numeric"
               value={form.scale}
               onChange={(event) => onChange({ scale: event.target.value })}
             />
-          </Field>
+          </WrappedField>
         </>
       ) : null}
       <label className="flex items-center gap-1.5 self-end pb-2 text-xs">
@@ -127,7 +108,7 @@ export function DefaultFields({
 }) {
   return (
     <>
-      <Field label="Default">
+      <WrappedField label="Default">
         <select
           aria-label={`${prefix} default`}
           className={SELECT_CLASS}
@@ -142,18 +123,18 @@ export function DefaultFields({
             </option>
           ))}
         </select>
-      </Field>
+      </WrappedField>
       {form.defaultKind === "literal" ? (
-        <Field label="Default value">
+        <WrappedField label="Default value">
           <Input
             aria-label={`${prefix} default value`}
             value={form.defaultValue}
             onChange={(event) => onChange({ defaultValue: event.target.value })}
           />
-        </Field>
+        </WrappedField>
       ) : null}
       {form.defaultKind === "boolean" ? (
-        <Field label="Default value">
+        <WrappedField label="Default value">
           <select
             aria-label={`${prefix} default value`}
             className={SELECT_CLASS}
@@ -163,7 +144,7 @@ export function DefaultFields({
             <option value="true">true</option>
             <option value="false">false</option>
           </select>
-        </Field>
+        </WrappedField>
       ) : null}
     </>
   );
@@ -191,9 +172,9 @@ export function ColumnFields({
   const problems = form.name === "" ? [] : columnProblems(form);
   return (
     <fieldset className="flex flex-col gap-2 rounded-lg border p-3">
-      <legend className="px-1 text-xs font-medium">{prefix}</legend>
+      <legend className={`px-1 ${FIELD_LABEL}`}>{prefix}</legend>
       <div className="flex flex-wrap items-end gap-2">
-        <Field label="Name" className="min-w-40 flex-1">
+        <WrappedField label="Name" className="min-w-40 flex-1">
           <Input
             aria-label={`${prefix} name`}
             autoComplete="off"
@@ -201,7 +182,7 @@ export function ColumnFields({
             value={form.name}
             onChange={(event) => change({ name: event.target.value })}
           />
-        </Field>
+        </WrappedField>
         <TypeFields form={form} onChange={change} prefix={prefix} />
         {onRemove ? (
           <Button
@@ -218,7 +199,7 @@ export function ColumnFields({
       </div>
       <div className="flex flex-wrap items-end gap-2">
         {identityAllowed ? (
-          <Field label="Identity">
+          <WrappedField label="Identity">
             <select
               aria-label={`${prefix} identity`}
               className={SELECT_CLASS}
@@ -236,7 +217,7 @@ export function ColumnFields({
               <option value="always">Generated always</option>
               <option value="by_default">Generated by default</option>
             </select>
-          </Field>
+          </WrappedField>
         ) : null}
         {form.identity === null || !identityAllowed ? (
           <>
@@ -261,13 +242,13 @@ export function ColumnFields({
             Filled by the database, never NULL.
           </p>
         )}
-        <Field label="Comment" className="min-w-40 flex-1">
+        <WrappedField label="Comment" className="min-w-40 flex-1">
           <Input
             aria-label={`${prefix} comment`}
             value={form.comment}
             onChange={(event) => change({ comment: event.target.value })}
           />
-        </Field>
+        </WrappedField>
       </div>
       {problems.length > 0 ? (
         <ul className="text-xs text-destructive">

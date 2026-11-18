@@ -8,9 +8,10 @@
 import { Plus, Trash2 } from "lucide-react";
 import type { ReferentialAction } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
+import { FIELD_LABEL, WrappedField } from "@/components/ui/field";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useStructureVersion } from "@/stores/writes-store";
-import { SELECT_CLASS } from "./column-fields";
+import { SELECT_CLASS } from "@/components/ui/select";
 import { sharedSchemas, sharedTableDetails, sharedTables } from "./fk-lookups";
 import { ACTIONS, ACTION_LABEL, type ForeignKeyForm } from "./structure";
 
@@ -88,10 +89,9 @@ export function ForeignKeyFields({
 
   return (
     <fieldset className="flex flex-col gap-2 rounded-lg border p-3">
-      <legend className="px-1 text-xs font-medium">{prefix}</legend>
+      <legend className={`px-1 ${FIELD_LABEL}`}>{prefix}</legend>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Points at schema</span>
+        <WrappedField label="Points at schema">
           <select
             aria-label={`${prefix} schema`}
             className={SELECT_CLASS}
@@ -110,9 +110,8 @@ export function ForeignKeyFields({
               </option>
             ))}
           </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Table</span>
+        </WrappedField>
+        <WrappedField label="Table">
           <select
             aria-label={`${prefix} table`}
             className={SELECT_CLASS}
@@ -128,7 +127,7 @@ export function ForeignKeyFields({
               </option>
             ))}
           </select>
-        </label>
+        </WrappedField>
         {onRemove ? (
           <Button
             type="button"
@@ -145,8 +144,7 @@ export function ForeignKeyFields({
 
       {form.columns.map((local, position) => (
         <div key={position} className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="text-muted-foreground">Column</span>
+          <WrappedField label="Column">
             <select
               aria-label={`${prefix} column ${position + 1}`}
               className={SELECT_CLASS}
@@ -162,12 +160,11 @@ export function ForeignKeyFields({
                   </option>
                 ))}
             </select>
-          </label>
+          </WrappedField>
           <span className="pb-2 text-xs text-muted-foreground" aria-hidden="true">
             →
           </span>
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="text-muted-foreground">Points at</span>
+          <WrappedField label="Points at">
             <select
               aria-label={`${prefix} referenced column ${position + 1}`}
               className={SELECT_CLASS}
@@ -181,7 +178,7 @@ export function ForeignKeyFields({
                 </option>
               ))}
             </select>
-          </label>
+          </WrappedField>
           {form.columns.length > 1 ? (
             <Button
               type="button"
@@ -215,10 +212,7 @@ export function ForeignKeyFields({
           <span className="sr-only"> to {prefix.toLowerCase()}</span>
         </Button>
         {(["onDelete", "onUpdate"] as const).map((field) => (
-          <label key={field} className="flex flex-col gap-1 text-xs">
-            <span className="text-muted-foreground">
-              {field === "onDelete" ? "On delete" : "On update"}
-            </span>
+          <WrappedField key={field} label={field === "onDelete" ? "On delete" : "On update"}>
             <select
               aria-label={`${prefix} ${field === "onDelete" ? "on delete" : "on update"}`}
               className={SELECT_CLASS}
@@ -231,7 +225,7 @@ export function ForeignKeyFields({
                 </option>
               ))}
             </select>
-          </label>
+          </WrappedField>
         ))}
       </div>
     </fieldset>

@@ -1,6 +1,6 @@
 # Plan: polishing the forms and the dashboard UI
 
-Status: **proposal, nothing built.** Requested 2026-11-18, after 1.4.0 shipped, as the work to do **before** new features: the edit forms do not look good and the spacing is uneven. This plan lists what is wrong, with evidence, and a small set of changes that fix it, in an order that ships useful improvements early. It is a UI-only plan: no route, no stored data and no behaviour of the database changes.
+Status: **U0 and U1 built (2026-11-18); U2 to U6 not started.** See the progress notes after section 6. Requested 2026-11-18, after 1.4.0 shipped, as the work to do **before** new features: the edit forms do not look good and the spacing is uneven. This plan lists what is wrong, with evidence, and a small set of changes that fix it, in an order that ships useful improvements early. It is a UI-only plan: no route, no stored data and no behaviour of the database changes.
 
 ## 1. Goal
 
@@ -99,6 +99,14 @@ Sizes are relative (S, M, L). Each ends with `npm run check`, the browser tests,
 | U6  | **Release:** update the README and guide screenshots (`npm run screenshots`), changelog, version                                                                                                                                                                                      | S    | Release gate green; version bumped (see decision 4)                                                                                        |
 
 Order: U0, U1, then U2 to U4 in any order (they only share U1), then U5. U1 to U4 are visual and safe to ship alone as a patch release; U5 adds a capability.
+
+### Progress
+
+**U0 (done).** `e2e/ui-forms.spec.ts` opens the seven data-changing dialogs in light and dark, saves a screenshot of each (`UI_FORMS_DIR`) and runs axe-core on them. Its first run found a real bug that is fixed: in light theme `--muted-foreground` was 4.3:1 on `--muted`, under the 4.5:1 minimum (the preview's before and after table header). `axe-core` is now an explicit dev dependency.
+
+**U1 (done).** Shared pieces in `apps/web/components/ui`: `DialogContent` takes `size` (`confirm` 448, `form` 640, `builder` 768 px) and a sized dialog scrolls its body, keeps itself inside the window and pins its footer flush to the bottom edge; `FormField`, `WrappedField` and `FormStack` carry one type scale (section 14/500, label 13/500, meta and hint 12) and one rhythm (6 px label to control, 16 px between fields); `Textarea` and `Select` match `Input`. Every dialog in `features/writes` now uses them, and nothing in them is under 12 px. Closes findings 3 (in the dialogs), 8, 11, 12 and 15; findings 1, 2 and 4 to 10 are U2, 13 and 14 are U3, 16 to 18 are U4, 19 is U5. Rules in the spec fail the build if a dialog leaves the three widths, shows text under 11 px, lets the footer scroll away, or leaves a strip under it. The spec was run against the old build first and failed on exactly those points.
+
+Decisions taken for U1: native selects kept (decision 3); the widths and type scale above. Other dialogs (connect, export, forget) are unchanged apart from a footer that now also sticks.
 
 ## 7. Risks
 

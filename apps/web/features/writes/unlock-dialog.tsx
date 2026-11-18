@@ -18,8 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormField } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
 import { ADDRESS_UNKNOWN_WARNING, serverAddressText } from "./unlock";
 
@@ -43,7 +43,6 @@ export function UnlockDialog({
   // "not read yet", "could not be read" and "no address (a local socket)" are three different things.
   const address = serverAddressText(role, roleFailed);
   const warnings = role?.warnings.write ?? [];
-  const inputId = `unlock-${connection.id}`;
 
   // Ask again whenever the dialog opens without an answer (the first attempt may have failed).
   useEffect(() => {
@@ -67,7 +66,7 @@ export function UnlockDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && close()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="confirm">
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -134,23 +133,17 @@ export function UnlockDialog({
             </ul>
           ) : null}
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={inputId}>Database name</Label>
-            <Input
-              id={inputId}
-              autoComplete="off"
-              spellCheck={false}
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              aria-invalid={error !== null}
-              aria-describedby={error ? `${inputId}-error` : undefined}
-            />
-            {error ? (
-              <p id={`${inputId}-error`} role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-          </div>
+          <FormField label="Database name" error={error} alertOnError>
+            {(field) => (
+              <Input
+                {...field}
+                autoComplete="off"
+                spellCheck={false}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+              />
+            )}
+          </FormField>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={close}>

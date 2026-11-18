@@ -47,7 +47,7 @@ export function HistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>Changes in this session</DialogTitle>
           <DialogDescription>

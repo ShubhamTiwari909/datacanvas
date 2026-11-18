@@ -23,6 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FIELD_HINT, FormField, FormStack } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import { BLUR_CLASSES, useBlurStore } from "@/features/data/blur-store";
 import { cn } from "@/lib/utils";
 import type { ChangeRequest } from "./change-dialog";
@@ -64,7 +66,7 @@ export function RowEditorDialog({
 }) {
   return (
     <Dialog open={row !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent size="form">
         {row ? (
           // Keyed so a new row starts from its own values.
           <RowForm
@@ -148,51 +150,37 @@ function RowForm({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-3">
+      <FormStack>
         {editable.map(({ column, columnInfo, block }) => {
-          const id = `edit-${column.name}`;
           const state = fields[column.name] ?? { text: "", isNull: true };
           const hint = typeHint(column.dataType);
           const problem =
             block === null && !state.isNull ? checkValue(column.dataType, state.text) : null;
-          const describedBy = [hint ? `${id}-hint` : null, problem ? `${id}-problem` : null]
-            .filter(Boolean)
-            .join(" ");
           return (
-            <div key={column.name} className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <label htmlFor={id} className="font-mono text-xs font-medium">
-                  {column.name}
-                </label>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {column.dataType}
-                </span>
-                {columnInfo?.inKey ? (
-                  <span className="text-[10px] text-muted-foreground">key</span>
-                ) : null}
-              </div>
-              {block !== null ? (
-                <p id={id} className="text-xs text-muted-foreground">
-                  {block}
-                </p>
-              ) : (
-                <>
-                  <textarea
-                    id={id}
-                    autoFocus={row.focus === column.name}
-                    rows={Math.min(6, Math.max(1, state.text.split("\n").length))}
-                    disabled={state.isNull}
-                    value={state.isNull ? "" : state.text}
-                    placeholder={state.isNull ? "NULL" : undefined}
-                    onChange={(event) => set(column.name, { text: event.target.value })}
-                    aria-describedby={describedBy || undefined}
-                    aria-invalid={problem !== null}
-                    className={cn(
-                      "w-full rounded-lg border border-input bg-transparent px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 dark:bg-input/30",
-                      blurred && BLUR_CLASSES,
-                    )}
-                  />
-                  <div className="flex flex-wrap items-center gap-3">
+            <FormField
+              key={column.name}
+              label={<span className="font-mono">{column.name}</span>}
+              meta={columnInfo?.inKey ? `${column.dataType} · key` : column.dataType}
+              hint={block === null ? hint : undefined}
+              error={problem}
+            >
+              {(field) =>
+                block !== null ? (
+                  <p id={field.id} className={FIELD_HINT}>
+                    {block}
+                  </p>
+                ) : (
+                  <>
+                    <Textarea
+                      {...field}
+                      autoFocus={row.focus === column.name}
+                      rows={Math.min(6, Math.max(1, state.text.split("\n").length))}
+                      disabled={state.isNull}
+                      value={state.isNull ? "" : state.text}
+                      placeholder={state.isNull ? "NULL" : undefined}
+                      onChange={(event) => set(column.name, { text: event.target.value })}
+                      className={cn("font-mono", blurred && BLUR_CLASSES)}
+                    />
                     {columnInfo?.nullable ? (
                       <label className="flex items-center gap-1.5 text-xs">
                         <input
@@ -205,23 +193,13 @@ function RowForm({
                         <span className="sr-only"> for {column.name}</span>
                       </label>
                     ) : null}
-                    {hint ? (
-                      <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-                        {hint}
-                      </span>
-                    ) : null}
-                  </div>
-                  {problem ? (
-                    <p id={`${id}-problem`} className="text-xs text-destructive">
-                      {problem}
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </div>
+                  </>
+                )
+              }
+            </FormField>
           );
         })}
-      </div>
+      </FormStack>
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>

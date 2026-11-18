@@ -36,7 +36,7 @@ const SQL = `
 
   CREATE TABLE s_alter (
     id int PRIMARY KEY, n int, small varchar(5), label text, big bigint, arr int[],
-    viewed text, indexed text, linked int REFERENCES s_keep (id), counter serial, free text, conv int
+    viewed text, indexed text, linked int REFERENCES s_keep (id), counter serial, free text, conv int, price numeric(10,3)
   );
   INSERT INTO s_alter (id, n, small, label, big, viewed, indexed, linked, free)
     VALUES (1, 1, 'ab', '12', 5000000000, 'v', 'i', 1, NULL), (2, 2, 'cd', '${SECRET}', 1, 'v', 'i', 2, 'f');
@@ -90,6 +90,12 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
   ): Promise<T[]> => (await sql.query(text, values)).rows as T[];
   const apply = async (change: Change): Promise<PlannedChange> => {
     const plan = await adapter.previewChange(change);
+    // Structure statements carry no parameters, so they are sent as text: none may hold a
+    // second statement. Outside quoted names and literals there must be no semicolon.
+    for (const statement of plan.statements) {
+      const bare = statement.text.replace(/"(?:[^"]|"")*"|E?'(?:[^'\\]|''|\\.)*'/g, "");
+      expect(bare, statement.text).not.toContain(";");
+    }
     await adapter.applyChange(plan);
     return plan;
   };
@@ -663,6 +669,28 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
         "s_alter_view",
       );
       await refuse(retype("nope", { name: "text" }), "invalid_change", "nope");
+      // A change that rounds or cuts values quietly is flagged and destructive: numeric to integer,
+      // or fewer decimals. A widening cast, and a narrowing between integer types (which is an
+      // error when a value does not fit, tested below), are not.
+      const lossyCodes = async (c: string, type: ColumnType) => {
+        const plan = await adapter.previewChange(retype(c, type));
+        return [plan.destructive, plan.warnings.some((w) => w.code === "lossy")];
+      };
+      expect(await lossyCodes("price", { name: "integer" })).toEqual([true, true]);
+      expect(await lossyCodes("price", { name: "numeric", precision: 10, scale: 2 })).toEqual([
+        true,
+        true,
+      ]);
+      expect(await lossyCodes("price", { name: "numeric", precision: 12, scale: 3 })).toEqual([
+        false,
+        false,
+      ]);
+      expect(await lossyCodes("price", { name: "numeric" })).toEqual([false, false]);
+      expect(await lossyCodes("big", { name: "integer" })).toEqual([false, false]);
+      expect([widen.destructive, widen.warnings.some((w) => w.code === "lossy")]).toEqual([
+        false,
+        false,
+      ]);
       // A value that does not fit the new type: a fixed message, never the value.
       const error = await failure(
         adapter.applyChange(await adapter.previewChange(retype("big", { name: "integer" }))),
@@ -994,7 +1022,7 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
   describe("a plan that went stale", () => {
     const fresh = () =>
       sql.query(
-        "DROP TABLE IF EXISTS s_stale CASCADE; CREATE TABLE s_stale (id int PRIMARY KEY, n int, label text)",
+        "DROP TABLE IF EXISTS s_stale CASCADE; CREATE TABLE s_stale (id int PRIMARY KEY, n int, label text, amount numeric(10,2))",
       );
 
     it("is refused when the table was dropped and created again, and changes nothing", async () => {
@@ -1037,6 +1065,35 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
           "SELECT 1 FROM pg_indexes WHERE tablename = 's_stale' AND indexname <> 's_stale_pkey'",
         ),
       ).toEqual([]);
+    });
+
+    it("is refused when the type of a column it names changed after the preview", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "set_nullable",
+        table: ref("s_stale"),
+        column: "n",
+        nullable: false,
+      });
+      await sql.query("ALTER TABLE s_stale ALTER COLUMN n TYPE bigint");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect(
+        await rows(
+          "SELECT is_nullable FROM information_schema.columns WHERE table_name = 's_stale' AND column_name = 'n'",
+        ),
+      ).toEqual([{ is_nullable: "YES" }]);
+    });
+
+    it("is refused when only the precision of a column it names changed", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "set_nullable",
+        table: ref("s_stale"),
+        column: "amount",
+        nullable: false,
+      });
+      await sql.query("ALTER TABLE s_stale ALTER COLUMN amount TYPE numeric(10,0)");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
     });
 
     it("is refused when a column it names was dropped and added again", async () => {

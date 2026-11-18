@@ -415,6 +415,8 @@ export const CHANGE_WARNING_CODES = [
   "destructive",
   /** May fail when the table already has rows. */
   "may_fail",
+  /** Values may be rounded or cut to fit a narrower type. */
+  "lossy",
 ] as const;
 export type ChangeWarningCode = (typeof CHANGE_WARNING_CODES)[number];
 
@@ -433,6 +435,8 @@ export interface PlannedStatement {
 export interface PlanGuardColumn {
   name: string;
   attnum: number;
+  /** The column's type as the database prints it (`format_type`, length and precision included) at preview time: a changed type makes the plan stale. */
+  dataType: string;
 }
 
 /**

@@ -48,7 +48,8 @@ export interface SecurityConfig {
   /**
    * DataCanvas was started with `--enable-writes` (decision 125). Only the CLI
    * sets the variable, and it removes any value inherited from the shell, so
-   * this reflects the flag. Nothing in the API can change it.
+   * this reflects the flag. It is also off when there is no session token (a development
+   * server): see `readSecurityConfig`. Nothing in the API can change it.
    */
   writesEnabled: boolean;
 }
@@ -67,7 +68,9 @@ export function readSecurityConfig(
     port,
     token,
     tokenRequired: token !== null || env.NODE_ENV === "production",
-    writesEnabled: env[ENABLE_WRITES_ENV] === "1",
+    // Writes need the session token as well: without one only the Host check would stand in
+    // front of them (a development server has no token), so they stay off.
+    writesEnabled: env[ENABLE_WRITES_ENV] === "1" && token !== null,
   };
 }
 

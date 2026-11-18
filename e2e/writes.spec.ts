@@ -298,4 +298,48 @@ test.describe("with writes unlocked", () => {
       { ok: true },
     ]);
   });
+  test("export the changes of structure as a migration file; rows are left out", async ({
+    page,
+    database,
+  }) => {
+    // A row change first, then a new table: only the table may be in the file.
+    await openTable(page, /^w_people\b/);
+    await expect(grid(page)).toBeVisible();
+    await page.getByRole("button", { name: "Edit row 1" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("textbox", { name: "name", exact: true })
+      .fill(`Anna ${SECRET}`);
+    await page.getByRole("dialog").getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByText("The row was changed.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Changes made to W shop in this session" }).click();
+    // Nothing of structure yet: nothing to export.
+    await expect(page.getByRole("button", { name: /Export migration/ })).toBeDisabled();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "New table in public" }).click();
+    const create = page.getByRole("dialog");
+    await create.getByRole("textbox", { name: "Table name" }).fill("w_exported");
+    await create.getByLabel("Column 1 name").fill("id");
+    await create.getByLabel("Column 1 type").selectOption("integer");
+    await create.getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("button", { name: /^w_exported\b/ }).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Changes made to W shop in this session" }).click();
+    const exportButton = page.getByRole("button", { name: /Export migration/ });
+    await expect(exportButton).toBeEnabled();
+    const [download] = await Promise.all([page.waitForEvent("download"), exportButton.click()]);
+    expect(download.suggestedFilename()).toMatch(/^datacanvas-.+-\d{4}-\d{2}-\d{2}\.sql$/);
+    const path = await download.path();
+    const text = (await import("node:fs")).readFileSync(path, "utf8");
+    expect(text).toContain("BEGIN;");
+    expect(text).toContain('CREATE TABLE "public"."w_exported"');
+    expect(text).toContain("1 row change was made and is not part of this file");
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toMatch(/UPDATE "public"."w_people"/);
+    void database;
+  });
 });

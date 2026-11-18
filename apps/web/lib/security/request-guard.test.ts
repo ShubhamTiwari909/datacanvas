@@ -118,11 +118,20 @@ describe("readSecurityConfig", () => {
   });
 
   it("enables writes only for the exact value the CLI sets", () => {
-    expect(readSecurityConfig({ DATACANVAS_ENABLE_WRITES: "1" }).writesEnabled).toBe(true);
+    const withToken = (value: string) =>
+      readSecurityConfig({ DATACANVAS_ENABLE_WRITES: value, DATACANVAS_SESSION_TOKEN: "abc" });
+    expect(withToken("1").writesEnabled).toBe(true);
     for (const value of ["true", "yes", "on", "0", "", " 1"]) {
-      expect(readSecurityConfig({ DATACANVAS_ENABLE_WRITES: value }).writesEnabled).toBe(false);
+      expect(withToken(value).writesEnabled).toBe(false);
     }
     expect(readSecurityConfig({}).writesEnabled).toBe(false);
+  });
+
+  it("never enables writes without a session token (a development server has none)", () => {
+    expect(readSecurityConfig({ DATACANVAS_ENABLE_WRITES: "1" }).writesEnabled).toBe(false);
+    expect(
+      readSecurityConfig({ DATACANVAS_ENABLE_WRITES: "1", NODE_ENV: "development" }).writesEnabled,
+    ).toBe(false);
   });
 
   it("does not require a token in development or tests when none is set", () => {

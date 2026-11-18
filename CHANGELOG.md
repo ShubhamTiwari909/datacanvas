@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-18
+
+### Added
+
+- **Export migration (.sql).** The session history can now download the changes of structure made in the session (new tables, added columns, renames, drops) as one SQL script in a transaction, in the order they ran, ready to run on another database. Row changes are left out and counted in a comment (decision 138). The session keeps the latest 500 structure changes; if older ones were dropped, the script says so at the top.
+
+### Security
+
+The write path was reviewed from the code by a second reviewer. No way to run SQL of its own or to apply something other than what was previewed was found, and the only way found to reach writes without the token was a development server (below). Fixed from the review:
+
+- A type change that rounds or cuts values (numeric to integer, timestamp to date, or fewer decimals) is now marked destructive with a "lossy" warning.
+- A preview is now refused at apply if the type, length or precision of a column it names changed in the meantime.
+- Deleting a row now names the tables reached through a chain of `ON DELETE CASCADE` keys, to its end, not only those that point at the row directly.
+- Writes now need a session token as well as `--enable-writes`, so a development server never has them on.
+- Accepted and written down in `docs/threat-model.md`: the session cookie is shared across ports, unlock is friction rather than authentication, and previews are bounded only by count and time.
+
 ## [1.5.1] - 2026-11-18
 
 ### Fixed

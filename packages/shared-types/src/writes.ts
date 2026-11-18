@@ -367,6 +367,7 @@ const changeWarningSchema = z.object({
     "renamed",
     "destructive",
     "may_fail",
+    "lossy",
   ]),
   message: z.string(),
 });
@@ -403,6 +404,18 @@ export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 export const applyChangeResponseSchema = z.object({
   result: z.object({ rowCount: z.number(), entry: historyEntrySchema }),
 });
+/** The migration file of a session: the changes of structure as SQL (decision 138). */
+export const migrationFileSchema = z.object({
+  filename: z.string(),
+  script: z.string(),
+  steps: z.number(),
+  /** Earlier steps left out because the session kept only the latest ones. */
+  omittedSteps: z.number(),
+  rowChanges: z.number(),
+});
+export type MigrationFile = z.infer<typeof migrationFileSchema>;
+export const migrationResponseSchema = z.object({ migration: migrationFileSchema });
+
 export const historyResponseSchema = z.object({ history: z.array(historyEntrySchema) });
 
 export const tableEditInfoSchema = z.object({

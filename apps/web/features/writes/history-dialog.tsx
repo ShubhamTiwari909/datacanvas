@@ -5,8 +5,9 @@
  */
 "use client";
 
-import { useEffect } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, Download, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -16,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
+import { getWritesMigration } from "./api";
 import { changeLabel } from "./structure";
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "medium" });
@@ -44,6 +46,40 @@ export function HistoryDialog({
   }, [open, connectionId, loadHistory]);
 
   const newestFirst = [...history].reverse();
+  // The migration is kept apart from the history (which holds 200 lines and names only), so
+  // whether there is anything to export is asked of the server, not worked out from the list.
+  const [steps, setSteps] = useState(0);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void getWritesMigration(connectionId).then((result) => {
+      if (current && result.ok) setSteps(result.data.steps);
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, connectionId, history.length]);
+
+  async function exportMigration() {
+    setExportError(null);
+    const result = await getWritesMigration(connectionId);
+    if (!result.ok) {
+      setExportError("The migration could not be made. Try again.");
+      return;
+    }
+    // A download made in the browser from text already in hand: nothing is stored.
+    const url = URL.createObjectURL(new Blob([result.data.script], { type: "application/sql" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = result.data.filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -55,6 +91,26 @@ export function HistoryDialog({
             in memory and gone when you disconnect.
           </DialogDescription>
         </DialogHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={steps === 0}
+            onClick={() => void exportMigration()}
+          >
+            <Download aria-hidden />
+            Export migration (.sql)
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            The changes of structure as one SQL script. Row changes are left out.
+          </p>
+        </div>
+        {exportError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {exportError}
+          </p>
+        ) : null}
         {newestFirst.length === 0 ? (
           <p className="text-sm text-muted-foreground">No changes yet.</p>
         ) : (

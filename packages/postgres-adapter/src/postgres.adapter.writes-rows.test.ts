@@ -57,6 +57,7 @@ const SQL = `
     user_id int REFERENCES w_users (id) ON DELETE CASCADE ON UPDATE CASCADE
   );
   CREATE TABLE w_strict (id int PRIMARY KEY, user_id int REFERENCES w_users (id));
+  CREATE TABLE w_order_items (id int PRIMARY KEY, order_id int REFERENCES w_orders (id) ON DELETE CASCADE);
   INSERT INTO w_orders VALUES (10, 2), (11, 2);
   INSERT INTO w_strict VALUES (1, 3);
 
@@ -624,9 +625,31 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
         "public.w_strict.user_id (on delete: the delete is refused while rows point at it)",
       );
       expect(plan.warnings.some((w) => w.code === "destructive")).toBe(true);
+      // A cascade that goes on further down is named too: one delete can reach tables that do not
+      // point at this one directly.
+      expect(referenced?.message).toContain("public.w_order_items");
+      expect(referenced?.message).toContain("further down");
       await adapter.applyChange(plan);
       // The cascade happened.
       expect(await rows("SELECT * FROM w_orders")).toEqual([]);
+    });
+
+    it("follows a cascade chain to its end, however long", async () => {
+      // Twelve tables deep, each deleting the next: past any depth limit.
+      const names = Array.from({ length: 12 }, (_, i) => `w_chain_${i}`);
+      await sql.query(
+        names
+          .map((n, i) =>
+            i === 0
+              ? `CREATE TABLE ${n} (id int PRIMARY KEY)`
+              : `CREATE TABLE ${n} (id int PRIMARY KEY, up int REFERENCES ${names[i - 1]} (id) ON DELETE CASCADE)`,
+          )
+          .join(";") + ";INSERT INTO w_chain_0 VALUES (1)",
+      );
+      const plan = await adapter.previewChange(remove("w_chain_0", { id: "1" }));
+      const message = plan.warnings.find((w) => w.code === "referenced")?.message ?? "";
+      expect(message).toContain("public.w_chain_11");
+      expect(message).not.toContain("public.w_chain_1,"); // the direct child is in the other list
     });
 
     it("a delete a foreign key forbids fails with the constraint's name", async () => {

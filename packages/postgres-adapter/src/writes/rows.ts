@@ -37,6 +37,7 @@ import { findRowKey, findRowSecurity } from "../introspection/rows.js";
 import type { Queryable } from "../introspection/types.js";
 import {
   TRIGGER_EVENT,
+  listCascadeChain,
   listIncomingForeignKeys,
   listTriggers,
   loadTable,
@@ -412,6 +413,15 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
     "delete",
     null,
   );
+  const chain = await listCascadeChain(db, table.oid);
+  if (referenced && chain.length > 0) {
+    referenced.message += ` The cascade goes further down: rows of ${listWords(chain)} can be deleted too.`;
+  } else if (chain.length > 0) {
+    warnings.push({
+      code: "referenced",
+      message: `The cascade goes further down: rows of ${listWords(chain)} can be deleted too.`,
+    });
+  }
   if (referenced) warnings.push(referenced);
   warnings.push({ code: "destructive", message: "A deleted row cannot be brought back." });
   return {

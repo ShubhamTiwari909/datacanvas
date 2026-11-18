@@ -360,7 +360,12 @@ export async function listDependents(
          WHERE ad.oid = d.objid AND ad.adrelid = $1::oid AND ($2::int IS NULL OR ad.adnum = $2::int)))
        AND NOT (d.classid = 'pg_catalog.pg_class'::regclass AND EXISTS (
          SELECT 1 FROM pg_catalog.pg_class s
-         WHERE s.oid = d.objid AND (s.relkind = 'S' OR s.oid = $1::oid)))
+         WHERE s.oid = d.objid AND (
+           s.relkind = 'S'
+           -- The table itself is not a dependent of its own column; but a generated column of
+           -- the same table is (PostgreSQL 12 to 14 record it as a column of this table, with
+           -- a column number, where 15 and later record its default expression).
+           OR (s.oid = $1::oid AND ($2::int IS NULL OR d.objsubid = 0)))))
        AND NOT (d.classid = 'pg_catalog.pg_type'::regclass AND EXISTS (
          SELECT 1 FROM pg_catalog.pg_type t WHERE t.oid = d.objid AND t.typrelid = $1::oid))
        AND NOT (d.classid = 'pg_catalog.pg_rewrite'::regclass AND EXISTS (

@@ -991,6 +991,109 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter structure changes", () => {
     });
   });
 
+  describe("a plan that went stale", () => {
+    const fresh = () =>
+      sql.query(
+        "DROP TABLE IF EXISTS s_stale CASCADE; CREATE TABLE s_stale (id int PRIMARY KEY, n int, label text)",
+      );
+
+    it("is refused when the table was dropped and created again, and changes nothing", async () => {
+      await fresh();
+      const plans = [
+        await adapter.previewChange({
+          kind: "set_nullable",
+          table: ref("s_stale"),
+          column: "n",
+          nullable: false,
+        }),
+        await adapter.previewChange({ kind: "rename_table", table: ref("s_stale"), to: "s_moved" }),
+        await adapter.previewChange({
+          kind: "drop_table",
+          table: ref("s_stale"),
+          confirm: "s_stale",
+        }),
+        await adapter.previewChange({
+          kind: "create_index",
+          table: ref("s_stale"),
+          columns: ["label"],
+          unique: false,
+        }),
+      ];
+      // Another session drops it and creates a table with the same names (and some data).
+      await fresh();
+      await sql.query("INSERT INTO s_stale VALUES (1, 1, 'keep me')");
+      for (const plan of plans) {
+        const error = await failure(adapter.applyChange(plan));
+        expect([error.code, error.message]).toEqual([
+          "invalid_change",
+          "The table changed since you previewed this, so nothing was changed. Preview again.",
+        ]);
+      }
+      // The look-alike is untouched: still there under its name, data intact, no index, still nullable.
+      expect(await rows("SELECT label FROM s_stale")).toEqual([{ label: "keep me" }]);
+      expect(await exists("s_moved")).toBe(false);
+      expect(
+        await rows(
+          "SELECT 1 FROM pg_indexes WHERE tablename = 's_stale' AND indexname <> 's_stale_pkey'",
+        ),
+      ).toEqual([]);
+    });
+
+    it("is refused when a column it names was dropped and added again", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "drop_column",
+        table: ref("s_stale"),
+        column: "label",
+        confirm: "s_stale",
+      });
+      await sql.query(
+        "ALTER TABLE s_stale DROP COLUMN label; ALTER TABLE s_stale ADD COLUMN label text",
+      );
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect((await columnsOf("s_stale")).map((c) => c.name)).toContain("label");
+    });
+
+    it("is refused when the table a foreign key points at was replaced", async () => {
+      await fresh();
+      await sql.query("DROP TABLE IF EXISTS s_ref; CREATE TABLE s_ref (id int PRIMARY KEY)");
+      const plan = await adapter.previewChange({
+        kind: "add_foreign_key",
+        table: ref("s_stale"),
+        foreignKey: {
+          columns: ["n"],
+          references: { schema: "public", table: "s_ref", columns: ["id"] },
+          onDelete: "no_action",
+          onUpdate: "no_action",
+        },
+      });
+      await sql.query("DROP TABLE s_ref; CREATE TABLE s_ref (id int PRIMARY KEY)");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("invalid_change");
+      expect(
+        await rows(
+          "SELECT 1 FROM pg_constraint WHERE conrelid = 's_stale'::regclass AND contype = 'f'",
+        ),
+      ).toEqual([]);
+    });
+
+    it("applies when nothing relevant changed in between", async () => {
+      await fresh();
+      const plan = await adapter.previewChange({
+        kind: "set_nullable",
+        table: ref("s_stale"),
+        column: "n",
+        nullable: false,
+      });
+      await sql.query("ALTER TABLE s_stale ADD COLUMN unrelated int");
+      await adapter.applyChange(plan);
+      expect(
+        await rows(
+          "SELECT attnotnull FROM pg_attribute WHERE attrelid = 's_stale'::regclass AND attname = 'n'",
+        ),
+      ).toEqual([{ attnotnull: true }]);
+    });
+  });
+
   describe("locks and transactions", () => {
     it("a change of structure fails fast behind another session's lock", async () => {
       const { host, port, username, password } = db.connection;

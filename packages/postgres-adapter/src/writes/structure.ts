@@ -41,6 +41,7 @@ import {
   type CatalogColumn,
   type CatalogTable,
 } from "./catalog.js";
+import { guardRelation } from "./guard.js";
 import {
   canBeIdentity,
   columnList,
@@ -328,11 +329,59 @@ async function planCreateTable(db: Queryable, change: CreateTableChange): Promis
   );
 }
 
+/** The columns of the table that an alteration names (they must be the same columns at apply). */
+function namedColumns(change: Exclude<StructureChange, CreateTableChange>): string[] {
+  switch (change.kind) {
+    case "rename_column":
+    case "alter_column_type":
+    case "set_nullable":
+    case "set_default":
+    case "drop_column":
+      return [change.column];
+    case "add_primary_key":
+    case "add_unique":
+    case "create_index":
+      return change.columns;
+    case "add_foreign_key":
+      return change.foreignKey.columns;
+    default:
+      return [];
+  }
+}
+
+/**
+ * Plan an alteration and pin what it was planned against: the table as it was
+ * when it was loaded (before any check), locked at apply in the mode the
+ * statement itself takes (a plain CREATE INDEX only blocks writes; every
+ * other form blocks reads too, as the preview already says), and, for a
+ * foreign key, the table it points at.
+ */
 async function planAlter(
   db: Queryable,
   change: Exclude<StructureChange, CreateTableChange>,
 ): Promise<PlannedChange> {
   const table = await requireTable(db, change.table);
+  const planned = await planAlterOn(db, change, table);
+  const relations = [
+    guardRelation(
+      table,
+      namedColumns(change),
+      change.kind === "create_index" ? "share" : "access_exclusive",
+    ),
+  ];
+  if (change.kind === "add_foreign_key") {
+    const target = change.foreignKey.references;
+    const loaded = await loadTable(db, { schema: target.schema, name: target.table });
+    if (loaded) relations.push(guardRelation(loaded, target.columns, "none"));
+  }
+  return { ...planned, guard: { relations } };
+}
+
+async function planAlterOn(
+  db: Queryable,
+  change: Exclude<StructureChange, CreateTableChange>,
+  table: CatalogTable,
+): Promise<PlannedChange> {
   const ref = change.table;
   const name = where(ref);
 
@@ -687,5 +736,21 @@ export function planStructureChange(
   db: Queryable,
   change: StructureChange,
 ): Promise<PlannedChange> {
-  return change.kind === "create_table" ? planCreateTable(db, change) : planAlter(db, change);
+  return change.kind === "create_table" ? planCreate(db, change) : planAlter(db, change);
+}
+
+/**
+ * Plan a creation. There is no table to pin, but a foreign key binds to the
+ * table it points at by name, so that table must be the same one at apply.
+ */
+async function planCreate(db: Queryable, change: CreateTableChange): Promise<PlannedChange> {
+  const planned = await planCreateTable(db, change);
+  const relations = [];
+  for (const fk of change.foreignKeys) {
+    const target = fk.references;
+    if (target.schema === change.schema && target.table === change.name) continue; // the new table itself
+    const loaded = await loadTable(db, { schema: target.schema, name: target.table });
+    if (loaded) relations.push(guardRelation(loaded, target.columns, "none"));
+  }
+  return relations.length > 0 ? { ...planned, guard: { relations } } : planned;
 }

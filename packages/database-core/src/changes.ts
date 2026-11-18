@@ -429,6 +429,35 @@ export interface PlannedStatement {
   values: (string | null)[];
 }
 
+/** A column a plan was made against: its name and its position in the table (`attnum`) at that time. */
+export interface PlanGuardColumn {
+  name: string;
+  attnum: number;
+}
+
+/**
+ * A relation the plan was checked against, as it was at preview time. `oid` and
+ * the columns' positions tell a table from a table that was dropped and
+ * created again under the same name. `lock` is taken before the statements run,
+ * and the identity checked under it (`none`: checked, not locked).
+ */
+export interface PlanGuardRelation {
+  schema: string;
+  name: string;
+  oid: string;
+  columns: PlanGuardColumn[];
+  lock: "none" | "row_exclusive" | "share" | "access_exclusive";
+}
+
+/**
+ * What apply re-validates (optional: a plan without a guard runs as before).
+ * A plan can be minutes old; without this a table dropped and recreated in
+ * between would receive the change.
+ */
+export interface PlanGuard {
+  relations: PlanGuardRelation[];
+}
+
 /**
  * What `previewChange` returns: everything needed to show the change and later
  * run EXACTLY it. Held on the server (never sent to the browser as is: the
@@ -444,6 +473,8 @@ export interface PlannedChange {
   effect: string;
   warnings: ChangeWarning[];
   destructive: boolean;
+  /** The identity of what the plan was checked against, verified again at apply. */
+  guard?: PlanGuard;
 }
 
 /** The statement texts as shown to the person (values are `$1`, `$2`, ...). */

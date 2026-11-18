@@ -43,6 +43,7 @@ import {
   type CatalogColumn,
   type CatalogTable,
 } from "./catalog.js";
+import { guardRelation } from "./guard.js";
 import { displayName, invalidChange, listWords, onDeleteWords, onUpdateWords } from "./sql.js";
 
 // --------------------------------------------------------------- builders ---
@@ -340,6 +341,7 @@ async function planUpdate(db: Queryable, change: UpdateRowChange): Promise<Plann
     effect: `Changes ${names.length === 1 ? "one column" : `${names.length} columns`} (${listWords(names)}) of one row of ${displayName(change.table.schema, change.table.name)}, found by its key, if ${names.length === 1 ? "it still holds" : "they still hold"} the value${names.length === 1 ? "" : "s"} you saw.`,
     warnings,
     destructive: false,
+    guard: { relations: [guardRelation(table, [...key, ...names], "row_exclusive")] },
   };
 }
 
@@ -388,6 +390,15 @@ async function planInsert(db: Queryable, change: InsertRowChange): Promise<Plann
     effect: `Adds one row to ${displayName(change.table.schema, change.table.name)}${omittedWords(table, values)}.`,
     warnings,
     destructive: false,
+    guard: {
+      relations: [
+        guardRelation(
+          table,
+          values.map((v) => v.column),
+          "row_exclusive",
+        ),
+      ],
+    },
   };
 }
 
@@ -411,6 +422,7 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
     effect: `Deletes one row of ${displayName(change.table.schema, change.table.name)}, found by its key.`,
     warnings,
     destructive: true,
+    guard: { relations: [guardRelation(table, key, "row_exclusive")] },
   };
 }
 

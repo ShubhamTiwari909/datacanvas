@@ -19,7 +19,10 @@ import type { Pool } from "pg";
 
 /** The part of a client the write path needs: a statement and how many rows it touched. */
 export interface WriteClient {
-  query(text: string, values?: readonly unknown[]): Promise<{ rowCount: number | null }>;
+  query(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<{ rowCount: number | null; rows: Record<string, unknown>[] }>;
 }
 
 export interface WriteLimits {
@@ -43,7 +46,7 @@ export async function withWriteTransaction<T>(
     const result = await work({
       query: async (text, values) => {
         const outcome = await client.query(text, values as unknown[] | undefined);
-        return { rowCount: outcome.rowCount };
+        return { rowCount: outcome.rowCount, rows: outcome.rows as Record<string, unknown>[] };
       },
     });
     await client.query("COMMIT");

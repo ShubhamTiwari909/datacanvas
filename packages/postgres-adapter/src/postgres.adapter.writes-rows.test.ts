@@ -711,6 +711,59 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
     });
   });
 
+  describe("a plan that went stale", () => {
+    const recreate = (extra = "") =>
+      sql.query(
+        `DROP TABLE IF EXISTS w_stale; CREATE TABLE w_stale (id int PRIMARY KEY, v text${extra}); INSERT INTO w_stale (id, v) VALUES (1, 'old')`,
+      );
+    const stale = (): Promise<TableRef> => recreate().then(() => ref("w_stale"));
+
+    it("is refused when the table was dropped and created again, and writes nothing", async () => {
+      await stale();
+      const plans = [
+        await adapter.previewChange(update("w_stale", { id: "1" }, { v: "new" }, { v: "old" })),
+        await adapter.previewChange(insert("w_stale", { id: "2", v: "added" })),
+        await adapter.previewChange(remove("w_stale", { id: "1" })),
+      ];
+      // Another session drops the table and creates a look-alike with the same names and a row.
+      await recreate();
+      for (const plan of plans) {
+        const error = await failure(adapter.applyChange(plan));
+        expect(error.code).toBe("row_changed");
+      }
+      expect(await rows("SELECT id, v FROM w_stale")).toEqual([{ id: 1, v: "old" }]);
+    });
+
+    it("is refused when a column it names was dropped and added again", async () => {
+      await stale();
+      const plan = await adapter.previewChange(
+        update("w_stale", { id: "1" }, { v: "new" }, { v: "old" }),
+      );
+      // Same name and type, but a different column (a new position in the table).
+      await sql.query("ALTER TABLE w_stale DROP COLUMN v; ALTER TABLE w_stale ADD COLUMN v text");
+      await sql.query("UPDATE w_stale SET v = 'old'");
+      expect((await failure(adapter.applyChange(plan))).code).toBe("row_changed");
+      expect(await rows("SELECT v FROM w_stale")).toEqual([{ v: "old" }]);
+    });
+
+    it("is refused when the table is gone, with a fixed message", async () => {
+      await stale();
+      const plan = await adapter.previewChange(remove("w_stale", { id: "1" }));
+      await sql.query("DROP TABLE w_stale");
+      const error = await failure(adapter.applyChange(plan));
+      expect(error.code).toBe("not_found");
+    });
+
+    it("still applies when nothing changed in between", async () => {
+      await stale();
+      const plan = await adapter.previewChange(
+        update("w_stale", { id: "1" }, { v: "new" }, { v: "old" }),
+      );
+      await sql.query("ALTER TABLE w_stale ADD COLUMN extra int"); // an unrelated change
+      expect(await adapter.applyChange(plan)).toEqual({ rowCount: 1 });
+    });
+  });
+
   describe("locks and transactions", () => {
     it("fails fast when another session holds the lock, and writes nothing", async () => {
       const { host, port, username, password } = db.connection;

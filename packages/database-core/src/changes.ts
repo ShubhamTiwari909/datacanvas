@@ -435,8 +435,8 @@ export interface PlannedStatement {
 export interface PlanGuardColumn {
   name: string;
   attnum: number;
-  /** The column's type (`atttypid`) at preview time: a changed type makes the plan stale. */
-  typeOid: string;
+  /** The column's type as the database prints it (`format_type`, length and precision included) at preview time: a changed type makes the plan stale. */
+  dataType: string;
 }
 
 /**

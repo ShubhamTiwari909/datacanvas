@@ -634,6 +634,24 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter row changes", () => {
       expect(await rows("SELECT * FROM w_orders")).toEqual([]);
     });
 
+    it("follows a cascade chain to its end, however long", async () => {
+      // Twelve tables deep, each deleting the next: past any depth limit.
+      const names = Array.from({ length: 12 }, (_, i) => `w_chain_${i}`);
+      await sql.query(
+        names
+          .map((n, i) =>
+            i === 0
+              ? `CREATE TABLE ${n} (id int PRIMARY KEY)`
+              : `CREATE TABLE ${n} (id int PRIMARY KEY, up int REFERENCES ${names[i - 1]} (id) ON DELETE CASCADE)`,
+          )
+          .join(";") + ";INSERT INTO w_chain_0 VALUES (1)",
+      );
+      const plan = await adapter.previewChange(remove("w_chain_0", { id: "1" }));
+      const message = plan.warnings.find((w) => w.code === "referenced")?.message ?? "";
+      expect(message).toContain("public.w_chain_11");
+      expect(message).not.toContain("public.w_chain_1,"); // the direct child is in the other list
+    });
+
     it("a delete a foreign key forbids fails with the constraint's name", async () => {
       const error = await failure(apply(remove("w_users", { id: "3" })));
       expect(error.code).toBe("foreign_key_violation");

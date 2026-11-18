@@ -21,6 +21,8 @@ export interface MigrationInput {
   generatedAt: string;
   steps: MigrationStep[];
   rowChanges: number;
+  /** Earlier changes of structure that are not in `steps` (the session keeps the latest ones only). */
+  omittedSteps?: number;
 }
 
 /** One line of plain text: control characters (line breaks included) become spaces. */
@@ -46,6 +48,12 @@ export function buildMigration(input: MigrationInput): string {
     const n = input.rowChanges;
     lines.push(
       `-- ${n} row change${n === 1 ? " was" : "s were"} made and ${n === 1 ? "is" : "are"} not part of this file (a migration holds structure, not data).`,
+    );
+  }
+  const omitted = input.omittedSteps ?? 0;
+  if (omitted > 0) {
+    lines.push(
+      `-- WARNING: ${omitted} earlier change${omitted === 1 ? "" : "s"} of structure ${omitted === 1 ? "is" : "are"} NOT in this file (only the latest ones are kept), so it cannot be run on a fresh database as it is.`,
     );
   }
   lines.push("");

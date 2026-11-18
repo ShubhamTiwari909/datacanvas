@@ -94,7 +94,10 @@ export class WriteService {
    * (decision 138). Never part of the history: it may hold a default or a comment the
    * person typed. Memory only, bounded, gone with the connection.
    */
-  private readonly migrations = new Map<string, { steps: MigrationStep[]; rowChanges: number }>();
+  private readonly migrations = new Map<
+    string,
+    { steps: MigrationStep[]; omitted: number; rowChanges: number }
+  >();
   /** Connections with a change running right now (one at a time per connection). */
   private readonly busy = new Set<string>();
 
@@ -215,7 +218,7 @@ export class WriteService {
    */
   migration(id: string): MigrationFile {
     const summary = this.summary(id);
-    const log = this.migrations.get(id) ?? { steps: [], rowChanges: 0 };
+    const log = this.migrations.get(id) ?? { steps: [], omitted: 0, rowChanges: 0 };
     const generatedAt = new Date(this.now()).toISOString();
     return {
       filename: migrationFilename(summary.database, generatedAt),
@@ -224,8 +227,10 @@ export class WriteService {
         generatedAt,
         steps: log.steps,
         rowChanges: log.rowChanges,
+        omittedSteps: log.omitted,
       }),
       steps: log.steps.length,
+      omittedSteps: log.omitted,
       rowChanges: log.rowChanges,
     };
   }
@@ -277,7 +282,9 @@ export class WriteService {
 
   /** Keep an applied change for the migration file: its SQL (structure) or a count (rows). */
   private remember(id: string, plan: PlannedChange, at: string): void {
-    const log = this.migrations.get(id) ?? { steps: [], rowChanges: 0 };
+    // A change that finishes after the connection was closed must not bring its SQL back.
+    if (!this.connections.getSummary(id)) return;
+    const log = this.migrations.get(id) ?? { steps: [], omitted: 0, rowChanges: 0 };
     if (plan.category === "row") {
       log.rowChanges += 1;
     } else {
@@ -287,7 +294,10 @@ export class WriteService {
         table: { ...changeTable(plan.change) },
         sql: statementText(plan),
       });
-      if (log.steps.length > MAX_MIGRATION_STEPS) log.steps.shift();
+      if (log.steps.length > MAX_MIGRATION_STEPS) {
+        log.steps.shift();
+        log.omitted += 1;
+      }
     }
     this.migrations.set(id, log);
   }

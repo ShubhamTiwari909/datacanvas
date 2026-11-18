@@ -855,7 +855,7 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 
 ## 137. A preview only applies to the table it was made for
 
-**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it. The guard pins identity only: a plan that creates a table has nothing to pin, and a changed type, default or NULL setting on a column is not detected.
+**Decision:** a plan records the identity of the tables and columns it names (the catalog object id, and the position of each named column). Applying takes a lock on each table first, then checks that identity before running anything, and refuses a stale plan: a row change with `row_changed`, a structure change with `invalid_change` ("The table changed since you previewed this ... Preview again"). Dropping a column is also refused while a generated column is computed from it. The guard pins identity: a plan that creates a table has nothing to pin, and a changed default or NULL setting on a column is not detected (since 1.5.2, a changed type, length or precision is: decision 139).
 
 **Why:** a preview can wait up to five minutes. A table dropped and recreated under the same name in that time is a different table, and applying the old plan to it would change something the person never saw. Found in the review of the 1.4.0 pull request.
 
@@ -867,7 +867,7 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 
 ## 139. A narrowing type change is destructive and says so
 
-**Decision:** changing a column's type through an assignment cast (bigint to integer, numeric to integer, timestamptz to date) is marked destructive and carries a `lossy` warning ("values may be rounded or cut"). A widening (implicit) cast is not. The plan guard of decision 137 now also pins each named column's type.
+**Decision:** a type change that can round or cut values quietly is marked destructive and carries a `lossy` warning ("values may be rounded or cut"): an assignment cast other than between two integer types (numeric to integer, timestamptz to date), and a numeric column that keeps fewer decimals (`numeric(10,3)` to `numeric(10,2)`, which is the same type, so no cast is involved). A widening (implicit) cast is not, and neither is a narrowing between integer types, because an integer that does not fit is an error, not a quiet change. The plan guard of decision 137 also pins each named column's type as the database prints it, so a changed length or precision makes a plan stale. The cascade warning of a delete follows the chain of `ON DELETE CASCADE` keys to its end.
 
 **Why:** PostgreSQL applies those casts without complaint, nothing undoes them, and the preview looked like any other. Found in the 1.5.2 review of the write path.
 

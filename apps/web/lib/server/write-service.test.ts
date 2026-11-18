@@ -362,12 +362,24 @@ describe("WriteService: the migration file", () => {
     service.unlock(id, "shop");
     const first = await service.preview(id, rename);
     await service.apply(id, first.previewId);
+    const second = await service.preview(id, {
+      kind: "rename_column",
+      table: users,
+      column: "email",
+      to: "mail",
+    });
+    await service.apply(id, second.previewId);
     const migration = service.migration(id);
     expect(migration).toMatchObject({
-      steps: 1,
+      steps: 2,
       rowChanges: 0,
+      omittedSteps: 0,
       filename: "datacanvas-shop-2023-11-14.sql",
     });
+    // In the order they ran.
+    expect(migration.script.indexOf('TO "display_name"')).toBeLessThan(
+      migration.script.indexOf('TO "mail"'),
+    );
     expect(migration.script).toContain("BEGIN;");
     expect(migration.script).toContain('RENAME COLUMN "full_name" TO "display_name"');
     expect(migration.script.trimEnd().endsWith("COMMIT;")).toBe(true);

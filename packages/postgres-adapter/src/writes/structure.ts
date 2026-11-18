@@ -17,6 +17,7 @@ import {
   quoteQualified,
   type ChangeWarning,
   type ColumnDefinition,
+  type ColumnType,
   type CreateTableChange,
   type ForeignKeyDefinition,
   type PlannedChange,
@@ -252,6 +253,24 @@ async function checkForeignKeyTarget(
   }
 }
 
+const INTEGER_NAMES: readonly string[] = ["smallint", "integer", "bigint"];
+const INTEGER_TYPE_PATTERN = /^(smallint|integer|bigint)$/;
+
+/** The decimals a numeric type keeps: none given means any number of them. */
+function numericScale(type: string): number | null {
+  const typed = /^numeric\((\d+)(?:,\s*(\d+))?\)$/.exec(type);
+  if (typed) return typed[2] === undefined ? 0 : Number(typed[2]);
+  return type === "numeric" ? Number.POSITIVE_INFINITY : null;
+}
+
+/** Does a numeric column keep fewer decimals than before (the same type, so no cast is looked up)? */
+function narrowsNumericScale(from: string, to: ColumnType): boolean {
+  if (to.name !== "numeric") return false;
+  const before = numericScale(from);
+  const after = to.precision === undefined ? Number.POSITIVE_INFINITY : (to.scale ?? 0);
+  return before !== null && after < before;
+}
+
 function plan(
   change: StructureChange,
   statements: PlannedStatement[],
@@ -473,8 +492,16 @@ async function planAlterOn(
         (!column.isArray &&
           target.category !== "A" &&
           (target.category === "S" || context !== null));
-      // An assignment cast (not a widening one) may round or cut values, and nothing undoes that.
-      const lossy = context === "a";
+      // Values can be rounded or cut by an assignment cast that is not between two integer types
+      // (an integer that does not fit is an error, not a quiet change), or by a numeric column
+      // that keeps fewer decimals. Nothing undoes that.
+      const lossy =
+        !column.isArray &&
+        ((context === "a" &&
+          !(
+            INTEGER_TYPE_PATTERN.test(column.dataType) && INTEGER_NAMES.includes(change.type.name)
+          )) ||
+          narrowsNumericScale(column.dataType, change.type));
       if (!castable) {
         throw invalidChange(
           `PostgreSQL cannot convert ${column.dataType} to ${typeSql} on its own; this change would need a conversion expression, which is not offered.`,

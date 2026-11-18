@@ -20,9 +20,6 @@ import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
 import { getWritesMigration } from "./api";
 import { changeLabel } from "./structure";
 
-/** A row change is data, not structure: it is not part of a migration file. */
-const ROW_KINDS = new Set(["update_row", "insert_row", "delete_row"]);
-
 const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "medium" });
 
 function formatTime(iso: string): string {
@@ -49,10 +46,21 @@ export function HistoryDialog({
   }, [open, connectionId, loadHistory]);
 
   const newestFirst = [...history].reverse();
-  const structureApplied = history.some(
-    (entry) => entry.outcome === "applied" && !ROW_KINDS.has(entry.kind),
-  );
+  // The migration is kept apart from the history (which holds 200 lines and names only), so
+  // whether there is anything to export is asked of the server, not worked out from the list.
+  const [steps, setSteps] = useState(0);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void getWritesMigration(connectionId).then((result) => {
+      if (current && result.ok) setSteps(result.data.steps);
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, connectionId, history.length]);
 
   async function exportMigration() {
     setExportError(null);
@@ -66,7 +74,10 @@ export function HistoryDialog({
     const link = document.createElement("a");
     link.href = url;
     link.download = result.data.filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -85,7 +96,7 @@ export function HistoryDialog({
             type="button"
             variant="outline"
             size="sm"
-            disabled={!structureApplied}
+            disabled={steps === 0}
             onClick={() => void exportMigration()}
           >
             <Download aria-hidden />

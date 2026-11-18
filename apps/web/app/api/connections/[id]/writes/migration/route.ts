@@ -2,7 +2,7 @@
  * GET /api/connections/:id/writes/migration
  *
  * The changes of structure made through this connection since it was opened,
- * as one SQL script: `{ migration: { filename, sql, steps, rowChanges } }`.
+ * as one SQL script: `{ migration: { filename, script, steps, omittedSteps, rowChanges } }`.
  * Row changes are only counted, never written (decisions 131 and 138). Held in
  * server memory and gone when the connection is closed.
  */

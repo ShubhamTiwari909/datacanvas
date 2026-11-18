@@ -5,7 +5,7 @@
  * even pass every check made at preview time).
  *
  * At preview the planner records, for each relation it checked, its `pg_class`
- * oid and the position (`attnum`) and type of each column the change names. At apply,
+ * oid and the position (`attnum`) and type (length and precision too) of each column the change names. At apply,
  * inside the write transaction and BEFORE any statement, the relation is
  * locked (so it cannot be dropped, renamed or altered while the statements run)
  * and the recorded identity is compared with what is there now. A mismatch
@@ -38,7 +38,7 @@ export function guardRelation(
 ): PlanGuardRelation {
   const pinned = [...new Set(columns)].flatMap((name) => {
     const column = table.columns.find((c) => c.name === name);
-    return column ? [{ name, attnum: column.attnum, typeOid: column.typeOid }] : [];
+    return column ? [{ name, attnum: column.attnum, dataType: column.dataType }] : [];
   });
   return { schema: table.schema, name: table.name, oid: table.oid, columns: pinned, lock };
 }
@@ -76,7 +76,7 @@ export async function verifyGuard(db: WriteClient, plan: PlannedChange): Promise
     if (found.rows[0]?.oid !== relation.oid) throw stale();
     if (relation.columns.length === 0) continue;
     const current = await db.query(
-      `SELECT a.attname::text AS name, a.attnum::int AS attnum, a.atttypid::text AS type_oid
+      `SELECT a.attname::text AS name, a.attnum::int AS attnum, pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
        FROM pg_catalog.pg_attribute a
        WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped`,
       [relation.oid],
@@ -84,13 +84,13 @@ export async function verifyGuard(db: WriteClient, plan: PlannedChange): Promise
     const have = new Map(
       current.rows.map((r) => [
         String(r.name),
-        { attnum: Number(r.attnum), typeOid: String(r.type_oid) },
+        { attnum: Number(r.attnum), dataType: String(r.data_type) },
       ]),
     );
     if (
       !relation.columns.every((c) => {
         const now = have.get(c.name);
-        return now !== undefined && now.attnum === c.attnum && now.typeOid === c.typeOid;
+        return now !== undefined && now.attnum === c.attnum && now.dataType === c.dataType;
       })
     )
       throw stale();

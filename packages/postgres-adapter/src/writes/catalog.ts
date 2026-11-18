@@ -216,23 +216,31 @@ export async function listIncomingForeignKeys(
 /**
  * The tables whose rows can be deleted through a CHAIN of `ON DELETE CASCADE` keys that starts at a
  * table, one step further than the direct keys (those are listed by `listIncomingForeignKeys`).
- * Bounded in depth, so a cycle of cascading keys ends.
+ * Follows the chain to its end (a cycle of keys ends it).
  */
 export async function listCascadeChain(db: Queryable, oid: string): Promise<string[]> {
+  // `UNION` (not `UNION ALL`) drops rows already seen, so a cycle of cascading keys ends and no
+  // depth limit is needed. The tables that point straight at this one are left out: the direct
+  // list names them.
   const { rows } = await db.query<{ name: string }>(
-    `WITH RECURSIVE chain(relid, depth) AS (
-       SELECT con.conrelid, 1 FROM pg_catalog.pg_constraint con
+    `WITH RECURSIVE reach(relid) AS (
+       SELECT con.conrelid FROM pg_catalog.pg_constraint con
        WHERE con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = $1::oid
+         AND con.conparentid = 0
        UNION
-       SELECT con.conrelid, chain.depth + 1 FROM chain
+       SELECT con.conrelid FROM reach
        JOIN pg_catalog.pg_constraint con
-         ON con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = chain.relid
-       WHERE chain.depth < 8
+         ON con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = reach.relid
+        AND con.conparentid = 0
      )
      SELECT DISTINCT n.nspname::text || '.' || c.relname::text AS name
-     FROM chain JOIN pg_catalog.pg_class c ON c.oid = chain.relid
+     FROM reach JOIN pg_catalog.pg_class c ON c.oid = reach.relid
      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE chain.depth >= 2 AND chain.relid <> $1::oid
+     WHERE reach.relid <> $1::oid
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint d
+         WHERE d.contype = 'f' AND d.confrelid = $1::oid AND d.conrelid = reach.relid
+           AND d.conparentid = 0)
      ORDER BY 1`,
     [oid],
   );

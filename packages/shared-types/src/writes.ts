@@ -409,6 +409,8 @@ export const migrationFileSchema = z.object({
   filename: z.string(),
   script: z.string(),
   steps: z.number(),
+  /** Earlier steps left out because the session kept only the latest ones. */
+  omittedSteps: z.number(),
   rowChanges: z.number(),
 });
 export type MigrationFile = z.infer<typeof migrationFileSchema>;

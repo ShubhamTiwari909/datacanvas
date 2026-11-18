@@ -52,11 +52,11 @@ describe("buildMigration", () => {
       rowChanges: 0,
     });
     // Every line that is not the script itself is a comment, so nothing in a name can run.
-    for (const line of sql.split("\n")) {
-      if (line.includes("DROP TABLE victims") || line.includes("DROP DATABASE y")) {
-        expect(line.startsWith("--")).toBe(true);
-      }
-    }
+    const named = sql
+      .split("\n")
+      .filter((l) => l.includes("DROP TABLE victims") || l.includes("DROP DATABASE y"));
+    expect(named).toHaveLength(2);
+    for (const line of named) expect(line.startsWith("--")).toBe(true);
   });
 
   it("names the file after the database and the day, safe for a file system", () => {
@@ -65,6 +65,17 @@ describe("buildMigration", () => {
       "datacanvas-we-ird-na-me-2026-11-18.sql",
     );
     expect(migrationFilename("", at)).toBe("datacanvas-database-2026-11-18.sql");
+  });
+
+  it("warns, at the top, when earlier steps were dropped", () => {
+    const sql = buildMigration({
+      database: "shop",
+      generatedAt: at,
+      steps: [step()],
+      rowChanges: 0,
+      omittedSteps: 2,
+    });
+    expect(sql).toContain("-- WARNING: 2 earlier changes of structure are NOT in this file");
   });
 
   it("is a comment-only file when nothing of structure changed", () => {

@@ -19,6 +19,7 @@ import { useThemeStore } from "@/stores/theme-store";
 import type { Catalog } from "./completion/catalog";
 import { registerSqlCompletion } from "./completion/monaco-provider";
 import { loadMonaco, type MonacoApi } from "./monaco-setup";
+import { applyAppTheme } from "./monaco-theme";
 
 export interface EditorMarker {
   /** 1-based character position in the whole text. */
@@ -88,7 +89,6 @@ export default function SqlEditor({
         editor = api.editor.create(host.current, {
           model: null,
           language: "pgsql",
-          theme: useThemeStore.getState().resolved === "dark" ? "vs-dark" : "vs",
           ariaLabel: "SQL editor",
           automaticLayout: true,
           minimap: { enabled: false },
@@ -105,6 +105,7 @@ export default function SqlEditor({
           suggest: { showWords: false },
         });
         completion = registerSqlCompletion(api, () => latest.current.getCatalog());
+        applyAppTheme(api, useThemeStore.getState().resolved === "dark");
         editor.onDidChangeModelContent(() => {
           // An edit clears the mark: it pointed into the text as it was.
           const model = editor?.getModel();
@@ -185,7 +186,7 @@ export default function SqlEditor({
   }, [openTabIds]);
 
   useEffect(() => {
-    monaco?.editor.setTheme(resolved === "dark" ? "vs-dark" : "vs");
+    if (monaco) applyAppTheme(monaco, resolved === "dark");
   }, [monaco, resolved]);
 
   useEffect(() => {

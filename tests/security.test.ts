@@ -127,6 +127,50 @@ describe("the SQL view: exactly one route takes SQL text (decision 141)", () => 
   });
 });
 
+describe("the SQL view: the documents say what it is", () => {
+  const flat = (file: string) =>
+    readFileSync(path.join(root, file), "utf8").replace(/\s+/g, " ").toLowerCase();
+  const documents = ["README.md", "SECURITY.md", "docs/getting-started.md", "docs/threat-model.md"];
+
+  it.each(documents)("%s describes the SQL view as read-only", (file) => {
+    const content = flat(file);
+    expect(content, file).toContain("sql");
+    expect(content, file).toMatch(/sql[*`]* (tab|view)/);
+    expect(content, file).toMatch(/read-only/);
+  });
+
+  it("SECURITY.md names what keeps it narrow, and what it cannot stop", () => {
+    const security = flat("SECURITY.md");
+    expect(security).toContain("one statement");
+    expect(security).toContain("connection opened for that run");
+    expect(security).toMatch(/first word must be/);
+    expect(security).toMatch(/explain analyze create table/);
+    expect(security).toMatch(/masking does not apply/);
+    expect(security).toMatch(/the role is the control/);
+    expect(security).toMatch(/nothing is kept/);
+  });
+
+  it("no product document says there is no way to run SQL, without the SQL tab beside it", () => {
+    const claim = /no (way|box|endpoint)[^.]{0,40}(run|type)[^.]{0,20}sql/g;
+    for (const file of [...documents, "docs/architecture.md"]) {
+      const content = flat(file);
+      for (const match of content.matchAll(claim)) {
+        const around = content.slice(Math.max(0, match.index - 200), match.index + 260);
+        expect(around, `${file}: "${match[0]}"`).toMatch(
+          /sql (tab|view)|except|attacker 8|1\.6\.0/,
+        );
+      }
+    }
+  });
+
+  it("the threat model has the review of the runner, with its two high findings", () => {
+    const model = flat("docs/threat-model.md");
+    expect(model).toContain("review of the sql runner");
+    expect(model).toMatch(/carriage return/);
+    expect(model).toMatch(/explain analyze create table/);
+  });
+});
+
 describe("no CORS", () => {
   it("never sets Access-Control-* headers in app code", () => {
     const files = walk(path.join(root, "apps/web")).filter(

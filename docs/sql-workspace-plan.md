@@ -1,6 +1,6 @@
 # SQL Workspace plan (1.6.0)
 
-Status: **S0 to S5 done** (2026-11-19: Monaco works in the packaged app, decision 142; the server runner and its security tests; the SQL tab; several query tabs; completion from the catalog, decision 143). S6 not started. Follows 1.5.2.
+Status: **built (S0 to S6), 1.6.0 in review** (2026-11-19: Monaco works in the packaged app, decision 142; the server runner and its security tests; the SQL tab; several query tabs; completion from the catalog, decision 143). Follows 1.5.2.
 
 A new **SQL** view in the workspace tabs: a Monaco editor with SQL highlighting and autocomplete from the connected database's own catalog, several query tabs, a results grid, and a history of what was run.
 

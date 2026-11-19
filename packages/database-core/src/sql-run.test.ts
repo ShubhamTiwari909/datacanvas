@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkStatementText,
+  firstKeyword,
   isSqlRunnerAdapter,
   SQL_LIMITS,
   SqlStatementError,
@@ -70,9 +71,75 @@ describe("checkStatementText", () => {
     expect(checkStatementText("/* never closed SELECT 1")).toMatchObject({ ok: false });
   });
 
+  it.each([
+    // The review found this: PostgreSQL ends a line comment at a carriage return, JavaScript's
+    // check did not, so this read as `SHOW` here and as `COPY ... TO PROGRAM` there.
+    "--\rCOPY (SELECT 1) TO PROGRAM 'id' /*\nSHOW x */",
+    "--\rDO $$ BEGIN END $$ /*\nSELECT 1 */",
+    "SELECT 1 --\r; COMMIT",
+    "\rSELECT 1",
+    "SELECT 1\r\nFROM t",
+    "\fSELECT 1",
+    "\vSELECT 1",
+    "SELECT\u0001 1",
+    "SELECT 1\u007f",
+  ])("refuses a control character PostgreSQL reads differently: %j", (text) => {
+    const result = checkStatementText(text);
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ message: expect.stringContaining("control character") });
+  });
+
+  it("allows the tab and the line feed", () => {
+    expect(checkStatementText("SELECT\t1\nFROM t\n").ok).toBe(true);
+    expect(firstKeyword("\t\n select 1")).toBe("select");
+  });
+
+  it("does not count other white space as white space, as PostgreSQL does not", () => {
+    // A no-break space is a letter of an identifier to PostgreSQL, so this is not a SELECT.
+    expect(firstKeyword("\u00a0SELECT 1")).toBeNull();
+    expect(checkStatementText("\u00a0SELECT 1").ok).toBe(false);
+    expect(checkStatementText("\u2028SELECT 1").ok).toBe(false);
+  });
+
   it("refuses a statement that is too long or holds a NUL", () => {
     expect(ok(`SELECT '${"x".repeat(SQL_LIMITS.maxTextChars)}'`)).toBe(false);
     expect(ok("SELECT '\u0000'")).toBe(false);
+  });
+});
+
+describe("EXPLAIN", () => {
+  it.each([
+    "EXPLAIN SELECT 1",
+    "explain analyze select 1",
+    "EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM t",
+    "EXPLAIN (ANALYZE true, FORMAT JSON) WITH x AS (SELECT 1) SELECT * FROM x",
+    "EXPLAIN ANALYZE VERBOSE VALUES (1)",
+    "EXPLAIN /* c */ ANALYZE -- c\n TABLE t",
+    "EXPLAIN SELECT 'a'",
+  ])("allows explaining a query: %s", (text) => expect(ok(text)).toBe(true));
+
+  it.each([
+    // PostgreSQL runs these under ANALYZE without its read-only check.
+    "EXPLAIN ANALYZE CREATE TABLE t AS SELECT 1",
+    "EXPLAIN (ANALYZE) CREATE TABLE t AS SELECT 1",
+    "EXPLAIN ANALYZE CREATE MATERIALIZED VIEW m AS SELECT 1",
+    "EXPLAIN ANALYZE SELECT * INTO t FROM x",
+    "EXPLAIN (ANALYZE, VERBOSE) SELECT a INTO t FROM x",
+    "EXPLAIN ANALYZE WITH w AS (SELECT 1) SELECT * INTO t FROM w",
+    "explain analyze select 1 into t",
+    "EXPLAIN ANALYZE INSERT INTO t VALUES (1)",
+    "EXPLAIN ANALYZE UPDATE t SET a = 1",
+    "EXPLAIN ANALYZE DELETE FROM t",
+    "EXPLAIN ANALYZE EXECUTE p",
+    "EXPLAIN ANALYZE DECLARE c CURSOR FOR SELECT 1",
+    "EXPLAIN",
+    "EXPLAIN ANALYZE",
+    "EXPLAIN (ANALYZE SELECT 1",
+    "EXPLAIN SELECT 'into'",
+  ])("refuses: %s", (text) => {
+    const result = checkStatementText(text);
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ message: expect.stringContaining("EXPLAIN") });
   });
 });
 

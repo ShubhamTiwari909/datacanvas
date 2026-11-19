@@ -22,6 +22,8 @@ export const SQL_LIMITS = {
   maxTimeoutMs: 300_000,
   /** Characters kept of one cell (the rest is cut, and the cell says so in the grid). */
   maxCellChars: 2000,
+  /** Bytes read from the server for one result, counted before cells are cut: past it the rest is not read. */
+  maxResultBytes: 64 * 1024 * 1024,
   /** Lock wait: a query never queues behind a lock for long. */
   lockTimeoutMs: 3000,
 } as const;
@@ -113,6 +115,10 @@ export const ALLOWED_FIRST_WORDS = [
   "show",
 ] as const;
 
+/** Every control character but the tab and the line feed. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+
 export const NOT_ALLOWED_MESSAGE =
   "Only SELECT, WITH, VALUES, TABLE, EXPLAIN and SHOW statements can be run here. The SQL view is read-only.";
 
@@ -128,7 +134,7 @@ export function firstKeyword(text: string): string | null {
   const n = text.length;
   const skip = (): boolean => {
     for (;;) {
-      while (i < n && /\s/.test(text[i]!)) i++;
+      while (i < n && (text[i] === " " || text[i] === "\t" || text[i] === "\n")) i++;
       if (text.startsWith("--", i)) {
         while (i < n && text[i] !== "\n") i++;
       } else if (text.startsWith("/*", i)) {
@@ -156,6 +162,47 @@ export function firstKeyword(text: string): string | null {
   return match ? match[0].toLowerCase() : null;
 }
 
+const QUERY_WORDS = ["select", "with", "values", "table"];
+
+export const EXPLAIN_NOT_ALLOWED_MESSAGE =
+  "EXPLAIN can explain a SELECT, WITH, VALUES or TABLE statement here, and one that does not contain the word INTO.";
+
+/**
+ * EXPLAIN ANALYZE RUNS what it explains, and PostgreSQL does not stop `EXPLAIN ANALYZE CREATE
+ * TABLE ... AS ...`, `CREATE MATERIALIZED VIEW` or `SELECT ... INTO` in a read-only transaction:
+ * they create the table (found in the review of the SQL runner and confirmed on a real server).
+ * So what follows EXPLAIN and its options must be a plain query, and the word INTO (which makes
+ * a SELECT create a table) may not appear in it. A string that holds the word is refused too:
+ * the cost of not having to read strings the way PostgreSQL does.
+ */
+function checkExplained(text: string): StatementCheck {
+  // After EXPLAIN: options in parentheses, or the words ANALYZE and VERBOSE, then the statement.
+  const afterWord = text.search(/explain/i);
+  let rest = text.slice(afterWord + "explain".length);
+  for (;;) {
+    const trimmed = rest.replace(/^(?:[ \t\n]|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "");
+    if (trimmed.startsWith("(")) {
+      const close = trimmed.indexOf(")");
+      if (close < 0) return { ok: false, message: EXPLAIN_NOT_ALLOWED_MESSAGE };
+      // Options hold no parentheses of their own, so the first `)` ends them.
+      rest = trimmed.slice(close + 1);
+      continue;
+    }
+    const keyword = /^(analyze|analyse|verbose)\b/i.exec(trimmed);
+    if (keyword) {
+      rest = trimmed.slice(keyword[0].length);
+      continue;
+    }
+    rest = trimmed;
+    break;
+  }
+  const inner = firstKeyword(rest);
+  if (inner === null || !QUERY_WORDS.includes(inner) || /\binto\b/i.test(rest)) {
+    return { ok: false, message: EXPLAIN_NOT_ALLOWED_MESSAGE };
+  }
+  return { ok: true };
+}
+
 /**
  * NOT what keeps the database safe (a read-only transaction does), this keeps out what a
  * read-only transaction does not stop (`DO`, `COPY ... PROGRAM`, `CALL`, `SET`, `BEGIN`, ...)
@@ -168,10 +215,19 @@ export function checkStatementText(text: string): StatementCheck {
       message: `A statement can have at most ${SQL_LIMITS.maxTextChars} characters.`,
     };
   }
-  if (text.includes("\u0000")) {
-    return { ok: false, message: "The statement contains a character that cannot be sent." };
+  // PostgreSQL ends a line comment at a carriage return too, and counts form feeds and vertical
+  // tabs as white space; this check does not. Text with such a character could be read as one
+  // statement here and as another there, so it is refused (the editor and an opened file only
+  // ever hold line feeds).
+  if (CONTROL_CHARACTER.test(text)) {
+    return {
+      ok: false,
+      message:
+        "The statement contains a control character (a carriage return, for example) that cannot be sent. Use line feeds only.",
+    };
   }
   const word = firstKeyword(text);
+  if (word === "explain") return checkExplained(text);
   if (word === null) {
     const blank = /^(\s|--[^\n]*(\n|$)|\/\*[\s\S]*?\*\/)*$/.test(text);
     return { ok: false, message: blank ? "Type a statement to run." : NOT_ALLOWED_MESSAGE };

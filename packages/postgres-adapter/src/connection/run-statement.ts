@@ -33,6 +33,11 @@ const QUERY_WORDS = ["select", "with", "values", "table"];
 /** A name for the statement: it makes the driver use the extended protocol. */
 const STATEMENT_NAME = "dc_sql_statement";
 const MAX_MESSAGE_CHARS = 2000;
+/** Rows fetched at a time, so a result of very large rows is stopped at the byte budget, not after it is all in memory. */
+const BATCH_ROWS = 25;
+/** How often a cancel is sent again until the run ends, and how many times before the backend is ended. */
+const CANCEL_EVERY_MS = 250;
+const CANCEL_TRIES = 12;
 const CANCELLED = "The query was cancelled.";
 
 const BOOLEAN_OID = 16;
@@ -67,16 +72,56 @@ export async function runStatementOnOwnConnection(
   client.on("error", () => {}); // a dropped connection is reported by the query that was waiting
   let opened = false;
   let aborted = false;
+  /** The run is over, one way or the other: no more cancels. */
+  let settled = false;
+  let stopWaiting: () => void = () => {};
+  const processId = (): number | undefined =>
+    (client as unknown as { processID?: number }).processID;
+
+  /**
+   * Cancel the statement, and keep asking: a cancel only reaches a statement that is running,
+   * so one sent between two of our queries, or before the connection is up, would be lost. After
+   * a few tries the backend is ended.
+   */
+  const cancelUntilSettled = async (): Promise<void> => {
+    for (let i = 0; i < CANCEL_TRIES && !settled; i++) {
+      await signalBackend(config, processId(), "pg_cancel_backend");
+      if (settled) return;
+      await new Promise((resolve) => setTimeout(resolve, CANCEL_EVERY_MS));
+    }
+    if (!settled) await signalBackend(config, processId(), "pg_terminate_backend");
+  };
   const onAbort = (): void => {
     aborted = true;
-    void cancelBackend(config, (client as unknown as { processID?: number }).processID);
+    stopWaiting();
+    void cancelUntilSettled();
+  };
+  const throwIfAborted = (): void => {
+    if (aborted) throw new SqlStatementError("cancelled", CANCELLED);
   };
 
+  // Listening starts before the connection does: an abort while it is being made ends the wait
+  // at once instead of after the connect timeout.
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const aborts = new Promise<never>((_, reject) => {
+    stopWaiting = () => reject(new SqlStatementError("cancelled", CANCELLED));
+  });
+  aborts.catch(() => {});
+
   try {
-    await client.connect();
+    const connecting = client.connect();
+    try {
+      await Promise.race([connecting, aborts]);
+    } catch (error) {
+      // The attempt goes on in the background; whatever it makes is ended as soon as it exists.
+      void connecting.then(
+        () => client.end().catch(() => {}),
+        () => {},
+      );
+      throw error;
+    }
     opened = true;
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
+    throwIfAborted();
     await client.query("BEGIN READ ONLY");
     await client.query(
       `SELECT set_config('statement_timeout', $1, true),
@@ -89,21 +134,23 @@ export async function runStatementOnOwnConnection(
         String(request.timeoutMs + 10_000),
       ],
     );
-    if (aborted) throw new SqlStatementError("cancelled", CANCELLED);
+    throwIfAborted();
 
     const started = Date.now();
     const word = firstKeyword(request.text);
     const asCursor = word !== null && QUERY_WORDS.includes(word);
-    let raw: { fields: pg.FieldDef[]; rows: (string | null)[][]; command: string };
+    let raw: Raw;
     try {
-      raw = asCursor ? await readThroughCursor(client, request) : await readPlain(client, request);
+      raw = asCursor
+        ? await readThroughCursor(client, request, throwIfAborted)
+        : await readPlain(client, request);
     } catch (error) {
       throw aborted
         ? new SqlStatementError("cancelled", CANCELLED)
         : toStatementError(error, asCursor ? CURSOR_PREFIX.length : 0);
     }
-    const truncated = raw.rows.length > request.maxRows;
-    const kept = truncated ? raw.rows.slice(0, request.maxRows) : raw.rows;
+    const truncated = raw.rows.length > request.maxRows || raw.budgetHit;
+    const kept = raw.rows.length > request.maxRows ? raw.rows.slice(0, request.maxRows) : raw.rows;
     const columns = await describeColumns(client, raw.fields);
     await client.query("COMMIT");
     const cut = cutLongCells(kept);
@@ -116,6 +163,7 @@ export async function runStatementOnOwnConnection(
       elapsedMs: Date.now() - started,
     };
   } finally {
+    settled = true;
     signal?.removeEventListener("abort", onAbort);
     // Only a connection that opened can be ended (ending a failed one can hang). Ending drops
     // the transaction and every session setting with it.
@@ -123,21 +171,50 @@ export async function runStatementOnOwnConnection(
   }
 }
 
-async function readThroughCursor(client: pg.Client, request: SqlRunRequest) {
-  await client.query({ name: STATEMENT_NAME, text: CURSOR_PREFIX + request.text });
-  const fetched = await client.query({
-    text: `FETCH FORWARD ${request.maxRows + 1} FROM ${CURSOR}`,
-    rowMode: "array",
-    types: TEXT_ONLY,
-  });
-  return {
-    fields: fetched.fields,
-    rows: fetched.rows as (string | null)[][],
-    command: "SELECT",
-  };
+interface Raw {
+  fields: pg.FieldDef[];
+  rows: (string | null)[][];
+  command: string;
+  /** The result reached the byte budget: the rest was not read. */
+  budgetHit: boolean;
 }
 
-async function readPlain(client: pg.Client, request: SqlRunRequest) {
+async function readThroughCursor(
+  client: pg.Client,
+  request: SqlRunRequest,
+  throwIfAborted: () => void,
+): Promise<Raw> {
+  await client.query({ name: STATEMENT_NAME, text: CURSOR_PREFIX + request.text });
+  throwIfAborted();
+  // Fetched a few rows at a time: one more than wanted, so "there were more" is known, and
+  // never more bytes than the budget, whatever the size of a row.
+  const rows: (string | null)[][] = [];
+  let fields: pg.FieldDef[] = [];
+  let bytes = 0;
+  let budgetHit = false;
+  while (rows.length < request.maxRows + 1) {
+    const want = Math.min(BATCH_ROWS, request.maxRows + 1 - rows.length);
+    const fetched = await client.query({
+      text: `FETCH FORWARD ${want} FROM ${CURSOR}`,
+      rowMode: "array",
+      types: TEXT_ONLY,
+    });
+    if (fields.length === 0) fields = fetched.fields;
+    for (const row of fetched.rows as (string | null)[][]) {
+      rows.push(row);
+      for (const cell of row) bytes += cell === null ? 0 : cell.length;
+    }
+    if (bytes > SQL_LIMITS.maxResultBytes) {
+      budgetHit = true;
+      break;
+    }
+    if (fetched.rows.length < want) break; // the cursor is exhausted
+    throwIfAborted();
+  }
+  return { fields, rows, command: "SELECT", budgetHit };
+}
+
+async function readPlain(client: pg.Client, request: SqlRunRequest): Promise<Raw> {
   const result = await client.query({
     name: STATEMENT_NAME,
     text: request.text,
@@ -148,6 +225,7 @@ async function readPlain(client: pg.Client, request: SqlRunRequest) {
     fields: result.fields,
     rows: result.rows as (string | null)[][],
     command: result.command ?? "",
+    budgetHit: false,
   };
 }
 
@@ -200,8 +278,12 @@ function toStatementError(error: unknown, offset: number): unknown {
   return error;
 }
 
-/** Ask the server to cancel a backend, from a second short-lived connection. Never throws. */
-async function cancelBackend(config: pg.PoolConfig, pid: number | undefined): Promise<void> {
+/** Ask the server to cancel (or end) a backend, from a second short-lived connection. Never throws. */
+async function signalBackend(
+  config: pg.PoolConfig,
+  pid: number | undefined,
+  action: "pg_cancel_backend" | "pg_terminate_backend",
+): Promise<void> {
   if (!pid) return;
   const { ssl, ...rest } = config;
   const canceller = new pg.Client({ ...rest, ssl, application_name: "DataCanvas SQL cancel" });
@@ -210,9 +292,9 @@ async function cancelBackend(config: pg.PoolConfig, pid: number | undefined): Pr
   try {
     await canceller.connect();
     opened = true;
-    await canceller.query("SELECT pg_cancel_backend($1)", [pid]);
+    await canceller.query(`SELECT ${action}($1)`, [pid]);
   } catch {
-    // The statement may already be over; the run's own timeout is the backstop.
+    // The statement may already be over; the next try, or the run's own timeout, is the backstop.
   } finally {
     if (opened) await canceller.end().catch(() => {});
   }

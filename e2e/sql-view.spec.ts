@@ -243,11 +243,11 @@ test("renames, duplicates and closes a tab, and the last one is replaced by an e
   await expect(queryTab(page, "Orders check (copy)")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 'keep me' AS v");
 
-  await page.getByRole("button", { name: "Close Orders check (copy)" }).click();
+  await page.getByRole("button", { name: "Close query tab" }).click();
   await expect(queryTab(page, "Orders check (copy)")).toHaveCount(0);
   await expect(queryTab(page, "Orders check")).toHaveAttribute("aria-selected", "true");
 
-  await page.getByRole("button", { name: "Close Orders check" }).click();
+  await page.getByRole("button", { name: "Close query tab" }).click();
   await expect(queryTabs(page).getByRole("tab")).toHaveCount(1);
   await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("keep me");
 });
@@ -275,7 +275,8 @@ test("one statement runs at a time: another tab waits, and closing the running t
       )
     )[0]!.n;
   await expect.poll(backends, { timeout: 5000 }).toBe(1);
-  await page.getByRole("button", { name: "Close Query 1" }).click();
+  await queryTab(page, "Query 1").click();
+  await page.getByRole("button", { name: "Close query tab" }).click();
   await expect.poll(backends, { timeout: 10_000 }).toBe(0);
   await expect(run(page)).toBeEnabled();
 });
@@ -559,4 +560,21 @@ test("Run and Explain use the selection when there is one", async ({ page, app, 
   await expect(
     resultPanel(page).getByRole("grid").getByRole("columnheader", { name: "b" }),
   ).toBeVisible();
+});
+
+test("closes a tab from the keyboard with Delete, and the tab list holds only tabs", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await page.getByRole("button", { name: "New query tab" }).click();
+  await expect(queryTabs(page).getByRole("tab")).toHaveCount(2);
+  await queryTab(page, "Query 2").focus();
+  await page.keyboard.press("Delete");
+  await expect(queryTabs(page).getByRole("tab")).toHaveCount(1);
+  // Nothing in the list but tabs (the close buttons are for the mouse and hidden from assistive technology).
+  expect(await queryTabs(page).locator("button:not([role=tab])").count()).toBe(
+    await queryTabs(page).locator("button[aria-hidden=true]").count(),
+  );
 });

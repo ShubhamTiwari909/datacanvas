@@ -47,6 +47,7 @@ import {
   type HistoryEntry,
   type SqlRunState,
 } from "@/stores/sql-store";
+import { useConnectionWrites, useWritesStore } from "@/stores/writes-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import {
   checkFileSize,
@@ -59,6 +60,7 @@ import {
 import { ensureCatalog } from "./completion/catalog-cache";
 import { csvFile, planText, toCsv, toJson, toTsv } from "./export";
 import { HistoryDialog } from "./history-dialog";
+import { sqlRoleNotice } from "./role-notice";
 import { ResultGrid } from "./result-grid";
 import type { EditorHandle } from "./sql-editor";
 import {
@@ -109,6 +111,13 @@ function Editor({ connectionId }: { connectionId: string }) {
   const openInput = useRef<HTMLInputElement>(null);
   const handleRef = useRef<EditorHandle | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // What the connected role can do outside the database matters most here: say so for a risky one.
+  const role = useConnectionWrites(connectionId).role;
+  useEffect(() => {
+    if (!role) void useWritesStore.getState().loadRole(connectionId);
+  }, [connectionId, role]);
+  const roleNotice = role ? sqlRoleNotice(role.role) : null;
 
   // Read the database's names once, so completion is ready when the person starts typing.
   useEffect(() => {
@@ -178,6 +187,16 @@ function Editor({ connectionId }: { connectionId: string }) {
 
   return (
     <div className="flex h-full min-h-[28rem] flex-col">
+      {roleNotice ? (
+        <p
+          role="note"
+          aria-label="About this role"
+          className="flex items-start gap-2 border-b bg-amber-50 px-3 py-1.5 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {roleNotice}
+        </p>
+      ) : null}
       <QueryTabs connectionId={connectionId} sql={sql} />
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <Button type="button" size="sm" disabled={running !== undefined} onClick={() => runNow()}>
@@ -195,7 +214,7 @@ function Editor({ connectionId }: { connectionId: string }) {
             <DropdownMenuItem onSelect={() => runNow("EXPLAIN ")}>
               <span className="flex flex-col">
                 <span>Explain</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs opacity-80">
                   Shows the plan. The statement is not run.
                 </span>
               </span>
@@ -203,7 +222,7 @@ function Editor({ connectionId }: { connectionId: string }) {
             <DropdownMenuItem onSelect={() => runNow("EXPLAIN (ANALYZE, BUFFERS) ")}>
               <span className="flex flex-col">
                 <span>Explain analyze</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs opacity-80">
                   Runs the statement, and shows the plan with the real times.
                 </span>
               </span>
@@ -348,6 +367,15 @@ function QueryTabs({ connectionId, sql }: { connectionId: string; sql: Connectio
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (renaming) return;
+    if (event.key === "Delete") {
+      const target = (event.target as HTMLElement).closest<HTMLElement>("[role=tab]");
+      const id = target?.id.replace(/^sql-tab-/, "");
+      if (id) {
+        event.preventDefault();
+        store().closeTab(connectionId, id);
+      }
+      return;
+    }
     const at = sql.tabs.findIndex((t) => t.id === sql.activeId);
     const next =
       event.key === "ArrowRight"
@@ -416,11 +444,14 @@ function QueryTabs({ connectionId, sql }: { connectionId: string; sql: Connectio
                   <span className="truncate">{tab.name}</span>
                 </button>
               )}
+              {/* For the mouse only. A tab list holds tabs and nothing else, so the keyboard
+                  closes the tab with Delete, or with "Close query tab" in the toolbar. */}
               <button
                 type="button"
-                aria-label={`Close ${tab.name}`}
+                aria-hidden="true"
+                tabIndex={-1}
                 onClick={() => store().closeTab(connectionId, tab.id)}
-                className="mr-1 flex size-5 items-center justify-center rounded text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="mr-1 flex size-5 items-center justify-center rounded text-muted-foreground outline-none hover:bg-background hover:text-foreground"
               >
                 <X className="size-3" aria-hidden="true" />
               </button>
@@ -440,6 +471,17 @@ function QueryTabs({ connectionId, sql }: { connectionId: string; sql: Connectio
           }}
         >
           <Plus aria-hidden="true" />
+        </Button>
+      </Tip>
+      <Tip label="Close this tab">
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Close query tab"
+          onClick={() => store().closeTab(connectionId, sql.activeId)}
+        >
+          <X aria-hidden="true" />
         </Button>
       </Tip>
       <Tip label="Rename this tab">

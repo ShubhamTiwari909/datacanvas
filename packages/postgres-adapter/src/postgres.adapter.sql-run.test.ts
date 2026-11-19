@@ -8,6 +8,7 @@
  * Skipped unless DATACANVAS_TEST_PG_URL is set. Runs in its own throwaway database.
  */
 import { DatabaseError, SqlStatementError, type SqlRunRequest } from "@datacanvas/database-core";
+import net from "node:net";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildPoolConfig, resolveAdapterOptions } from "./connection/config.js";
@@ -32,6 +33,8 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
 
   const run = (text: string, extra: Partial<SqlRunRequest> = {}) =>
     runStatementOnOwnConnection(config, { text, maxRows: 1000, timeoutMs: 5000, ...extra });
+  const viaAdapter = (text: string) =>
+    adapter.runStatement({ text, maxRows: 100, timeoutMs: 5000 });
   const rowsOf = async () =>
     (await admin.query("SELECT id FROM t_rows ORDER BY id")).rows.map((r) => r.id as number);
   const refusal = async (work: Promise<unknown>): Promise<SqlStatementError> => {
@@ -184,6 +187,106 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
     });
   });
 
+  describe("EXPLAIN ANALYZE runs the statement it explains", () => {
+    it("is not allowed to explain what would create a table: PostgreSQL does not stop that itself", async () => {
+      const creating = [
+        "EXPLAIN ANALYZE CREATE TABLE t_ctas AS SELECT 1 AS a",
+        "EXPLAIN (ANALYZE) CREATE TABLE t_ctas2 AS SELECT * FROM t_rows",
+        "EXPLAIN ANALYZE SELECT * INTO t_into FROM t_rows",
+        "EXPLAIN (ANALYZE) CREATE MATERIALIZED VIEW t_mv AS SELECT 1 AS a",
+      ];
+      for (const text of creating) {
+        const error = await refusal(viaAdapter(text));
+        expect([text, error.code]).toEqual([text, "not_allowed"]);
+      }
+      const made = await admin.query(
+        "SELECT relname FROM pg_class WHERE relname IN ('t_ctas', 't_ctas2', 't_into', 't_mv')",
+      );
+      expect(made.rows).toEqual([]);
+    });
+
+    it("leaves what the database stops by itself to the database", async () => {
+      for (const text of [
+        "EXPLAIN ANALYZE INSERT INTO t_rows VALUES (70, 'x')",
+        "EXPLAIN ANALYZE UPDATE t_rows SET v = 'changed'",
+        "EXPLAIN ANALYZE DELETE FROM t_rows",
+      ]) {
+        // Refused by the check here; the database would refuse them in its read-only transaction too.
+        expect((await refusal(viaAdapter(text))).code).toBe("not_allowed");
+      }
+      const writing = await refusal(viaAdapter("EXPLAIN ANALYZE SELECT writer()"));
+      expect(writing.code).toBe("25006");
+      expect(await rowsOf()).toEqual([1, 2]);
+    });
+
+    it("still explains a query, with its real times", async () => {
+      const result = await viaAdapter("EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM t_rows");
+      expect(result.rows.map((r) => r[0]).join("\n")).toContain("Execution Time");
+    });
+  });
+
+  describe("how much is read", () => {
+    it("stops at a byte budget, however large the rows, and says there was more", async () => {
+      const started = Date.now();
+      // 100 rows of 2 MB: 200 MB if all were read; the budget is 64 MB.
+      const result = await run(
+        "SELECT repeat('x', 2000000) AS big, g FROM generate_series(1, 100) g",
+        {
+          maxRows: 1000,
+          timeoutMs: 60_000,
+        },
+      );
+      expect(result.truncated).toBe(true);
+      expect(result.rows.length).toBeGreaterThanOrEqual(25);
+      expect(result.rows.length).toBeLessThan(100);
+      expect(result.cutCells).toBe(result.rows.length);
+      expect(Date.now() - started).toBeLessThan(30_000);
+    });
+
+    it("does not call a result truncated that fits", async () => {
+      const result = await run("SELECT repeat('x', 100000) AS big FROM generate_series(1, 20)");
+      expect(result.truncated).toBe(false);
+      expect(result.rows).toHaveLength(20);
+    });
+  });
+
+  describe("cancelling", () => {
+    it("ends the wait for a server that never answers, at once", async () => {
+      const silent = net.createServer(() => {});
+      await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+      const { port } = silent.address() as net.AddressInfo;
+      try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 300);
+        const started = Date.now();
+        const error = await refusal(
+          runStatementOnOwnConnection(
+            { ...config, host: "127.0.0.1", port, connectionTimeoutMillis: 20_000 },
+            { text: "SELECT 1", maxRows: 10, timeoutMs: 5000, signal: controller.signal },
+          ),
+        );
+        expect(error.code).toBe("cancelled");
+        // Not after the connect timeout.
+        expect(Date.now() - started).toBeLessThan(3000);
+      } finally {
+        silent.close();
+      }
+    });
+
+    it("cancels a statement that is fetched in batches, between two of them", async () => {
+      const controller = new AbortController();
+      const started = Date.now();
+      const running = run("SELECT g, pg_sleep(0.02) FROM generate_series(1, 100000) g", {
+        maxRows: 10_000,
+        timeoutMs: 120_000,
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 600);
+      expect((await refusal(running)).code).toBe("cancelled");
+      expect(Date.now() - started).toBeLessThan(5000);
+    });
+  });
+
   describe("time", () => {
     it("stops a statement at the timeout", async () => {
       const started = Date.now();
@@ -215,10 +318,29 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
     });
   });
 
-  describe("through the adapter", () => {
-    const viaAdapter = (text: string) =>
-      adapter.runStatement({ text, maxRows: 100, timeoutMs: 5000 });
+  describe("what the first-word check and PostgreSQL's lexer must agree on", () => {
+    it("shows the difference the check had to close: PostgreSQL ends a line comment at a carriage return", async () => {
+      // Here the low-level function sends the text as it is. JavaScript would see one comment,
+      // up to the line feed; PostgreSQL sees an empty comment, and then a SELECT.
+      const result = await run("--\rSELECT 42 AS answer /*\n comment */");
+      expect(result.rows).toEqual([["42"]]);
+    });
 
+    it("refuses such text before it reaches the database, so nothing it hides can run", async () => {
+      for (const text of [
+        "--\rCOPY (SELECT 1) TO PROGRAM 'touch /tmp/dc-should-not-exist' /*\nSHOW x */",
+        "--\rDO $$ BEGIN PERFORM 1; END $$ /*\nSHOW x */",
+        "--\rCOMMIT /*\nSHOW x */",
+        "SHOW x --\r; SELECT 1",
+        "\u000cCOPY (SELECT 1) TO PROGRAM 'id'",
+      ]) {
+        const error = await refusal(viaAdapter(text));
+        expect([text, error.code]).toEqual([text, "not_allowed"]);
+      }
+    });
+  });
+
+  describe("through the adapter", () => {
     it("runs a read", async () => {
       expect((await viaAdapter("SELECT id FROM t_rows ORDER BY id")).rows).toEqual([["1"], ["2"]]);
     });

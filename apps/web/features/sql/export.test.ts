@@ -39,7 +39,19 @@ describe("toCsv", () => {
 });
 
 describe("a value a spreadsheet would run", () => {
-  it.each(["=1+1", "+cmd", "-cmd", "@SUM(A1)", "\tx", "\rx"])("is made safe: %j", (value) => {
+  it.each([
+    "=1+1",
+    "+cmd",
+    "-cmd",
+    "@SUM(A1)",
+    "\tx",
+    "\rx",
+    "\n=1+1",
+    " =1+1",
+    "  \t@x",
+    "|cmd",
+    "\u0001=1",
+  ])("is made safe: %j", (value) => {
     expect(defuse(value)).toBe(`'${value}`);
   });
 

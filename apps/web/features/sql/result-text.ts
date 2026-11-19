@@ -1,6 +1,7 @@
 /**
  * Words and positions for the SQL view. Pure, so every rule is tested without a browser.
  */
+import { firstKeyword } from "@datacanvas/database-core";
 import type { SqlFailure, SqlResult } from "@datacanvas/shared-types";
 
 const number = new Intl.NumberFormat("en");
@@ -66,8 +67,7 @@ export function nameFromStatement(text: string): string {
 }
 
 /** Does the statement already start with EXPLAIN (so another one in front would be an error)? */
-export const startsWithExplain = (text: string): boolean =>
-  /^(\s|--[^\n]*\n|\/\*[\s\S]*?\*\/)*explain\b/i.test(text);
+export const startsWithExplain = (text: string): boolean => firstKeyword(text) === "explain";
 
 /** "0.4 s" for a statement's time: milliseconds under a second. */
 export function durationText(ms: number): string {

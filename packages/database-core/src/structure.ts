@@ -11,6 +11,7 @@
  * Everything is sorted, so the same database always produces the same value
  * (and a snapshot file only changes when the structure does).
  */
+import { normalizeDdl, type DdlDetail } from "./ddl.js";
 import { normalizeObjects } from "./objects.js";
 import type {
   ColumnInfo,
@@ -44,6 +45,14 @@ export interface DatabaseStructure {
    * reporting every object as added.
    */
   objects: DatabaseObjects | null;
+  /**
+   * What a migration needs beyond the above (identity, generated, collation, deferrable and
+   * not-yet-validated constraints, partitioning, inheritance, unlogged tables, storage options,
+   * more comments: `ddl.ts`). `null` means "not recorded" (a snapshot from before 1.7.0), which is
+   * not the same as there being nothing special: a migration says which parts it could not plan.
+   * The comparison of structures does not look at it.
+   */
+  ddl: DdlDetail | null;
 }
 
 /** Order by code unit: unlike `localeCompare` it gives the same answer on every machine. */
@@ -58,6 +67,7 @@ export function buildStructure(
   entries: readonly TableDetailsEntry[],
   relationships: readonly RelationshipInfo[],
   objects: DatabaseObjects | null = null,
+  ddl: DdlDetail | null = null,
 ): DatabaseStructure {
   const tables = entries
     .map((entry): StructureTable => ({
@@ -81,5 +91,6 @@ export function buildStructure(
         compareText(a.name, b.name),
     ),
     objects: objects === null ? null : normalizeObjects(objects),
+    ddl: ddl === null ? null : normalizeDdl(ddl),
   };
 }

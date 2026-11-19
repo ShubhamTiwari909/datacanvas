@@ -97,11 +97,12 @@ describe("SnapshotService", () => {
     const file = path.join(dataDir, "snapshots", `${id}.json`);
     const written = JSON.parse(await fs.readFile(file, "utf8"));
     delete written.structure.objects;
+    delete written.structure.ddl;
     written.schemaVersion = 1;
     await fs.writeFile(file, JSON.stringify(written));
 
     const loaded = await snapshots.get(id);
-    expect(loaded.schemaVersion).toBe(2);
+    expect(loaded.schemaVersion).toBe(3);
     expect(loaded.structure.objects).toBeNull();
     expect((await snapshots.list())[0]!.counts.objects).toBeNull();
   });

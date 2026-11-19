@@ -11,22 +11,24 @@
  * Snapshot files can also be IMPORTED, so they are untrusted input: every
  * string and list here has an upper bound, and unknown keys are rejected.
  *
- * File format (version 2), one JSON file per snapshot:
- *   { "format": "datacanvas-snapshot", "schemaVersion": 2, "id", "name",
+ * File format (version 3), one JSON file per snapshot:
+ *   { "format": "datacanvas-snapshot", "schemaVersion": 3, "id", "name",
  *     "createdAt", "source": { "connectionName", "database" } | null,
  *     "structure": { "schemas": [...], "tables": [...], "relationships": [...],
  *                    "objects": { views, types, sequences, functions, triggers,
- *                                 extensions, policies, rowSecurity } | null } }
+ *                                 extensions, policies, rowSecurity } | null,
+ *                    "ddl": { serverVersion, columns, constraints, tables, comments } | null } }
  *
  * Version 2 added `objects`. A version 1 file is upgraded with `objects: null`,
  * which means "not recorded" (it is NOT the same as "there are none").
+ * Version 3 added `ddl`, the detail a migration needs; a version 2 file is upgraded with `ddl: null`.
  */
 import { z } from "zod";
 import { snapshotIdSchema } from "./ids.js";
 import { migrateToCurrent, type Migration } from "./versioned-file.js";
 
 export const SNAPSHOT_FORMAT = "datacanvas-snapshot";
-export const CURRENT_SNAPSHOT_VERSION = 2;
+export const CURRENT_SNAPSHOT_VERSION = 3;
 
 /** At most this many snapshots are kept, which bounds disk use. */
 export const MAX_SNAPSHOTS = 100;
@@ -181,11 +183,58 @@ const tableSchema = z.strictObject({
   indexes: z.array(indexSchema).max(MAX_ITEMS_PER_TABLE),
 });
 
+const MAX_DDL_ITEMS = 200_000;
+const columnDdlSchema = z.strictObject({
+  schema: name,
+  table: name,
+  column: name,
+  identity: z.enum(["always", "by_default"]).nullable(),
+  generated: z.enum(["stored", "virtual"]).nullable(),
+  collation: z.string().max(600).nullable(),
+  collationSchema: z.string().max(600).nullable().default(null),
+});
+const constraintDdlSchema = z.strictObject({
+  schema: name,
+  table: name,
+  name,
+  deferrable: z.boolean(),
+  initiallyDeferred: z.boolean(),
+  validated: z.boolean(),
+  match: z.enum(["full", "partial"]).nullable(),
+});
+const tableDdlSchema = z.strictObject({
+  schema: name,
+  name,
+  unlogged: z.boolean(),
+  partitionKey: text.nullable(),
+  partitionOf: z.strictObject({ schema: name, table: name, bound: text }).nullable(),
+  inherits: z.array(z.strictObject({ schema: name, table: name })).max(100),
+  options: z.array(z.string().max(1000)).max(100),
+  tablespace: name.nullable(),
+});
+const objectCommentSchema = z.strictObject({
+  target: z.enum(["schema", "index", "constraint", "type", "sequence"]),
+  schema: name,
+  table: name.nullable(),
+  name,
+  comment: text,
+});
+/** What a migration needs beyond the rest of the structure (version 3). */
+export const ddlDetailSchema = z.strictObject({
+  serverVersion: z.number().int().min(0).max(10_000_000),
+  columns: z.array(columnDdlSchema).max(MAX_DDL_ITEMS),
+  constraints: z.array(constraintDdlSchema).max(MAX_DDL_ITEMS),
+  tables: z.array(tableDdlSchema).max(MAX_DDL_ITEMS),
+  comments: z.array(objectCommentSchema).max(MAX_DDL_ITEMS),
+});
+
 export const structureSchema = z.strictObject({
   schemas: z.array(name).max(MAX_SCHEMAS),
   tables: z.array(tableSchema).max(MAX_SNAPSHOT_TABLES),
   relationships: z.array(relationshipSchema).max(MAX_RELATIONSHIPS),
   objects: objectsSchema.nullable(),
+  /** `null`: not recorded (a snapshot from before version 3), which is not the same as nothing special. */
+  ddl: ddlDetailSchema.nullable(),
 });
 
 const snapshotNameSchema = z.string().trim().min(1, "Give the snapshot a name.").max(100);
@@ -265,6 +314,16 @@ export const SNAPSHOT_MIGRATIONS: Readonly<Record<number, Migration>> = {
     if (typeof structure !== "object" || structure === null || Array.isArray(structure))
       return data;
     return { ...data, structure: { ...structure, objects: null } };
+  },
+  /**
+   * 2 -> 3: version 3 added `structure.ddl`, the detail a migration needs. A version 2 snapshot
+   * never recorded it, so it becomes `null` ("not recorded"), never an empty detail.
+   */
+  2: (data) => {
+    const structure = data.structure;
+    if (typeof structure !== "object" || structure === null || Array.isArray(structure))
+      return data;
+    return { ...data, structure: { ...structure, ddl: null } };
   },
 };
 

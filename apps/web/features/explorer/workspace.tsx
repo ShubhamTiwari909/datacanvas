@@ -4,7 +4,7 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | SQL | Snapshots | Table details
+ *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | SQL | Snapshots | Migrations | Table details
  */
 "use client";
 
@@ -13,6 +13,7 @@ import { useEffect } from "react";
 import {
   Boxes,
   Camera,
+  FileDiff,
   HeartPulse,
   LayoutDashboard,
   LayoutList,
@@ -31,6 +32,7 @@ import { HealthView } from "@/features/health/health-view";
 import { PathView } from "@/features/paths/path-view";
 import { SchemaOverviewView } from "@/features/overview/schema-overview-view";
 import { ObjectsView } from "@/features/objects/objects-view";
+import { MigrationsView } from "@/features/migrations/migrations-view";
 import { SnapshotsView } from "@/features/snapshots/snapshots-view";
 import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
@@ -54,6 +56,7 @@ const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashb
   { view: "objects", label: "Objects", icon: Boxes },
   { view: "sql", label: "SQL", icon: SquareTerminal },
   { view: "snapshots", label: "Snapshots", icon: Camera },
+  { view: "migrations", label: "Migrations", icon: FileDiff },
   { view: "details", label: "Table details", icon: TableProperties },
 ];
 
@@ -146,6 +149,8 @@ export function Workspace() {
             <SqlView key={connection.id} connectionId={connection.id} />
           ) : view === "snapshots" ? (
             <SnapshotsView key={connection.id} connectionId={connection.id} />
+          ) : view === "migrations" ? (
+            <MigrationsView key={connection.id} connectionId={connection.id} />
           ) : table ? (
             <TableDetails
               key={`${connection.id}/${table.schema}/${table.name}`}

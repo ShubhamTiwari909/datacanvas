@@ -32,6 +32,7 @@ const structure = (name: string): DatabaseStructure => ({
   ],
   relationships: [],
   objects: null,
+  ddl: null,
 });
 const ok = (name: string) => ({ ok: true, data: structure(name) });
 

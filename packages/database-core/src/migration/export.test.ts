@@ -1,0 +1,252 @@
+import { describe, expect, it } from "vitest";
+import { buildExport, exportName, exportTimestamp, type ExportFormat } from "./export.js";
+import type { MigrationPlan, MigrationStep } from "./types.js";
+
+const step = (id: string, extra: Partial<MigrationStep> = {}): MigrationStep => ({
+  id,
+  kind: "create_table",
+  object: { schema: "public", table: id },
+  up: `CREATE TABLE ${id} ();`,
+  down: `DROP TABLE ${id};`,
+  risk: [],
+  reversibility: "full",
+  transactional: true,
+  dependsOn: [],
+  note: `Does ${id}.`,
+  ...extra,
+});
+const planOf = (steps: MigrationStep[], extra: Partial<MigrationPlan> = {}): MigrationPlan => ({
+  steps,
+  reversibility: "full",
+  notCompared: ["owners and grants"],
+  warnings: [],
+  ...extra,
+});
+const none = { leftOut: new Set<string>(), confirmed: new Set<string>() };
+const at = new Date(2026, 10, 19, 14, 30, 5);
+const make = (plan: MigrationPlan, format: ExportFormat, selection = none, name = "Add orders!") =>
+  buildExport(plan, selection, { format, name, before: "staging", after: "prod", at });
+const files = (r: ReturnType<typeof make>) => {
+  if (!r.ok) throw new Error(r.reason);
+  return r.files;
+};
+
+describe("names", () => {
+  it("makes a version from the clock in the person's time", () => {
+    expect(exportTimestamp(at)).toBe("20261119143005");
+  });
+  it("reduces a name to letters, digits and underscores", () => {
+    expect(exportName("Add orders!")).toBe("add_orders");
+    expect(exportName("  ../../etc/passwd ")).toBe("etc_passwd");
+    expect(exportName("😀")).toBe("migration");
+    expect(exportName("x".repeat(80)).length).toBe(50);
+  });
+});
+
+describe("transactions", () => {
+  const plan = planOf([
+    step("s1"),
+    step("s2", {
+      kind: "create_index",
+      up: "CREATE INDEX CONCURRENTLY i ON t (a);",
+      transactional: false,
+    }),
+    step("s3"),
+  ]);
+
+  it("splits a file for psql around a step that cannot be in a transaction, in order", () => {
+    const [file] = files(make(plan, "sql"));
+    const text = file!.content;
+    const order = [
+      "BEGIN;",
+      "CREATE TABLE s1",
+      "COMMIT;",
+      "CREATE INDEX CONCURRENTLY",
+      "BEGIN;",
+      "CREATE TABLE s3",
+      "COMMIT;",
+    ];
+    let at = 0;
+    for (const part of order) {
+      const found = text.indexOf(part, at);
+      expect(found, part).toBeGreaterThanOrEqual(at);
+      at = found + part.length;
+    }
+    expect(text).toContain("cannot run this inside a transaction block");
+    expect(file!.name).toBe("migration-20261119143005-add_orders.sql");
+  });
+
+  it("wraps everything in one transaction when every step can be", () => {
+    const text = files(make(planOf([step("s1"), step("s2")]), "sql"))[0]!.content;
+    expect(text.match(/^BEGIN;$/gm)).toHaveLength(1);
+    expect(text.match(/^COMMIT;$/gm)).toHaveLength(1);
+  });
+
+  it("leaves the transaction to a runner, unless a step cannot be in one", () => {
+    const plain = files(make(planOf([step("s1")]), "dbmate"))[0]!.content;
+    expect(plain).toContain("-- migrate:up\n");
+    expect(plain).not.toMatch(/^BEGIN;$/m);
+    const split = files(make(plan, "dbmate"))[0]!.content;
+    expect(split).toContain("-- migrate:up transaction:false");
+    expect(split).toMatch(/^BEGIN;$/m);
+  });
+});
+
+describe("the formats", () => {
+  const plan = planOf([step("s1")]);
+  it("dbmate: one file with both markers", () => {
+    const [f, ...rest] = files(make(plan, "dbmate"));
+    expect(rest).toEqual([]);
+    expect(f!.name).toBe("20261119143005_add_orders.sql");
+    expect(f!.content).toMatch(/^-- migrate:up/);
+    expect(f!.content).toContain("\n-- migrate:down\n");
+  });
+  it("goose: markers, and each step in the statement markers", () => {
+    const [f] = files(make(plan, "goose"));
+    expect(f!.content).toMatch(/^-- \+goose Up\n/);
+    expect(f!.content).toContain("-- +goose Down");
+    expect(f!.content).toContain(
+      "-- +goose StatementBegin\nCREATE TABLE s1 ();\n-- +goose StatementEnd",
+    );
+    const split = files(make(planOf([step("s1", { transactional: false })]), "goose"))[0]!;
+    expect(split.content).toMatch(/^-- \+goose NO TRANSACTION\n/);
+  });
+  it("flyway: a versioned file and an undo file", () => {
+    const fs = files(make(plan, "flyway"));
+    expect(fs.map((f) => f.name)).toEqual([
+      "V20261119143005__add_orders.sql",
+      "U20261119143005__add_orders.sql",
+    ]);
+    expect(fs[1]!.content).toContain("DROP TABLE s1;");
+  });
+  it("up.sql and down.sql", () => {
+    const fs = files(make(plan, "updown"));
+    expect(fs.map((f) => f.name)).toEqual(["up.sql", "down.sql"]);
+    expect(fs[0]!.content).toContain("CREATE TABLE s1 ();");
+    expect(fs[1]!.content).toContain("DROP TABLE s1;");
+  });
+  it("every file says who made it and to read it", () => {
+    for (const format of ["sql", "dbmate", "goose", "flyway", "updown"] as const) {
+      for (const f of files(make(plan, format))) {
+        expect(f.content).toContain(
+          "Generated by DataCanvas from a comparison of staging and prod",
+        );
+        expect(f.content).toContain("Read it before you run it");
+      }
+    }
+  });
+  it("says what was not compared, what needs a person, and what is held", () => {
+    const destructive = step("s2", {
+      kind: "drop_table",
+      risk: ["destructive"],
+      reversibility: "data_lost",
+    });
+    const text = files(make(planOf([destructive], { warnings: ["look at x"] }), "sql"))[0]!.content;
+    expect(text).toContain("-- Not compared: owners and grants");
+    expect(text).toContain("-- Needs a person: look at x");
+    expect(text).toContain("written commented out because they were not confirmed");
+    expect(text).not.toMatch(/^DROP TABLE s2;/m);
+  });
+  it("is still a file when nothing changes", () => {
+    expect(files(make(planOf([]), "goose"))[0]!.content).toContain("-- +goose Up");
+  });
+});
+
+describe("a hostile database", () => {
+  const evil = (command: string) =>
+    planOf([
+      step("s1", { up: `CREATE TABLE "x\n${command}" ();`, down: null, reversibility: "none" }),
+    ]);
+
+  it("is refused by a runner whose command a line of it would be", () => {
+    for (const [command, format] of [
+      ["-- +goose Down", "goose"],
+      ["-- migrate:down", "dbmate"],
+    ] as const) {
+      const result = make(evil(command), format);
+      expect(result.ok, format).toBe(false);
+    }
+  });
+  it("is safe when the step is held: its lines are comments of a comment, no command", () => {
+    const held = planOf([
+      step("s1", {
+        kind: "drop_table",
+        up: 'DROP TABLE "x\n-- +goose Up";',
+        risk: ["destructive"],
+        reversibility: "data_lost",
+      }),
+    ]);
+    const result = make(held, "goose");
+    expect(result.ok).toBe(true);
+    const lines = files(result)[0]!.content.split(/\r\n|\r|\n/);
+    expect(lines.filter((l) => l === "-- +goose Up")).toHaveLength(1);
+  });
+  it("is refused when the line is exactly the runner's own marker, which would move the up and down parts", () => {
+    const attack = planOf([
+      step("s1", {
+        up: 'CREATE TABLE "a\n-- +goose Down\nDROP SCHEMA public CASCADE;\n-- +goose Up\nb" (x int);',
+      }),
+    ]);
+    expect(make(attack, "goose").ok).toBe(false);
+    const dbmate = planOf([
+      step("s1", {
+        up: 'CREATE TABLE "a\n-- migrate:down\nDROP SCHEMA public CASCADE;\nb" (x int);',
+      }),
+    ]);
+    expect(make(dbmate, "dbmate").ok).toBe(false);
+  });
+  it("is refused for the spellings a runner's parser would still read as a command", () => {
+    for (const line of [
+      "--\fmigrate:down",
+      "--\u00a0migrate:down",
+      "--\nmigrate:down",
+      "  --   +goose Down",
+      "-- MIGRATE:down",
+    ]) {
+      const plan = planOf([step("s1", { up: `CREATE TABLE "a\n${line}\nb" (x int);` })]);
+      expect(make(plan, "dbmate").ok, JSON.stringify(line)).toBe(false);
+    }
+  });
+  it("keeps a runner command in a warning or a name of the comparison on one comment line, where it is no command", () => {
+    const plan = planOf([], { warnings: ["x\n-- migrate:down"] });
+    const result = buildExport(plan, none, {
+      format: "dbmate",
+      name: "n",
+      before: "a\n-- migrate:down",
+      after: "b",
+      at,
+    });
+    const lines = files(result)[0]!.content.split(/\r\n|\r|\n/);
+    expect(lines.filter((l) => l === "-- migrate:down")).toHaveLength(1);
+  });
+  it("is fine for plain SQL, where no runner reads the line", () => {
+    expect(make(evil("-- +goose Down"), "sql").ok).toBe(true);
+  });
+  it("keeps names and labels in the header on one line", () => {
+    const result = buildExport(planOf([], { warnings: ["x\nDROP TABLE users;"] }), none, {
+      format: "sql",
+      name: "n",
+      before: "a\nDROP TABLE b;",
+      after: "c\r-- d",
+      at,
+    });
+    const text = files(result)[0]!.content;
+    expect(text.split(/\r\n|\r|\n/).filter((l) => /^DROP TABLE/.test(l))).toEqual([]);
+  });
+  it("warns about a placeholder in the header too, and never writes one in the warning", () => {
+    const result = buildExport(planOf([]), none, {
+      format: "flyway",
+      name: "n",
+      before: "${secret}",
+      after: "b",
+      at,
+    });
+    const f = files(result)[0]!;
+    expect(f.content).toContain("placeholderReplacement=false");
+    expect(f.content.match(/\$\{/g)).toHaveLength(2); // only the header's own, not the warning
+  });
+  it("warns about text Flyway would read as a placeholder", () => {
+    const plan = planOf([step("s1", { up: "SELECT '${x}';" })]);
+    expect(files(make(plan, "flyway"))[0]!.content).toContain("placeholderReplacement=false");
+  });
+});

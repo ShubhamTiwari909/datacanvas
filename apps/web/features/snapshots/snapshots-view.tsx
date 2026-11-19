@@ -10,7 +10,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, FileDown, FileUp, GitCompare, Loader2, Trash2 } from "lucide-react";
+import { Camera, FileDown, FileUp, FileDiff, GitCompare, Loader2, Trash2 } from "lucide-react";
 import type { SnapshotSummary } from "@datacanvas/shared-types";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -116,6 +116,7 @@ const SELECT_CLASS =
 
 export function SnapshotsView({ connectionId }: { connectionId: string }) {
   const connections = useWorkspaceStore((s) => s.connections);
+  const openMigration = useWorkspaceStore((s) => s.openMigration);
   const { state, reload } = useAsyncData(() => listSnapshots(), connectionId);
 
   const [name, setName] = useState("");
@@ -411,6 +412,19 @@ export function SnapshotsView({ connectionId }: { connectionId: string }) {
             diff={compare.comparison.diff}
             before={compare.comparison.before}
             after={compare.comparison.after}
+            action={
+              beforeSide && afterSide ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openMigration(sideValue(beforeSide), sideValue(afterSide))}
+                >
+                  <FileDiff aria-hidden="true" />
+                  Generate a migration from this comparison
+                </Button>
+              ) : null
+            }
           />
         ) : null}
       </section>

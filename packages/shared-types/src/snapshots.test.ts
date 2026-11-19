@@ -110,6 +110,7 @@ describe("upgrading a version 1 file", () => {
       structure: Record<string, unknown>;
     };
     delete file.structure.objects;
+    delete file.structure.ddl;
     return { ...file, schemaVersion: 1 };
   }
 
@@ -126,6 +127,11 @@ describe("upgrading a version 1 file", () => {
     const damaged = version1() as { structure: unknown };
     damaged.structure = "nonsense";
     expect(parseSnapshotFile(damaged).ok).toBe(false);
+  });
+
+  it("gets ddl: null too, on the way to the current version", () => {
+    const parsed = parseSnapshotFile(version1());
+    expect(parsed.ok && parsed.snapshot.structure.ddl).toBeNull();
   });
 
   it("does not accept a version 2 file that left objects out", () => {
@@ -154,7 +160,7 @@ describe("refusing bad files", () => {
   });
 
   it("refuses a file from a newer release instead of guessing", () => {
-    expect(refused({ ...sampleSnapshot(), schemaVersion: 3 })).toContain("newer version");
+    expect(refused({ ...sampleSnapshot(), schemaVersion: 4 })).toContain("newer version");
   });
 
   it("refuses unknown keys anywhere (strict objects)", () => {
@@ -263,5 +269,59 @@ describe("snapshotSchema and the create request", () => {
     expect(createSnapshotInputSchema.safeParse({ name: "   " }).success).toBe(false);
     expect(createSnapshotInputSchema.safeParse({ name: "x".repeat(101) }).success).toBe(false);
     expect(createSnapshotInputSchema.safeParse({ name: "a", extra: true }).success).toBe(false);
+  });
+});
+
+describe("upgrading a version 2 file (1.6.0)", () => {
+  function version2(): Record<string, unknown> {
+    const file = JSON.parse(JSON.stringify(sampleSnapshot())) as Record<string, unknown> & {
+      structure: Record<string, unknown>;
+    };
+    delete file.structure.ddl;
+    return { ...file, schemaVersion: 2 };
+  }
+
+  it("is accepted and gets ddl: null, which means not recorded, not nothing special", () => {
+    const parsed = parseSnapshotFile(version2());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.snapshot.schemaVersion).toBe(CURRENT_SNAPSHOT_VERSION);
+    expect(parsed.snapshot.structure.ddl).toBeNull();
+    // What it did record is untouched.
+    expect(parsed.snapshot.structure.objects).not.toBeNull();
+  });
+
+  it("does not accept a version 3 file that left ddl out", () => {
+    const file = JSON.parse(JSON.stringify(sampleSnapshot()));
+    delete file.structure.ddl;
+    expect(parseSnapshotFile(file).ok).toBe(false);
+  });
+
+  it("keeps a recorded detail, and refuses one with an unknown key or an unknown identity", () => {
+    const file = JSON.parse(JSON.stringify(sampleSnapshot()));
+    file.structure.ddl = {
+      serverVersion: 160004,
+      columns: [
+        {
+          schema: "public",
+          table: "t",
+          column: "id",
+          identity: "always",
+          generated: null,
+          collation: null,
+          collationSchema: null,
+        },
+      ],
+      constraints: [],
+      tables: [],
+      comments: [{ target: "schema", schema: "public", table: null, name: "public", comment: "x" }],
+    };
+    const parsed = parseSnapshotFile(file);
+    expect(parsed.ok && parsed.snapshot.structure.ddl?.columns[0]?.identity).toBe("always");
+    file.structure.ddl.columns[0].identity = "sometimes";
+    expect(parseSnapshotFile(file).ok).toBe(false);
+    file.structure.ddl.columns[0].identity = "always";
+    file.structure.ddl.sql = "DROP TABLE x";
+    expect(parseSnapshotFile(file).ok).toBe(false);
   });
 });

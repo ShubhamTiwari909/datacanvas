@@ -19,7 +19,7 @@ export interface Comparison {
   after: string;
 }
 
-async function loadSide(side: CompareSide): Promise<ApiResult<DatabaseStructure>> {
+export async function loadSide(side: CompareSide): Promise<ApiResult<DatabaseStructure>> {
   if (side.kind === "live") return getLiveStructure(side.connectionId);
   const snapshot = await getSnapshot(side.id);
   return snapshot.ok ? { ok: true, data: snapshot.data.structure } : snapshot;

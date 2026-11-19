@@ -10,8 +10,8 @@
  * `DatabaseAdapter` interface and plain data.
  */
 import {
-  buildStructure,
-  OBJECT_KINDS,
+  captureStructure,
+  StructureTooLargeError,
   type AdapterRegistry,
   type ColumnInfo,
   type ConstraintInfo,
@@ -292,47 +292,28 @@ export class ConnectionService {
       );
     }
     return this.connections.use(id, async (adapter) => {
-      const schemas = (await adapter.getSchemas()).map((s) => s.name);
-      // A few schemas at a time: a database with one schema per tenant must not send hundreds
-      // of queries at once (that could exhaust the connection pool).
-      const lists: TableInfo[][] = [];
-      for (let start = 0; start < schemas.length; start += SCHEMA_BATCH) {
-        lists.push(
-          ...(await Promise.all(
-            schemas.slice(start, start + SCHEMA_BATCH).map((schema) => adapter.getTables(schema)),
-          )),
-        );
+      try {
+        const structure = await captureStructure(adapter, {
+          maxTables: MAX_SNAPSHOT_TABLES,
+          maxObjectsPerKind: MAX_SNAPSHOT_OBJECTS_PER_KIND,
+          schemaBatch: SCHEMA_BATCH,
+          detailsBatch: MAX_TABLES_PER_DETAILS_REQUEST,
+        });
+        return {
+          structure,
+          source: { connectionName: summary.name, database: summary.database },
+        };
+      } catch (error) {
+        if (error instanceof StructureTooLargeError) {
+          throw new ServiceError(
+            "snapshot_too_large",
+            error.what === "tables"
+              ? `This database has ${error.count} tables; a snapshot holds at most ${MAX_SNAPSHOT_TABLES}.`
+              : `This database has ${error.count} objects of one kind (${error.what}); a snapshot holds at most ${MAX_SNAPSHOT_OBJECTS_PER_KIND} of each kind.`,
+          );
+        }
+        throw error;
       }
-      const refs = lists.flat().map((t): TableRef => ({ schema: t.schema, name: t.name }));
-      if (refs.length > MAX_SNAPSHOT_TABLES) {
-        throw new ServiceError(
-          "snapshot_too_large",
-          `This database has ${refs.length} tables; a snapshot holds at most ${MAX_SNAPSHOT_TABLES}.`,
-        );
-      }
-      const entries: TableDetailsEntry[] = [];
-      for (let start = 0; start < refs.length; start += MAX_TABLES_PER_DETAILS_REQUEST) {
-        entries.push(
-          ...(await adapter.getTablesDetails(
-            refs.slice(start, start + MAX_TABLES_PER_DETAILS_REQUEST),
-          )),
-        );
-      }
-      const relationships = await adapter.getRelationships();
-      const objects = await adapter.getObjects();
-      const tooMany = OBJECT_KINDS.find(
-        (kind) => objects[kind].length > MAX_SNAPSHOT_OBJECTS_PER_KIND,
-      );
-      if (tooMany !== undefined) {
-        throw new ServiceError(
-          "snapshot_too_large",
-          `This database has ${objects[tooMany].length} objects of one kind (${tooMany}); a snapshot holds at most ${MAX_SNAPSHOT_OBJECTS_PER_KIND} of each kind.`,
-        );
-      }
-      return {
-        structure: buildStructure(schemas, entries, relationships, objects),
-        source: { connectionName: summary.name, database: summary.database },
-      };
     });
   }
 }

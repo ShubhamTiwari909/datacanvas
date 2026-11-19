@@ -20,6 +20,7 @@
  * layer) to call it only when the person has switched data viewing on for that
  * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
+import type { DdlDetail } from "./ddl.js";
 import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
 import type {
   ColumnInfo,
@@ -114,6 +115,18 @@ export interface DatabaseAdapter {
    * - A blank query returns an empty array. Only names are searched, never data.
    */
   searchObjects(query: string, limit: number): Promise<SearchHit[]>;
+
+  /**
+   * The parts of a definition that a migration must say and the structure does not record
+   * (`ddl.ts`): identity, generated and collation of columns, deferrable and not-yet-validated
+   * constraints, partitioning, inheritance, unlogged and storage options of tables, and the
+   * comments on schemas, types, sequences, indexes and constraints. Sparse: only what is not the
+   * default. Names and settings only.
+   *
+   * `tables` are the relations to read (as for `getTablesDetails`); `schemas` are the schemas
+   * whose own comments are wanted. Empty lists read nothing but the server's version.
+   */
+  getDdlDetail(tables: readonly TableRef[], schemas: readonly string[]): Promise<DdlDetail>;
 
   /**
    * Every confirmed foreign-key relationship in the database, across schemas.

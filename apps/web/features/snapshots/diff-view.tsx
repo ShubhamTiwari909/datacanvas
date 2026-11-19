@@ -125,10 +125,13 @@ export function DiffView({
   diff,
   before,
   after,
+  action,
 }: {
   diff: SchemaDiff;
   before: string;
   after: string;
+  /** Shown beside the copy button (a link to what to do with this comparison). */
+  action?: React.ReactNode;
 }) {
   if (diff.isEmpty) {
     return (
@@ -152,7 +155,10 @@ export function DiffView({
         <p className="text-sm">
           <strong>{before}</strong> → <strong>{after}</strong>
         </p>
-        <CopyButton text={diffToMarkdown(diff, { before, after })} label="Copy as Markdown" />
+        <div className="flex flex-wrap items-center gap-1">
+          {action}
+          <CopyButton text={diffToMarkdown(diff, { before, after })} label="Copy as Markdown" />
+        </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <CountCell label="Schemas" counts={s.schemas} />

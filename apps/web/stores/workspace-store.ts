@@ -27,7 +27,15 @@ import { useWritesStore } from "./writes-store";
 
 /** What the main area shows for the selected connection. */
 export type WorkspaceView =
-  "canvas" | "details" | "overview" | "health" | "paths" | "snapshots" | "objects" | "sql";
+  | "canvas"
+  | "details"
+  | "overview"
+  | "health"
+  | "paths"
+  | "snapshots"
+  | "objects"
+  | "sql"
+  | "migrations";
 
 export interface SelectedTable {
   schema: string;
@@ -47,6 +55,8 @@ interface WorkspaceState {
   selectedConnectionId: string | null;
   selectedTable: SelectedTable | null;
   view: WorkspaceView;
+  /** Sides to start the Migrations tab with (set by "Generate a migration" on a comparison), used once. */
+  migrationSeed: { before: string; after: string } | null;
   connectDialogOpen: boolean;
   /** When set, the dialog reconnects this saved connection (only the password is asked). */
   connectPrefill: ConnectionProfile | null;
@@ -57,6 +67,9 @@ interface WorkspaceState {
   selectConnection: (id: string) => void;
   selectTable: (table: SelectedTable | null) => void;
   setView: (view: WorkspaceView) => void;
+  /** Open the Migrations tab to make `before` look like `after` (side values as in the comparison pickers). */
+  openMigration: (before: string, after: string) => void;
+  clearMigrationSeed: () => void;
   openConnectDialog: (prefill?: ConnectionProfile) => void;
   updateConnection: (connection: ConnectionSummary) => void;
   refreshProfiles: () => Promise<void>;
@@ -75,6 +88,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   selectedConnectionId: null,
   selectedTable: null,
   view: "canvas",
+  migrationSeed: null,
   connectDialogOpen: false,
   connectPrefill: null,
 
@@ -155,6 +169,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setView(view) {
     set({ view });
+  },
+
+  openMigration(before, after) {
+    set({ view: "migrations", migrationSeed: { before, after } });
+  },
+
+  clearMigrationSeed() {
+    set({ migrationSeed: null });
   },
 
   openConnectDialog(prefill) {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnInfo, ConstraintInfo, IndexInfo } from "../models.js";
 import type { DatabaseStructure, StructureTable } from "../structure.js";
+import type { DatabaseObjects, TypeInfo, ViewInfo } from "../models.js";
+import { emptyObjects } from "../objects.js";
 import { downScript, planMigration, upScript } from "./plan.js";
 
 const col = (name: string, dataType = "integer", extra: Partial<ColumnInfo> = {}): ColumnInfo => ({
@@ -133,5 +135,89 @@ describe("planMigration", () => {
     expect(down.indexOf('DROP TABLE "public"."b"')).toBeLessThan(
       down.indexOf('DROP TABLE "public"."a"'),
     );
+  });
+});
+
+const withObjects = (
+  s: DatabaseStructure,
+  objects: Partial<DatabaseObjects>,
+): DatabaseStructure => ({
+  ...s,
+  objects: { ...emptyObjects(), ...objects },
+});
+const enumType = (name: string, values: string[]): TypeInfo => ({
+  schema: "public",
+  name,
+  kind: "enum",
+  comment: null,
+  values,
+  attributes: [],
+  baseType: null,
+  defaultValue: null,
+  constraints: [],
+});
+const view = (name: string, reads: string[], definition = "SELECT 1"): ViewInfo => ({
+  schema: "public",
+  name,
+  materialized: false,
+  comment: null,
+  definition,
+  dependsOn: reads.map((n) => ({ schema: "public", name: n })),
+});
+
+describe("planMigration: the objects around the tables", () => {
+  it("creates a type before the table that uses it", () => {
+    const plan = planMigration(
+      withObjects(structure([]), {}),
+      withObjects(structure([table("t", [col("m", "mood")])]), {
+        types: [enumType("mood", ["a"])],
+      }),
+    );
+    const order = plan.steps.map((s) => s.kind);
+    expect(order.indexOf("create_type")).toBeLessThan(order.indexOf("create_table"));
+  });
+
+  it("drops views that read views before the views they read, and makes them in the other order", () => {
+    const both = withObjects(structure([table("t", [col("id")])]), {
+      views: [view("v1", ["t"]), view("v2", ["v1"])],
+    });
+    const none = withObjects(structure([table("t", [col("id")])]), {});
+    const dropped = planMigration(both, none).steps.filter((s) => s.kind === "drop_view");
+    expect(dropped.map((s) => s.object.name)).toEqual(["v2", "v1"]);
+    const made = planMigration(none, both).steps.filter((s) => s.kind === "create_view");
+    expect(made.map((s) => s.object.name)).toEqual(["v1", "v2"]);
+    expect(made[1]!.dependsOn).toContain(made[0]!.id);
+  });
+
+  it("will not remove or reorder an enum label: a warning, no step", () => {
+    const plan = planMigration(
+      withObjects(structure([]), { types: [enumType("m", ["a", "b"])] }),
+      withObjects(structure([]), { types: [enumType("m", ["b"])] }),
+    );
+    expect(plan.steps).toEqual([]);
+    expect(plan.warnings.join(" ")).toMatch(/cannot do that/);
+  });
+
+  it("adds an enum label as a step that cannot be undone or run in a transaction", () => {
+    const plan = planMigration(
+      withObjects(structure([]), { types: [enumType("m", ["a"])] }),
+      withObjects(structure([]), { types: [enumType("m", ["a", "b"])] }),
+    );
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]).toMatchObject({
+      down: null,
+      transactional: false,
+      reversibility: "none",
+    });
+    expect(plan.reversibility).toBe("none");
+  });
+
+  it("plans no object when one structure never recorded them, and says so", () => {
+    const plan = planMigration(
+      structure([]),
+      withObjects(structure([]), { types: [enumType("m", ["a"])] }),
+    );
+    expect(plan.steps).toEqual([]);
+    expect(plan.notCompared.join(" ")).toMatch(/not recorded/);
   });
 });

@@ -1,6 +1,6 @@
 # Migration Studio plan (1.7.0)
 
-Status: **M0 and M1 done** (2026-11-19: the structure detail and the round-trip harness; the planner for tables, columns, constraints, indexes and foreign keys, 60 round-trip scenarios on a real PostgreSQL). M2 to M6 not started. Follows 1.6.0. The questions of section 13 are answered: a new tab, the recommended formats, renames in, owners and grants out, no applying, PostgreSQL 12 to 18.
+Status: **M0, M1 and M2 done** (2026-11-19: the structure detail and the round-trip harness; the planner for tables, columns, constraints, indexes and foreign keys, 60 round-trip scenarios on a real PostgreSQL; the planner for schemas, extensions, types, sequences, functions, views, triggers, policies and row security, 28 more). M3 to M6 not started. Follows 1.6.0. The questions of section 13 are answered: a new tab, the recommended formats, renames in, owners and grants out, no applying, PostgreSQL 12 to 18.
 
 Phase 3 asks for five things: **compare database environments, generate migration SQL, detect destructive changes, export a migration, and generate a rollback where possible.** DataCanvas already compares two structures; this phase turns a comparison into a script a person can review, trust and run elsewhere.
 

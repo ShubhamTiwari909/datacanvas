@@ -46,13 +46,49 @@ export type StepKind =
   | "comment_constraint"
   | "create_index"
   | "drop_index"
-  | "comment_index";
+  | "comment_index"
+  | "create_schema"
+  | "drop_schema"
+  | "comment_schema"
+  | "create_extension"
+  | "drop_extension"
+  | "update_extension"
+  | "create_type"
+  | "drop_type"
+  | "alter_type"
+  | "comment_type"
+  | "create_sequence"
+  | "drop_sequence"
+  | "alter_sequence"
+  | "own_sequence"
+  | "comment_sequence"
+  | "create_view"
+  | "replace_view"
+  | "drop_view"
+  | "comment_view"
+  | "create_function"
+  | "replace_function"
+  | "drop_function"
+  | "comment_function"
+  | "create_trigger"
+  | "drop_trigger"
+  | "alter_trigger"
+  | "create_policy"
+  | "alter_policy"
+  | "drop_policy"
+  | "row_security";
+
+/** What a step's object is, when it is not a table's own part. */
+export type ObjectType =
+  "schema" | "extension" | "type" | "sequence" | "view" | "function" | "trigger" | "policy";
 
 /** What a step is about, for the screen and for grouping. */
 export interface StepObject {
   schema: string;
-  /** The table, or the relation. */
+  /** The table, or the relation (a view, for a trigger on one). Empty for a schema, type, sequence, function or extension. */
   table: string;
+  /** What kind of object this is, when it is not a table or a table's own part. */
+  of?: ObjectType;
   column?: string;
   /** The constraint or the index. */
   name?: string;

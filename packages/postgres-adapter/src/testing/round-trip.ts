@@ -141,6 +141,8 @@ export interface PlanScenario {
   /** Rows for the starting database only: for data that the target's own rules would refuse (a NOT NULL, a column that is not there). */
   fromData?: string;
   options?: PlanOptions;
+  /** Statements run in both databases afterwards, for what a dropped schema does not take (an extension). `{s}` and `{s2}` work here too. */
+  cleanup?: string;
   /** The schema's name; by default a plain one. Hostile names are tested by choosing one. */
   schema?: string;
 }
@@ -200,8 +202,13 @@ async function execute(db: TestDatabase, statements: string[]): Promise<string |
 
 export async function runPlanScenario(pair: Pair, scenario: PlanScenario): Promise<PlanRoundTrip> {
   const schema = scenario.schema ?? `rt${++scenarioCounter}`;
-  const sql = (text: string) => text.replaceAll("{s}", quote(schema));
-  const cleanup = `DROP SCHEMA IF EXISTS ${quote(schema)} CASCADE`;
+  const second = `${schema}_x`;
+  const sql = (text: string) =>
+    text.replaceAll("{s2}", quote(second)).replaceAll("{s}", quote(schema));
+  const cleanup = [
+    `DROP SCHEMA IF EXISTS ${quote(schema)} CASCADE`,
+    `DROP SCHEMA IF EXISTS ${quote(second)} CASCADE`,
+  ];
   try {
     for (const [db, text, extra] of [
       [pair.from, scenario.from, `${scenario.data ?? ""} ${scenario.fromData ?? ""}`],
@@ -232,7 +239,8 @@ export async function runPlanScenario(pair: Pair, scenario: PlanScenario): Promi
     });
     return { plan, upError, upDifferences, downError, downDifferences };
   } finally {
-    await execute(pair.from, [cleanup]);
-    await execute(pair.to, [cleanup]);
+    const after = scenario.cleanup === undefined ? [] : [sql(scenario.cleanup)];
+    await execute(pair.from, [...cleanup, ...after]);
+    await execute(pair.to, [...cleanup, ...after]);
   }
 }

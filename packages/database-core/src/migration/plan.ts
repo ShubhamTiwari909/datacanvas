@@ -24,32 +24,10 @@ import type { ColumnDdl, DdlDetail } from "../ddl.js";
 import type { ConstraintInfo, IndexInfo, RelationshipInfo } from "../models.js";
 import type { DatabaseStructure, StructureTable } from "../structure.js";
 import { classifyTypeChange } from "./classify.js";
+import { SEP, tableKey, type Draft } from "./draft.js";
+import { ownedBySql, ownedSequences, planObjects } from "./objects.js";
 import { columnSql, collationSql, commentOn, q, qualified, VOLATILE_DEFAULT } from "./sql.js";
-import type {
-  MigrationPlan,
-  MigrationStep,
-  PlanOptions,
-  Reversibility,
-  Risk,
-  StepKind,
-  StepObject,
-} from "./types.js";
-
-const SEP = "\u0001";
-const tableKey = (schema: string, name: string): string => `${schema}${SEP}${name}`;
-
-/** What a step is made of, before it has an id. */
-interface Draft {
-  kind: StepKind;
-  object: StepObject;
-  up: string;
-  down: string | null;
-  risk?: Risk[];
-  reversibility?: Reversibility;
-  transactional?: boolean;
-  dependsOn?: string[];
-  note: string;
-}
+import type { MigrationPlan, MigrationStep, PlanOptions, Risk, StepObject } from "./types.js";
 
 /** The statements of the scripts of a plan. */
 export function upScript(plan: MigrationPlan): string {
@@ -64,7 +42,7 @@ export function downScript(plan: MigrationPlan): string {
 }
 
 const NOT_COMPARED = [
-  "views, materialized views, functions, triggers, row-level security policies, types, sequences, extensions and schemas (planned in a later milestone of this release)",
+  "view options (security barrier, check option, security invoker), comments on triggers and policies, and the position of a sequence",
   "partitioning, inheritance, unlogged tables and storage options",
   "owners, grants and default privileges",
   "event triggers, publications, subscriptions, foreign data wrappers and servers, collations, casts and rules",
@@ -138,8 +116,22 @@ export function planMigration(
     );
   }
 
-  const drafts: Draft[][] = [[], [], [], [], [], [], []];
-  const [dropFks, dropRest, dropTables, createTables, alterColumns, addRest, addFks] = drafts as [
+  const drafts: Draft[][] = [[], [], [], [], [], [], [], [], [], []];
+  const [
+    dropFirst,
+    dropFks,
+    dropRest,
+    dropTables,
+    foundations,
+    createTables,
+    alterColumns,
+    addRest,
+    addFks,
+    last,
+  ] = drafts as [
+    Draft[],
+    Draft[],
+    Draft[],
     Draft[],
     Draft[],
     Draft[],
@@ -153,6 +145,15 @@ export function planMigration(
   const created = [...b.tables.keys()].filter((k) => !a.tables.has(k)).sort();
   const common = [...a.tables.keys()].filter((k) => b.tables.has(k)).sort();
   const createdSet = new Set(created);
+  const droppedSet = new Set(dropped);
+  // Sequences a table or column owns that are gone in the target: PostgreSQL drops them with their
+  // owner, so a rollback has to give them back to it.
+  const goneOwned = (schema: string, table: string, column?: string) =>
+    to.objects === null
+      ? []
+      : ownedSequences(from, schema, table, column).filter(
+          (x) => !to.objects!.sequences.some((y) => y.schema === x.schema && y.name === x.name),
+        );
 
   // ------------------------------------------------ what forces a foreign key to be re-made
   // A foreign key is dropped, and added again, when it goes or changes, or when the key it points at
@@ -320,7 +321,7 @@ export function planMigration(
   };
   /** The statements that bring back a table with everything but its foreign keys. */
   const recreateSql = (t: StructureTable, s: Side): string => {
-    const lines = [createTableSql(t, s)];
+    const lines = [createTableSql(t, s), ...goneOwned(t.schema, t.name).map(ownedBySql)];
     for (const c of [...t.constraints].sort((x, y) => x.name.localeCompare(y.name))) {
       if (!isForeignKey(c))
         lines.push(withComment(addConstraintSql(t, c, false), s, "constraint", t, c.name));
@@ -417,7 +418,9 @@ export function planMigration(
           c.comment === null
             ? ""
             : `\n${commentOn(`COLUMN ${qualified(before.schema, before.name)}.${q(c.name)}`, c.comment)}`
-        }`,
+        }${goneOwned(before.schema, before.name, c.name)
+          .map((x) => `\n${ownedBySql(x)}`)
+          .join("")}`,
         risk: ["lock", "destructive"],
         reversibility: "data_lost",
         note: `Drops the column ${c.name} of ${before.name} and the values in it.${
@@ -859,40 +862,56 @@ export function planMigration(
       }
     }
   }
-  // A view that reads a table whose column goes or changes type: PostgreSQL refuses.
-  const viewsOf = (s: DatabaseStructure) => s.objects?.views ?? [];
+  // ------------------------------------------- the objects around the tables
+  // A table that stays and loses or retypes a column: a view that reads it must be made again.
+  const disturbed = new Set<string>();
   for (const key of common) {
     const before = a.tables.get(key)!;
-    const after = b.tables.get(key)!;
-    const afterCols = byName(after.columns);
-    const risky = before.columns.filter((c) => {
-      const now = afterCols.get(c.name);
-      return !now || now.dataType !== c.dataType;
-    });
-    if (risky.length === 0) continue;
-    for (const view of viewsOf(from)) {
-      if (view.dependsOn.some((d) => d.schema === before.schema && d.name === before.name)) {
-        warnings.push(
-          `The view ${view.name} reads ${before.name}. PostgreSQL refuses to drop or retype a column the view uses (${risky.map((c) => c.name).join(", ")}): the view has to be dropped and made again, which this plan does not do yet.`,
-        );
-      }
-    }
+    const afterCols = byName(b.tables.get(key)!.columns);
+    if (
+      before.columns.some((c) => {
+        const now = afterCols.get(c.name);
+        return !now || now.dataType !== c.dataType;
+      })
+    )
+      disturbed.add(key);
   }
+  if (from.objects === null || to.objects === null) {
+    notCompared.push(
+      "views, functions, triggers, policies, types, sequences and extensions (not recorded in one of the two structures: a snapshot from before 1.3)",
+    );
+  }
+  const objectPhases = planObjects({
+    from,
+    to,
+    createdTables: createdSet,
+    droppedTables: droppedSet,
+    disturbedTables: disturbed,
+    warnings,
+  });
+  dropFirst.push(...objectPhases.dropFirst);
+  foundations.push(...objectPhases.foundations);
+  last.push(...objectPhases.last, ...objectPhases.finish);
 
   // ------------------------------------------------------------------ numbering
   const steps: MigrationStep[] = [];
   const idOfCreate = new Map<string, string>();
+  const provided = new Map<string, string>();
   let n = 0;
   for (const [phase, group] of drafts.entries()) {
     for (const d of group) {
-      const extra = d as Draft & { dependsOnTable?: string; alsoDependsOnTable?: string };
       const id = `s${++n}`;
       const dependsOn: string[] = [...(d.dependsOn ?? [])];
-      for (const tk of [extra.dependsOnTable, extra.alsoDependsOnTable]) {
+      for (const tk of [d.dependsOnTable, d.alsoDependsOnTable]) {
         const created = tk ? idOfCreate.get(tk) : undefined;
         if (created) dependsOn.push(created);
       }
+      for (const need of d.needs ?? []) {
+        const made = provided.get(need);
+        if (made && made !== id) dependsOn.push(made);
+      }
       if (d.kind === "create_table") idOfCreate.set(tableKey(d.object.schema, d.object.table), id);
+      if (d.provides) provided.set(d.provides, id);
       steps.push({
         id,
         kind: d.kind,

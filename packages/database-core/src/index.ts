@@ -19,3 +19,4 @@ export * from "./sql-text.js";
 export * from "./rows.js";
 export * from "./diff.js";
 export * from "./changes.js";
+export * from "./sql-run.js";

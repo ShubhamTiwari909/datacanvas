@@ -38,6 +38,13 @@ import type {
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
 import {
+  checkStatementText,
+  SqlStatementError,
+  type SqlRunRequest,
+  type SqlRunResult,
+  type SqlRunnerAdapter,
+} from "../sql-run.js";
+import {
   buildRowPage,
   checkRowsFilters,
   checkRowsSort,
@@ -107,7 +114,7 @@ function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter {
+export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, SqlRunnerAdapter {
   private connected = false;
   private readonly data: MockDatabaseData;
   private readonly failConnectWith: DatabaseErrorCode | undefined;
@@ -120,6 +127,24 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter {
     this.writes = new MockWrites(this.data);
     this.role = options.role ?? MOCK_ROLE;
     this.failConnectWith = options.failConnectWith;
+  }
+
+  /** What `runStatement` answers; tests replace it. By default one row, "ok". */
+  sqlHandler: (request: SqlRunRequest) => Promise<SqlRunResult> = async () => ({
+    columns: [{ name: "result", dataType: "text" }],
+    rows: [["ok"]],
+    truncated: false,
+    command: "SELECT",
+    cutCells: 0,
+    elapsedMs: 1,
+  });
+
+  /** The SQL runner: the same first-word check as the real adapter, then `sqlHandler`. */
+  async runStatement(request: SqlRunRequest): Promise<SqlRunResult> {
+    if (!this.connected) throw new DatabaseError("not_connected");
+    const check = checkStatementText(request.text);
+    if (!check.ok) throw new SqlStatementError("not_allowed", check.message);
+    return this.sqlHandler(request);
   }
 
   // All public methods are `async` on purpose: a thrown DatabaseError then

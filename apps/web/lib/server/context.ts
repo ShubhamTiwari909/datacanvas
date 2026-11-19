@@ -19,6 +19,7 @@ import { resolveDataDir } from "./storage/data-dir";
 import { SnapshotStorage } from "./storage/snapshot-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
 import { SnapshotService } from "./snapshot-service";
+import { SqlService } from "./sql-service";
 import { WorkspaceService } from "./workspace-service";
 import { WriteService } from "./write-service";
 import { readSecurityConfig } from "../security/request-guard";
@@ -30,6 +31,8 @@ export interface ServerContext {
   snapshots: SnapshotService;
   /** Editing rows and tables: refuses everything unless started with `--enable-writes`. */
   writes: WriteService;
+  /** Running one read-only statement the person typed (the SQL view). */
+  sql: SqlService;
 }
 
 const CONTEXT_KEY = Symbol.for("datacanvas.server-context");
@@ -60,6 +63,7 @@ function createServerContext(): ServerContext {
       connections: registry,
       writesEnabled: readSecurityConfig().writesEnabled,
     }),
+    sql: new SqlService({ connections: registry }),
   };
 }
 
@@ -69,7 +73,7 @@ export function getServerContext(): ServerContext {
   // In development a hot reload can leave a context made by older code, without
   // the write service. Replace it (closing its connections) instead of serving
   // routes that cannot work; in production this never happens.
-  if (held && !held.writes) {
+  if (held && (!held.writes || !held.sql)) {
     void held.connections?.dispose().catch(() => {});
     holder[CONTEXT_KEY] = undefined;
   }

@@ -146,4 +146,52 @@ describe("writes are a separate capability (1.4.0)", () => {
       expect(specifier.startsWith("."), specifier).toBe(true);
     }
   });
+  // ------------------------------------------- the SQL runner (decision 141) ---
+
+  it("DatabaseAdapter has no method that runs text", () => {
+    const readOnly = inBody(adapterSource, "export interface DatabaseAdapter");
+    expect(readOnly).not.toMatch(/\b(runStatement|runSql|execute|query)\(/);
+  });
+
+  it("SqlRunnerAdapter has exactly one method, which takes a request and answers a result", () => {
+    const runner = strip(readFileSync(path.join(coreDir, "src/sql-run.ts"), "utf8"));
+    const body = inBody(runner, "export interface SqlRunnerAdapter");
+    expect(body.match(/\b\w+\(/g)).toEqual(["runStatement("]);
+    expect(body).toMatch(/runStatement\(request: SqlRunRequest\): Promise<SqlRunResult>/);
+  });
+
+  it("only an adapter implements it: the mock and the PostgreSQL adapter", () => {
+    const implementers = [
+      ...sourceFiles(path.join(root, "packages")),
+      ...sourceFiles(path.join(root, "apps/web")),
+    ].filter(
+      (file) =>
+        !file.endsWith(".test.ts") &&
+        !file.endsWith(".d.ts") &&
+        !file.includes("node_modules") &&
+        !file.includes(`${path.sep}dist${path.sep}`) &&
+        /\bimplements\b[^{]*\bSqlRunnerAdapter\b/.test(strip(readFileSync(file, "utf8"))),
+    );
+    expect(implementers.map((f) => posix(path.relative(root, f))).sort()).toEqual([
+      "packages/database-core/src/testing/mock-adapter.ts",
+      "packages/postgres-adapter/src/postgres.adapter.ts",
+    ]);
+  });
+
+  it("the web app's server code reaches the SQL runner in one file only", () => {
+    const users = sourceFiles(path.join(root, "apps/web"))
+      .filter((f) => !f.endsWith(".test.ts") && !f.includes("node_modules") && !f.includes(".next"))
+      .filter((f) =>
+        /\b(SqlRunnerAdapter|isSqlRunnerAdapter)\b/.test(strip(readFileSync(f, "utf8"))),
+      )
+      .map((f) => posix(path.relative(root, f)));
+    expect(users).toEqual(["apps/web/lib/server/sql-service.ts"]);
+  });
+
+  it("the runner's types stay free of drivers and frameworks", () => {
+    const source = readFileSync(path.join(coreDir, "src/sql-run.ts"), "utf8");
+    for (const specifier of importSpecifiers(source)) {
+      expect(specifier.startsWith("."), specifier).toBe(true);
+    }
+  });
 });

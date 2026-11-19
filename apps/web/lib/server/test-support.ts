@@ -18,6 +18,7 @@ import { ConnectionService, type ProviderConfigs } from "./connection-service";
 import type { ServerContext } from "./context";
 import { ProfileService } from "./profile-service";
 import { SnapshotService } from "./snapshot-service";
+import { SqlService } from "./sql-service";
 import { SnapshotStorage } from "./storage/snapshot-storage";
 import { ProfileStorage } from "./storage/profile-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
@@ -96,6 +97,7 @@ export function createTestContext(
       writesEnabled: options.writesEnabled ?? false,
       now: options.now ? () => options.now!().getTime() : undefined,
     }),
+    sql: new SqlService({ connections: registry }),
     dataDir,
     registry,
     createdAdapters,

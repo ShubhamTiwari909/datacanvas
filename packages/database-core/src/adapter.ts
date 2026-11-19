@@ -18,7 +18,7 @@
  * definitions, counters). `getRows` is the one method that returns table ROWS: it
  * exists for the opt-in data viewer, and it is the caller's job (the service
  * layer) to call it only when the person has switched data viewing on for that
- * connection. There is deliberately no method that runs arbitrary SQL.
+ * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
 import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
 import type {

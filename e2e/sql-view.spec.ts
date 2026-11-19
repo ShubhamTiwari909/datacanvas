@@ -331,3 +331,69 @@ test("each tab keeps its own undo history, and arrow keys move between tabs", as
   await page.keyboard.press("ArrowLeft");
   await expect(queryTab(page, "Query 1")).toBeFocused();
 });
+
+// ------------------------------------------------------------ completion (S4) ---
+
+const suggestions = (page: Page) => page.locator(".suggest-widget.visible .monaco-list-row");
+
+test("suggests tables of the database after FROM, and inserts the one chosen", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT * FROM us");
+  await page.keyboard.press("ControlOrMeta+Space");
+  await expect(suggestions(page).filter({ hasText: "users" }).first()).toBeVisible();
+  // The columns of a table do not appear where a table is wanted.
+  await expect(suggestions(page).filter({ hasText: "email" })).toHaveCount(0);
+  // user_profiles sorts first; pick the one wanted.
+  await suggestions(page).filter({ hasText: "userspublic · table" }).click();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT * FROM users");
+  await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("user_profiles");
+});
+
+test("suggests the columns of an alias after a dot, with their types", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT  FROM public.users u");
+  await page.keyboard.press("Home"); // one line: its start is the start of the text
+  for (let i = 0; i < 7; i++) await page.keyboard.press("ArrowRight");
+  // Typing the dot opens the list by itself.
+  await page.keyboard.type("u.");
+  const email = suggestions(page).filter({ hasText: "email" }).first();
+  await expect(email).toBeVisible();
+  // The type is shown beside the column, with the alias it belongs to.
+  await expect(email).toContainText("u · text");
+  await page.keyboard.type("em");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText(
+    "SELECT u.email FROM public.users u",
+  );
+  // The text still runs.
+  await run(page).click();
+  await expect(
+    resultPanel(page)
+      .getByRole("grid", { name: "Query result" })
+      .getByRole("columnheader", { name: "email" }),
+  ).toBeVisible();
+});
+
+test("suggests names of the database after the schema and a dot, and nothing inside a string", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT * FROM public.");
+  await page.keyboard.press("ControlOrMeta+Space");
+  await expect(suggestions(page).filter({ hasText: "s_items" }).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await typeSql(page, "SELECT 'us");
+  await page.keyboard.press("ControlOrMeta+Space");
+  await expect(page.locator(".suggest-widget.visible")).toHaveCount(0);
+});

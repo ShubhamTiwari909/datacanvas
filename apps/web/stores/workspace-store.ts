@@ -21,6 +21,7 @@ import { setDataAccess as requestDataAccess } from "@/features/data/api";
 import { useCanvasStore } from "./canvas-store";
 import { useMetadataStore } from "./metadata-store";
 import { usePersistenceStore } from "./persistence-store";
+import { forgetCatalog } from "@/features/sql/completion/catalog-cache";
 import { useSqlStore } from "./sql-store";
 import { useWritesStore } from "./writes-store";
 
@@ -128,6 +129,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     useWritesStore.getState().forgetConnection(id);
     // So did the statements typed and the last result.
     useSqlStore.getState().forgetConnection(id);
+    forgetCatalog(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;

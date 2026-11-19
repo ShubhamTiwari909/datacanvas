@@ -16,6 +16,8 @@ import { useEffect, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor/editor/editor.api.js";
 import { LoadingState } from "@/components/states/loading-state";
 import { useThemeStore } from "@/stores/theme-store";
+import type { Catalog } from "./completion/catalog";
+import { registerSqlCompletion } from "./completion/monaco-provider";
 import { loadMonaco, type MonacoApi } from "./monaco-setup";
 
 export interface EditorMarker {
@@ -35,6 +37,8 @@ export interface SqlEditorProps {
   /** Run what is selected, or everything: the text and where it starts (characters from the top). */
   onRun: (tabId: string, text: string, base: number) => void;
   marker: EditorMarker | null;
+  /** The names completion offers: the database's catalog, or null while it cannot be read. */
+  getCatalog: () => Promise<Catalog | null>;
   readOnly?: boolean;
 }
 
@@ -47,6 +51,7 @@ export default function SqlEditor({
   onChange,
   onRun,
   marker,
+  getCatalog,
   readOnly = false,
 }: SqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -59,14 +64,15 @@ export default function SqlEditor({
   const resolved = useThemeStore((s) => s.resolved);
 
   // The callbacks change on every render; the editor keeps asking the latest ones.
-  const latest = useRef({ tabId, onChange, onRun });
+  const latest = useRef({ tabId, onChange, onRun, getCatalog });
   useEffect(() => {
-    latest.current = { tabId, onChange, onRun };
+    latest.current = { tabId, onChange, onRun, getCatalog };
   });
 
   useEffect(() => {
     let disposed = false;
     let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+    let completion: Monaco.IDisposable | null = null;
     const modelsOfThisEditor = models.current;
     loadMonaco().then(
       (api) => {
@@ -86,7 +92,11 @@ export default function SqlEditor({
           tabSize: 2,
           wordWrap: "on",
           padding: { top: 8, bottom: 8 },
+          // The names come from the catalog (below), not from words already in the text.
+          wordBasedSuggestions: "off",
+          suggest: { showWords: false },
         });
+        completion = registerSqlCompletion(api, () => latest.current.getCatalog());
         editor.onDidChangeModelContent(() => {
           // An edit clears the mark: it pointed into the text as it was.
           const model = editor?.getModel();
@@ -120,6 +130,7 @@ export default function SqlEditor({
     return () => {
       disposed = true;
       editorRef.current = null;
+      completion?.dispose();
       editor?.dispose();
       for (const model of modelsOfThisEditor.values()) model.dispose();
       modelsOfThisEditor.clear();

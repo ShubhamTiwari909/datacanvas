@@ -39,6 +39,7 @@ import {
 } from "@/stores/sql-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { checkFileSize, checkFileText, normalizeText, sqlFileName, tabNameFromFile } from "./files";
+import { ensureCatalog } from "./completion/catalog-cache";
 import { ResultGrid } from "./result-grid";
 import { elapsedText, failureTitle, lineColumn, resultSummary, ROW_LIMITS } from "./result-text";
 
@@ -79,6 +80,11 @@ function Editor({ connectionId }: { connectionId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
 
+  // Read the database's names once, so completion is ready when the person starts typing.
+  useEffect(() => {
+    void ensureCatalog(connectionId);
+  }, [connectionId]);
+  const getCatalog = useCallback(() => ensureCatalog(connectionId), [connectionId]);
   const textFor = useCallback((tabId: string) => tabText(connectionId, tabId), [connectionId]);
   const openTabIds = useMemo(() => sql.tabs.map((t) => t.id), [sql.tabs]);
 
@@ -232,6 +238,7 @@ function Editor({ connectionId }: { connectionId: string }) {
           onChange={(tabId, value) => store().setText(connectionId, tabId, value)}
           onRun={(tabId, runText, base) => void store().run(connectionId, tabId, runText, base)}
           marker={marker}
+          getCatalog={getCatalog}
         />
       </div>
       <section aria-label="Result" className="flex min-h-0 flex-1 flex-col gap-2 p-3">

@@ -6,6 +6,7 @@
  */
 import { tableRefKey, type Change, type TableRef } from "@datacanvas/database-core";
 import { addTablesToCanvas } from "@/features/canvas/add-tables";
+import { invalidateCatalog } from "@/features/sql/completion/catalog-cache";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useMetadataStore } from "@/stores/metadata-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -50,6 +51,8 @@ export function affectedTables(change: Change): {
 
 export async function afterStructureChange(connectionId: string, change: Change): Promise<void> {
   useWritesStore.getState().bumpStructure(connectionId);
+  // The SQL view's completion reads the names again the next time it is asked.
+  invalidateCatalog(connectionId);
   const { reload, gone, renamedTo } = affectedTables(change);
 
   let wasOnCanvas = false;

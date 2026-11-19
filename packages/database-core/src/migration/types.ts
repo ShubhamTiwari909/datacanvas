@@ -76,7 +76,11 @@ export type StepKind =
   | "create_policy"
   | "alter_policy"
   | "drop_policy"
-  | "row_security";
+  | "row_security"
+  | "rename_table"
+  | "rename_column"
+  | "rename_constraint"
+  | "rename_index";
 
 /** What a step's object is, when it is not a table's own part. */
 export type ObjectType =
@@ -131,4 +135,9 @@ export interface PlanOptions {
    * in a step of its own: the long scan then holds a lighter lock. Default false.
    */
   safeConstraints?: boolean;
+  /**
+   * The ids of the renames a person confirmed (`suggestRenames`). A rename that is not here is a drop
+   * and an add: the rows of a dropped table or column are gone. Default none.
+   */
+  renames?: string[];
 }

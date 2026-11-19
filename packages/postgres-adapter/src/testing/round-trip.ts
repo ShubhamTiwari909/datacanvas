@@ -19,9 +19,11 @@ import {
   diffToMarkdown,
   downScript,
   planMigration,
+  suggestRenames,
   type DatabaseStructure,
   type MigrationPlan,
   type PlanOptions,
+  type RenameSuggestion,
 } from "@datacanvas/database-core";
 import pg from "pg";
 import { PostgresAdapter } from "../postgres.adapter.js";
@@ -141,6 +143,8 @@ export interface PlanScenario {
   /** Rows for the starting database only: for data that the target's own rules would refuse (a NOT NULL, a column that is not there). */
   fromData?: string;
   options?: PlanOptions;
+  /** Which of the suggested renames to confirm (all of them by default when this is given as `true`). */
+  confirm?: boolean | ((suggestion: RenameSuggestion) => boolean);
   /** Statements run in both databases afterwards, for what a dropped schema does not take (an extension). `{s}` and `{s2}` work here too. */
   cleanup?: string;
   /** The schema's name; by default a plain one. Hostile names are tested by choosing one. */
@@ -219,7 +223,17 @@ export async function runPlanScenario(pair: Pair, scenario: PlanScenario): Promi
     }
     const start = await read(pair.from);
     const target = await read(pair.to);
-    const plan = planMigration(start, target, scenario.options);
+    const confirm = scenario.confirm;
+    const renames =
+      confirm === undefined || confirm === false
+        ? undefined
+        : suggestRenames(start, target)
+            .filter((r) => confirm === true || confirm(r))
+            .map((r) => r.id);
+    const plan = planMigration(start, target, {
+      ...scenario.options,
+      ...(renames ? { renames } : {}),
+    });
 
     const upError = await execute(
       pair.from,

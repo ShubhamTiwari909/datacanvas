@@ -40,6 +40,10 @@ export interface ObjectsContext {
   /** `tableKey`s of tables that stay and lose or retype a column (a view that reads one must be made again). */
   disturbedTables: Set<string>;
   warnings: string[];
+  /** Views (`schema SEP name`) whose starting text was rewritten for a rename: made with a column list so their columns keep their names. */
+  rewrittenViews: Set<string>;
+  /** Views that must be dropped and made again though their text is the same (they read a renamed column). */
+  remakeViews: Set<string>;
 }
 
 export interface ObjectPhases {
@@ -786,8 +790,10 @@ function planFunctions(
 
 const viewKind = (v: ViewInfo): string => (v.materialized ? "MATERIALIZED VIEW" : "VIEW");
 const viewTarget = (v: ViewInfo): string => `${viewKind(v)} ${qualified(v.schema, v.name)}`;
-const createViewSql = (v: ViewInfo, replace = false): string =>
-  `CREATE ${replace ? "OR REPLACE " : ""}${viewKind(v)} ${qualified(v.schema, v.name)} AS\n${withoutSemicolon(v.definition)};`;
+const createViewSql = (v: ViewInfo, replace = false, columns: string[] | null = null): string =>
+  `CREATE ${replace ? "OR REPLACE " : ""}${viewKind(v)} ${qualified(v.schema, v.name)}${
+    columns === null ? "" : ` (${columns.map(q).join(", ")})`
+  } AS\n${withoutSemicolon(v.definition)};`;
 
 function planViews(
   ctx: ObjectsContext,
@@ -804,6 +810,13 @@ function planViews(
       (x, y) => (x.name < y.name ? -1 : 1),
     );
 
+  const rewritten = (v: ViewInfo): string[] | null =>
+    ctx.rewrittenViews.has(k2(v.schema, v.name))
+      ? (columnsOf(ctx.from, v) ?? [])
+          .sort((x, y) => x.ordinalPosition - y.ordinalPosition)
+          .map((c) => c.name)
+      : null;
+
   // A changed view can be replaced in place only if it keeps its columns and adds at the end.
   const replaceable = (was: ViewInfo, now: ViewInfo): boolean => {
     if (was.materialized || now.materialized) return false;
@@ -819,6 +832,8 @@ function planViews(
     const now = after.get(k2(v.schema, v.name));
     if (!now) {
       gone.add(k2(v.schema, v.name));
+      rebuild.add(k2(v.schema, v.name));
+    } else if (ctx.remakeViews.has(k2(v.schema, v.name))) {
       rebuild.add(k2(v.schema, v.name));
     } else if (v.definition !== now.definition || v.materialized !== now.materialized) {
       if (!replaceable(v, now)) rebuild.add(k2(v.schema, v.name));
@@ -863,7 +878,7 @@ function planViews(
       kind: "drop_view",
       object: obj("view", v.schema, v.name),
       up: `DROP ${viewTarget(v)};`,
-      down: `${isCut(v.definition) ? `-- The text of ${v.name} was too long to be recorded.` : createViewSql(v)}${indexes}${v.comment === null ? "" : `\n${commentOn(viewTarget(v), v.comment)}`}`,
+      down: `${isCut(v.definition) ? `-- The text of ${v.name} was too long to be recorded.` : createViewSql(v, false, rewritten(v))}${indexes}${v.comment === null ? "" : `\n${commentOn(viewTarget(v), v.comment)}`}`,
       risk: ["destructive"],
       reversibility: isCut(v.definition) ? "none" : "full",
       note: gone.has(k2(v.schema, v.name))
@@ -906,7 +921,7 @@ function planViews(
         up: createViewSql(v, true),
         // A view cannot lose columns by being replaced, so going back drops it and makes it again
         // (which fails if another view reads it).
-        down: `DROP ${target};\n${createViewSql(was)}${was.comment === null ? "" : `\n${commentOn(target, was.comment)}`}`,
+        down: `DROP ${target};\n${createViewSql(was, false, rewritten(was))}${was.comment === null ? "" : `\n${commentOn(target, was.comment)}`}`,
         note: `Replaces the query of the view ${v.name} (it keeps its columns and adds at the end). Going back drops the view and makes it again, which fails if another view reads it.`,
         provides: `view:${key}`,
         needs,

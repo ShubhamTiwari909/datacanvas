@@ -25,6 +25,7 @@ import type { ConstraintInfo, IndexInfo, RelationshipInfo } from "../models.js";
 import type { DatabaseStructure, StructureTable } from "../structure.js";
 import { classifyTypeChange } from "./classify.js";
 import { SEP, tableKey, type Draft } from "./draft.js";
+import { applyRenames, writesIdentifier } from "./rename.js";
 import { ownedBySql, ownedSequences, planObjects } from "./objects.js";
 import { columnSql, collationSql, commentOn, q, qualified, VOLATILE_DEFAULT } from "./sql.js";
 import type { MigrationPlan, MigrationStep, PlanOptions, Risk, StepObject } from "./types.js";
@@ -96,14 +97,20 @@ function backedByConstraint(index: IndexInfo, constraints: readonly ConstraintIn
 }
 
 export function planMigration(
-  from: DatabaseStructure,
+  fromInput: DatabaseStructure,
   to: DatabaseStructure,
   options: PlanOptions = {},
 ): MigrationPlan {
+  // Confirmed renames come first; the rest of the plan then sees the renamed thing as the same thing.
+  const renamed = applyRenames(fromInput, to, options.renames ?? []);
+  const from = renamed.structure;
   const a = side(from);
   const b = side(to);
   const notCompared = [...NOT_COMPARED];
-  const warnings: string[] = [];
+  const warnings: string[] = renamed.ignored.map(
+    (id) =>
+      `The rename ${id} was asked for but does not apply to these two structures (or needs another rename confirmed too), so it was left out.`,
+  );
   if (a.ddl === null || b.ddl === null) {
     notCompared.push(
       `identity, generated columns, collations, comments on indexes and constraints (not recorded in the ${
@@ -116,8 +123,9 @@ export function planMigration(
     );
   }
 
-  const drafts: Draft[][] = [[], [], [], [], [], [], [], [], [], []];
+  const drafts: Draft[][] = [renamed.drafts, [], [], [], [], [], [], [], [], [], []];
   const [
+    ,
     dropFirst,
     dropFks,
     dropRest,
@@ -129,6 +137,7 @@ export function planMigration(
     addFks,
     last,
   ] = drafts as [
+    Draft[],
     Draft[],
     Draft[],
     Draft[],
@@ -888,7 +897,17 @@ export function planMigration(
     droppedTables: droppedSet,
     disturbedTables: disturbed,
     warnings,
+    rewrittenViews: renamed.rewrittenViews,
+    remakeViews: renamed.remakeViews,
   });
+  for (const f of [...(from.objects?.functions ?? []), ...(to.objects?.functions ?? [])]) {
+    const hit = renamed.oldNames.find((n) => writesIdentifier(f.definition, n));
+    if (hit !== undefined) {
+      warnings.push(
+        `The function ${f.name} mentions ${hit}, which is renamed. The plan does not rewrite the text of functions: check it.`,
+      );
+    }
+  }
   dropFirst.push(...objectPhases.dropFirst);
   foundations.push(...objectPhases.foundations);
   last.push(...objectPhases.last, ...objectPhases.finish);

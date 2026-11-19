@@ -82,7 +82,20 @@ Every change opens a **preview** first: the exact statement that will run (value
 
 **Changes** (from the badge) lists what you changed in this session: the kind of change, the table, the column names, the time and the outcome, and the statement for changes of structure (left out when it holds a default value or a comment you typed). It never shows row values and is not saved.
 
-## 6. Keep and share
+## 6. Run SQL (optional, read-only)
+
+Open the **SQL** tab. It needs **Allow viewing table data** for the connection (a result is rows); until then it says so and offers to switch it on. It never changes your database, even with `--enable-writes`.
+
+- **Type a statement and press Run** (or Ctrl or Cmd plus Enter). If some text is selected, only the selection runs. **Cancel** stops it in the database. Only `SELECT`, `WITH`, `VALUES`, `TABLE`, `EXPLAIN` and `SHOW` are accepted, one statement at a time.
+- **Completion** suggests the tables, views and schemas of your database after `FROM` and `JOIN`; elsewhere the columns of the tables in your statement (with their types), then aliases, functions and keywords; and a table's or alias's columns after `alias.`. Press Ctrl or Cmd plus Space to open it. Keywords and built-in functions are offered too.
+- **Query tabs** keep several statements, each with its own result: **+** opens one, double-click or the pencil renames it, the copy button duplicates it, **x** or Delete closes it. Only one statement runs at a time, whichever tab it is in. Queries are **not kept** when you close the page: save a tab with the download button (a `.sql` file) and open one with the folder button.
+- **The result** is a table: NULL and an empty value look different, a long value opens in a dialog, and the footer says how many rows, how long it took, and when rows were left unread (the **Row limit** is 100, 1,000, 5,000 or 10,000). **Export** copies the rows as TSV, CSV or JSON, or saves a CSV file. A value that a spreadsheet would run as a formula is saved with a leading apostrophe.
+- **Explain** shows the plan of the statement; **Explain analyze** runs the statement and shows the plan with the real times. Both work on a query only.
+- **History** (the clock button) lists what ran on this connection since you opened the page, with how each went; open one in a new tab, run it again, copy it or clear the list.
+- **Errors** show the database's own sentence and the line and column, and the place is marked in the text.
+- If the role you connected with is a superuser, or may run programs or read files on the database server, a note says so: a function can reach those through a `SELECT`. Use a read-only role for SQL you did not write.
+
+## 7. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.
 - **Export** saves a PNG or SVG. These images show table and column names, so share them only with people who should see your schema.

@@ -60,6 +60,7 @@ const SERVICE_ERROR_STATUS = {
   invalid_workspace_file: 400,
   data_access_disabled: 403,
   rows_busy: 429,
+  sql_busy: 429,
   snapshot_not_found: 404,
   snapshot_limit_reached: 409,
   snapshot_too_large: 413,

@@ -267,7 +267,7 @@ Higher layers depend on an **abstraction** (the interface), not on a concrete dr
 Rules every implementation follows:
 
 - It throws only `DatabaseError`; raw driver errors are translated by the adapter.
-- Almost every method returns structure. The one exception is `getRows`, the opt-in data viewer (see "Reading table rows" below), which the service layer calls only for a connection with data access switched on. There is **no method that runs SQL you wrote**.
+- Almost every method returns structure. The one exception is `getRows`, the opt-in data viewer (see "Reading table rows" below), which the service layer calls only for a connection with data access switched on. There is **no method on `DatabaseAdapter` that runs SQL you wrote**: the SQL view (1.6.0) uses a separate capability, `SqlRunnerAdapter` (`database-core/src/sql-run.ts`), one method that runs one statement read-only on a connection of its own, which only `apps/web/lib/server/sql-service.ts` may call (decision 141).
 - Unknown schema or table: `not_found`. Data call before `connect()` or after `disconnect()`: `not_connected`.
 - Results are plain, JSON-safe data. "No value" is `null`, never `undefined`.
 

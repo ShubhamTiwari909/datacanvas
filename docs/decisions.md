@@ -876,3 +876,80 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** the writes switch is on only when the process was started with `--enable-writes` AND has a session token. The CLI always sets a token; a development server (`npm run dev`) has none, so writes stay off there.
 
 **Why:** without a token only the Host check stands in front of the write routes. Found in the 1.5.2 review.
+
+## 141. The SQL view runs read-only statements, one at a time, on a connection of its own
+
+**Decision:** the SQL Workspace (1.6.0) runs the statement the person types inside a read-only transaction on a dedicated connection that is opened for that one run and closed after it, never on the pool. Several statements in one text are refused (the extended protocol is used), and writing is not offered even when `--enable-writes` is on. It needs "Table data" switched on for the connection. Column masking does not apply to its results. Details and the tests that guard each way out are in `docs/sql-workspace-plan.md`, section 3.
+
+**Why:** until now no text typed by the person became SQL (decisions 116 and 127). A SQL view is exactly that, so it is the narrowest version that is still useful: a read-only transaction stops writes in the database itself, a connection of its own means a `SET SESSION` cannot change what a later write transaction does, and one statement per run means a `COMMIT` inside the text cannot end the transaction early and run the rest.
+
+## 142. Monaco, with a curated list of features, loaded only when the SQL view opens
+
+**Decision:** the editor is `monaco-editor` 0.57.0, pinned, built into the package (no CDN, no request to another host). It is imported from `monaco-editor/editor/editor.api.js` plus a fixed list of features and the `pgsql` language, never from `monaco-editor` or `editor.main` (which register every language, the TypeScript, CSS, JSON and HTML services and a language-server client). The component that loads it is imported with `next/dynamic` and `ssr: false`, so it is in neither the first page nor the server bundle. The language `pgsql` supplies highlighting; completion comes from our own provider (plan section 4).
+
+**Measured in the packaged app (milestone S0):**
+
+|                               | Package | Static files | Server files |
+| ----------------------------- | ------- | ------------ | ------------ |
+| 1.5.2 (no Monaco)             | 31 MB   | 3.6 MB       | 8.0 MB       |
+| Curated list, `ssr: false`    | 36 MB   | 8.7 MB       | 9.0 MB       |
+| Curated list, no `ssr: false` | 45 MB   | 6.7 MB       | 19 MB        |
+| `editor.main` (everything)    | 49 MB   | 19 MB        | not measured |
+
+Opening the page that holds the editor loads about 4.9 MB (1.3 MB compressed) in 118 files, of which Monaco is roughly 3.5 MB (0.9 MB compressed); nothing else is fetched, and no request leaves the origin. The worker is built by Turbopack (`new Worker(new URL(...))`) and starts without error under the current headers (there is no CSP beyond `frame-ancestors`, so a future one must allow workers).
+
+**What S0 found, for whoever builds S2:**
+
+- Monaco 0.57 changed its layout: language definitions are in `esm/vs/languages/definitions/<name>/register.js`, and the package's `exports` map means a module is imported as `monaco-editor/editor/editor.api.js`, not `monaco-editor/esm/vs/editor/editor.api.js`. Its CSS cannot be imported by path (the map adds `.js`), but the CSS that the features need comes in with them. Side-effect imports have no types, so `apps/web/monaco-modules.d.ts` declares them.
+- Too short a list breaks the editor in ways that look like a bug of ours: with `editor.api` and six features the completion list collapsed to 2 px wide (`max-width: 0`), and Cmd+A did nothing, because `coreCommands` and `codeEditorWidget` were missing. The list below was tested in the packaged app: highlighting, completion list, select all, undo, comment, find, folding.
+- Importing the editor from a client component without `ssr: false` adds 11 MB of server files for a page that never needs them.
+
+**The tested list** (after `editor.api.js`):
+
+- `editor/editor.api.js`
+- `editor/browser/coreCommands.js`
+- `editor/browser/widget/codeEditor/codeEditorWidget.js`
+- `editor/common/standaloneStrings.js`
+- `editor/contrib/bracketMatching/browser/bracketMatching.js`
+- `editor/contrib/caretOperations/browser/caretOperations.js`
+- `editor/contrib/caretOperations/browser/transpose.js`
+- `editor/contrib/clipboard/browser/clipboard.js`
+- `editor/contrib/comment/browser/comment.js`
+- `editor/contrib/contextmenu/browser/contextmenu.js`
+- `editor/contrib/cursorUndo/browser/cursorUndo.js`
+- `features/find/register.js`
+- `editor/contrib/find/browser/findController.js`
+- `editor/contrib/folding/browser/folding.js`
+- `editor/contrib/hover/browser/hoverContribution.js`
+- `editor/contrib/indentation/browser/indentation.js`
+- `editor/contrib/linesOperations/browser/linesOperations.js`
+- `editor/contrib/multicursor/browser/multicursor.js`
+- `editor/contrib/parameterHints/browser/parameterHints.js`
+- `editor/contrib/smartSelect/browser/smartSelect.js`
+- `editor/contrib/snippet/browser/snippetController2.js`
+- `editor/contrib/suggest/browser/suggestController.js`
+- `editor/contrib/tokenization/browser/tokenization.js`
+- `editor/contrib/wordHighlighter/browser/wordHighlighter.js`
+- `editor/contrib/wordOperations/browser/wordOperations.js`
+- `editor/contrib/wordPartOperations/browser/wordPartOperations.js`
+- `languages/definitions/pgsql/register.js`
+
+**Why:** the whole of Monaco costs 13 MB more in the package than this list (49 MB against 36 MB, of which 10 MB in the files the browser fetches), and the first version has no use for the TypeScript, CSS, JSON or HTML services. CodeMirror 6 stays the fallback if a later Monaco update breaks the bundling, but this version does not need it.
+
+## 143. Completion in the SQL view is a pure function of the catalog, the text and the cursor
+
+**Decision:** names are suggested from the structure the app already reads (`GET /structure`: schemas, tables and views with their columns and types, and function names with their arguments), turned into a small catalog held in memory per connection. It is read once when the SQL view opens, read again after a change of structure that DataCanvas itself applied, and dropped with the connection; it is never saved. What to suggest is decided by `complete(catalog, text, offset)` in `features/sql/completion/`: a tokenizer and a few rules, not a parser. It finds the statement the cursor is in, reads the relations of its FROM and JOIN clauses with their aliases (and CTEs), and suggests tables after FROM or JOIN, columns elsewhere, a relation's columns after `alias.`, and a schema's tables after `schema.`. A name it cannot resolve gives fewer suggestions, never an error; inside a string or a comment it gives none. Monaco's own word-based suggestions are off. No text is sent anywhere for completion.
+
+**Why:** a parser for PostgreSQL's SQL would be a project of its own and would still fail on half-typed text, which is the only text completion ever sees. Rules over tokens degrade gracefully. Keeping it a pure function makes every rule a plain test (95 of them), and keeps Monaco out of the logic. **Left over:** a change made to the database by someone else is not seen until the view is opened again after the catalog is dropped (closing the connection); there is no refresh button yet. A relation named without a schema resolves to `public` first, because the search path is not known.
+
+## 144. The SQL view reads a statement the way PostgreSQL does, and EXPLAIN only for a plain query
+
+**Decision:** the first-word check treats only space, tab and line feed as white space and ends a `--` comment at a line feed, as PostgreSQL's lexer does where it matters; a text with any other control character (a carriage return, a form feed, a vertical tab, NUL) is refused, so the string that is checked is the string that is sent. `EXPLAIN` (with its options and `ANALYZE`) must be followed by `SELECT`, `WITH`, `VALUES` or `TABLE`, and the text may not contain the word `INTO`, even inside a string. A result is read 25 rows at a time and stops at 64 MB. A cancel is sent again every 250 ms until the run ends, and the backend is ended after twelve tries. The abort is heard before the connection is made.
+
+**Why:** the review of the SQL runner found that a carriage return made the check and the server disagree about where a comment ends, which let a `COPY ... TO PROGRAM` or a `DO` through behind an allowed word; and that PostgreSQL runs `EXPLAIN ANALYZE CREATE TABLE ... AS` and `SELECT ... INTO` without its read-only check, so a "read-only" transaction was not read-only for them. Refusing what is ambiguous costs a few unusual texts; reading both the way the server does would mean parsing PostgreSQL. **Left over:** a single value of hundreds of megabytes is read whole; the role is the control for functions that reach outside the database.
+
+## 145. `dompurify`, which the editor brings, is used under its Apache-2.0 option
+
+**Decision:** `monaco-editor` depends on `dompurify`, offered as "MPL-2.0 OR Apache-2.0". DataCanvas uses it under **Apache-2.0**, which is the license of DataCanvas itself, and `THIRD-PARTY-NOTICES.md` says so (`scripts/generate-notices.mjs`, `CHOICES`).
+
+**Why:** a dual license leaves the choice to the user, and the notices file is where that choice is recorded, as it is for `elkjs` (decision 91). Apache-2.0 asks nothing of DataCanvas beyond the notice; MPL-2.0 would add file-level source obligations for any change to the package.

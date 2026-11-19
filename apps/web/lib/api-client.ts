@@ -27,7 +27,12 @@ function failure(code: string, message: string, issues: ValidationIssue[] = []):
 export async function apiRequest<S extends z.ZodType>(
   path: string,
   schema: S,
-  options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {},
+  options: {
+    method?: "GET" | "POST" | "PUT" | "DELETE";
+    body?: unknown;
+    /** Aborting it stops the request (and, for a running statement, the server cancels it). */
+    signal?: AbortSignal;
+  } = {},
 ): Promise<ApiResult<z.output<S>>> {
   let response: Response;
   try {
@@ -36,8 +41,12 @@ export async function apiRequest<S extends z.ZodType>(
       headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       cache: "no-store",
+      signal: options.signal,
     });
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+      return failure("aborted", "The request was cancelled.");
+    }
     return failure("network_error", "Could not reach the DataCanvas server. Is it still running?");
   }
 
@@ -45,6 +54,8 @@ export async function apiRequest<S extends z.ZodType>(
   try {
     json = await response.json();
   } catch {
+    // Cancelling while the body is read is still a cancel.
+    if (options.signal?.aborted) return failure("aborted", "The request was cancelled.");
     return failure("bad_response", "The server sent an unreadable response.");
   }
 

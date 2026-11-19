@@ -4,10 +4,11 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | Snapshots | Table details
+ *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | SQL | Snapshots | Table details
  */
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import {
   Boxes,
@@ -16,6 +17,7 @@ import {
   LayoutDashboard,
   LayoutList,
   Route,
+  SquareTerminal,
   TableProperties,
 } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
@@ -34,6 +36,12 @@ import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
 
+// The SQL view (and the editor in it) is fetched when its tab is first opened, not with the page.
+const SqlView = dynamic(() => import("@/features/sql/sql-view").then((m) => m.SqlView), {
+  ssr: false,
+  loading: () => <LoadingState label="Loading the SQL view…" />,
+});
+
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-full items-center justify-center">{children}</div>;
 }
@@ -44,6 +52,7 @@ const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashb
   { view: "paths", label: "Paths", icon: Route },
   { view: "health", label: "Health", icon: HeartPulse },
   { view: "objects", label: "Objects", icon: Boxes },
+  { view: "sql", label: "SQL", icon: SquareTerminal },
   { view: "snapshots", label: "Snapshots", icon: Camera },
   { view: "details", label: "Table details", icon: TableProperties },
 ];
@@ -133,6 +142,8 @@ export function Workspace() {
             <HealthView key={connection.id} connectionId={connection.id} />
           ) : view === "objects" ? (
             <ObjectsView key={connection.id} connectionId={connection.id} />
+          ) : view === "sql" ? (
+            <SqlView key={connection.id} connectionId={connection.id} />
           ) : view === "snapshots" ? (
             <SnapshotsView key={connection.id} connectionId={connection.id} />
           ) : table ? (

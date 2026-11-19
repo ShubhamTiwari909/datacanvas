@@ -20,3 +20,4 @@ export * from "./profiles.js";
 export * from "./workspace.js";
 export * from "./snapshots.js";
 export * from "./writes.js";
+export * from "./sql.js";

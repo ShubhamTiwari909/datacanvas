@@ -5,6 +5,7 @@
  * docs/images/. Re-run it whenever the interface changes.
  */
 import path from "node:path";
+import pg from "pg";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "./fixtures";
 
@@ -56,4 +57,48 @@ test("README screenshots", async ({ page, app, database }) => {
   await page.getByRole("menuitemradio", { name: "Dark" }).click();
   await page.waitForTimeout(700);
   await page.screenshot({ path: out("canvas-dark.png") });
+});
+
+test("README screenshot of the SQL tab", async ({ page, app, database }) => {
+  // An ordinary role, so the picture does not carry the superuser note.
+  const admin = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await admin.connect();
+  try {
+    await admin.query("CREATE ROLE dc_shots LOGIN PASSWORD 'dc-shots-test-only'");
+    await admin.query(`GRANT CONNECT ON DATABASE "${database.name}" TO dc_shots`);
+    await admin.query("GRANT USAGE ON SCHEMA public TO dc_shots");
+    await admin.query("GRANT SELECT ON ALL TABLES IN SCHEMA public TO dc_shots");
+    const url = `postgresql://dc_shots:dc-shots-test-only@${database.host}:${database.port}/${database.name}`;
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(app.link);
+    await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+    await page.getByLabel("Connection name").fill("Sample shop");
+    await page.getByRole("tab", { name: /connection string/i }).click();
+    await page.getByRole("textbox", { name: "Connection string" }).fill(url);
+    await page.getByLabel("Allow viewing table data").check();
+    await page.getByRole("button", { name: /^Connect$/ }).click();
+    await expect(page.getByRole("button", { name: "Disconnect Sample shop" })).toBeVisible();
+    await page.getByRole("tab", { name: "SQL" }).click();
+    await page.locator(".monaco-editor .view-lines").first().click();
+    await page.keyboard.insertText(
+      "SELECT t.table_name, count(*) AS columns,\n       string_agg(c.column_name, ', ' ORDER BY c.ordinal_position) AS column_names\nFROM information_schema.tables t\nJOIN information_schema.columns c USING (table_schema, table_name)\nWHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'\nGROUP BY t.table_name\nORDER BY columns DESC, t.table_name",
+    );
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Result" }).getByRole("grid")).toBeVisible();
+    await expect(page.getByRole("note", { name: "About this role" })).toHaveCount(0);
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: out("sql.png") });
+  } finally {
+    await page.goto("about:blank");
+    await admin.query("DROP OWNED BY dc_shots").catch(() => {});
+    await admin.query("DROP ROLE IF EXISTS dc_shots").catch(() => {});
+    await admin.end();
+  }
 });

@@ -5,6 +5,7 @@ DataCanvas is licensed under the Apache License 2.0 (see `LICENSE`). It includes
 ## Packages used under a chosen license
 
 - **elkjs** 0.12.1 is offered under "EPL-2.0 OR GPL-3.0-or-later". DataCanvas uses it under **EPL-2.0**. Source: https://github.com/kieler/elkjs. If you modify this package you must make those modifications available under EPL-2.0.
+- **dompurify** 3.4.15 is offered under "(MPL-2.0 OR Apache-2.0)". DataCanvas uses it under **Apache-2.0**. Source: git://github.com/cure53/DOMPurify. If you modify this package you must make those modifications available under Apache-2.0.
 
 ## All runtime dependencies
 
@@ -102,10 +103,13 @@ DataCanvas is licensed under the Apache License 2.0 (see `LICENSE`). It includes
 | d3-transition                           | 3.0.2        | ISC                         | https://github.com/d3/d3-transition                         |
 | d3-zoom                                 | 3.0.1        | ISC                         | https://github.com/d3/d3-zoom                               |
 | detect-node-es                          | 1.1.0        | MIT                         | https://github.com/thekashey/detect-node                    |
+| dompurify                               | 3.4.15       | (MPL-2.0 OR Apache-2.0)     | git://github.com/cure53/DOMPurify                           |
 | elkjs                                   | 0.12.1       | EPL-2.0 OR GPL-3.0-or-later | https://github.com/kieler/elkjs                             |
 | get-nonce                               | 1.0.1        | MIT                         | git@github.com:theKashey/get-nonce                          |
 | html-to-image                           | 1.11.13      | MIT                         | https://github.com/bubkoo/html-to-image                     |
 | lucide-react                            | 1.72.0       | ISC                         | https://github.com/lucide-icons/lucide                      |
+| marked                                  | 14.0.0       | MIT                         | git://github.com/markedjs/marked                            |
+| monaco-editor                           | 0.57.0       | MIT                         | https://github.com/microsoft/monaco-editor                  |
 | nanoid                                  | 3.3.20       | MIT                         | ai/nanoid                                                   |
 | next                                    | 16.4.6       | MIT                         | vercel/next.js                                              |
 | pg                                      | 8.23.1       | MIT                         | git://github.com/brianc/node-postgres                       |

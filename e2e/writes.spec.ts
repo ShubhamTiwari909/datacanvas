@@ -342,4 +342,32 @@ test.describe("with writes unlocked", () => {
     expect(text).not.toMatch(/UPDATE "public"."w_people"/);
     void database;
   });
+  test("the SQL view suggests a table made through DataCanvas, without reloading", async ({
+    page,
+  }) => {
+    // Opening the SQL view reads the database's names once.
+    await page.getByRole("tab", { name: "SQL" }).click();
+    await expect(page.getByRole("textbox", { name: /SQL editor/ })).toBeVisible();
+    await page.getByRole("tab", { name: "Table details" }).click();
+
+    await page.getByRole("button", { name: "New table in public" }).click();
+    const create = page.getByRole("dialog");
+    await create.getByRole("textbox", { name: "Table name" }).fill("w_suggested");
+    await create.getByLabel("Column 1 name").fill("id");
+    await create.getByLabel("Column 1 type").selectOption("integer");
+    await create.getByRole("button", { name: "Preview" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("button", { name: /^w_suggested\b/ }).first()).toBeVisible();
+
+    await page.getByRole("tab", { name: "SQL" }).click();
+    await page.locator(".monaco-editor .view-lines").first().click();
+    await page.keyboard.insertText("SELECT * FROM w_sugg");
+    await page.keyboard.press("ControlOrMeta+Space");
+    await expect(
+      page
+        .locator(".suggest-widget.visible .monaco-list-row")
+        .filter({ hasText: "w_suggested" })
+        .first(),
+    ).toBeVisible();
+  });
 });

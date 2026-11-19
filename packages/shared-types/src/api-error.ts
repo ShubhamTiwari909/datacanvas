@@ -59,6 +59,8 @@ export const API_ERROR_CODES = [
   // Viewing table data (rows).
   "data_access_disabled",
   "rows_busy",
+  // The SQL view (1.6.0): another statement is running on this connection.
+  "sql_busy",
   // Structure snapshots.
   "snapshot_not_found",
   "snapshot_limit_reached",

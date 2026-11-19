@@ -22,12 +22,18 @@ import {
   DatabaseError,
   ROW_CHANGE_TIMEOUT_MS,
   ROWS_SORT_FILTER_TIMEOUT_MS,
+  SQL_LIMITS,
+  SqlStatementError,
+  checkStatementText,
   STRUCTURE_CHANGE_TIMEOUT_MS,
   WRITE_LOCK_TIMEOUT_MS,
   type AppliedChange,
   type Change,
   type PlannedChange,
   type TableEditInfo,
+  type SqlRunRequest,
+  type SqlRunResult,
+  type SqlRunnerAdapter,
   type WritableAdapter,
   type ColumnInfo,
   type ConstraintInfo,
@@ -56,6 +62,7 @@ import {
 import { mapPgError } from "./connection/errors.js";
 import { withReadOnlyTransaction, type Queryable } from "./connection/read-only.js";
 import { mapWriteError } from "./connection/write-errors.js";
+import { runStatementOnOwnConnection } from "./connection/run-statement.js";
 import { withWriteTransaction } from "./connection/write.js";
 import { listColumns } from "./introspection/columns.js";
 import { loadTablesDetails } from "./introspection/details.js";
@@ -72,7 +79,7 @@ import { searchObjects } from "./introspection/search.js";
 import { listTables } from "./introspection/tables.js";
 import { describeForEdit, planChange, runPlan } from "./writes/index.js";
 
-export class PostgresAdapter implements DatabaseAdapter, WritableAdapter {
+export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRunnerAdapter {
   private readonly connection: ResolvedPostgresConnection;
   private readonly options: ResolvedAdapterOptions;
   private pool: pg.Pool | undefined;
@@ -236,6 +243,31 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter {
       );
     } catch (error) {
       throw mapWriteError(error);
+    }
+  }
+
+  // ------------------------------------------------------------ SQL view ---
+  // The SQL runner capability (SqlRunnerAdapter). Only the server's sql service calls it,
+  // after the viewing switch. The first word is checked here as well, so the adapter is a
+  // boundary on its own; the database's read-only transaction is what stops writes.
+
+  async runStatement(request: SqlRunRequest): Promise<SqlRunResult> {
+    if (!this.pool) throw new DatabaseError("not_connected");
+    const check = checkStatementText(request.text);
+    if (!check.ok) throw new SqlStatementError("not_allowed", check.message);
+    const bounded: SqlRunRequest = {
+      ...request,
+      maxRows: Math.min(Math.max(1, Math.trunc(request.maxRows)), SQL_LIMITS.maxMaxRows),
+      timeoutMs: Math.min(Math.max(100, Math.trunc(request.timeoutMs)), SQL_LIMITS.maxTimeoutMs),
+    };
+    try {
+      return await runStatementOnOwnConnection(
+        buildPoolConfig(this.connection, this.options),
+        bounded,
+      );
+    } catch (error) {
+      if (error instanceof SqlStatementError) throw error;
+      throw mapPgError(error);
     }
   }
 

@@ -16,7 +16,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(root, "apps/web/package.json"));
 
 /** License option chosen for dual-licensed packages (a legal decision, recorded in decisions.md). */
-const CHOICES = { elkjs: "EPL-2.0" };
+const CHOICES = { elkjs: "EPL-2.0", dompurify: "Apache-2.0" };
 
 const manifests = [
   "apps/web",

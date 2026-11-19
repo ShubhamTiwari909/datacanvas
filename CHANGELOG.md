@@ -4,6 +4,32 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-19
+
+### Added
+
+- **A SQL tab: type a statement and run it, read-only.** It needs _Allow viewing table data_ for the connection. One statement at a time runs in a read-only transaction on a connection of its own, with limits on rows (1,000 by default, 10,000 at most), bytes and time, and a Cancel that cancels it in the database. It cannot write, even with `--enable-writes`. Decision 141.
+- **An editor** (Monaco, built into the package, nothing fetched from another host) with SQL highlighting, in the app's colours in light and dark, and **completion from your database's own names**: tables, views, schemas and CTEs after `FROM` and `JOIN`, the columns in scope (with their types), `alias.` and `schema.table.` columns, functions, keywords and two snippets. Nothing is sent anywhere for completion. Decisions 142 and 143.
+- **Query tabs**, each with its own text, undo history and result: new, rename, duplicate, close (the mouse, the toolbar or Delete), arrow keys between them, **Save as .sql** and **Open .sql**. Queries are kept only until the page is closed.
+- **A results grid** that tells NULL from the empty string, opens long values in a dialog, and says when rows were left unread. **Export** copies the rows as TSV, CSV or JSON or saves a CSV file; a value a spreadsheet would run as a formula gets a leading apostrophe.
+- **Explain** and **Explain analyze** (which runs the statement) on a query, the plan shown as text; the database's errors with their code, the line and column, and a mark in the text.
+- **Query history** per connection (in memory, 200 entries at most): search, open in a new tab, run again, copy, clear.
+- A note above the editor when the role is a superuser or may run programs or read files on the database server, because a function can reach those from a `SELECT`.
+
+### Security
+
+The SQL runner was read from the code by a second reviewer before this release (docs/threat-model.md, section 8b). It found two ways past the checks, both fixed:
+
+- A carriage return made the first-word check and PostgreSQL disagree about where a comment ends, so a `COPY ... TO PROGRAM` or a `DO` could follow an allowed word. White space is now read as PostgreSQL reads it and any other control character is refused (decision 144).
+- PostgreSQL runs `EXPLAIN ANALYZE CREATE TABLE ... AS`, `CREATE MATERIALIZED VIEW` and `SELECT ... INTO` without its read-only check. `EXPLAIN` is now allowed only for a plain query without the word `INTO`.
+- A result is read in small batches and stopped at 64 MB; a cancel is repeated until the statement ends, and an abort while connecting ends the wait at once.
+- Accepted and written down: one single huge value is still read whole, and what a privileged role's function can do outside the database is for the role to limit.
+
+### Changed
+
+- The package is about 5 MB larger (the editor), loaded only when the SQL tab opens.
+- Documents that said DataCanvas has no way to run your SQL now say where it can (the SQL tab, read-only).
+
 ## [1.5.2] - 2026-11-18
 
 ### Added

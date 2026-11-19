@@ -49,11 +49,131 @@ describe("API routes are guarded", () => {
   });
 });
 
-describe("no arbitrary SQL, ever", () => {
-  it("has no route whose path suggests running SQL", () => {
+describe("no arbitrary SQL, ever (but the one route of the SQL view)", () => {
+  it("has no route whose path suggests running SQL (the SQL view's route is called run)", () => {
     for (const file of routeFiles) {
       expect(rel(file).toLowerCase(), rel(file)).not.toMatch(/\b(sql|query|exec|execute|raw)\b/);
     }
+  });
+});
+
+describe("the SQL view: exactly one route takes SQL text (decision 141)", () => {
+  const runRoute = "apps/web/app/api/connections/[id]/run/route.ts";
+  const service = path.join(root, "apps/web/lib/server/sql-service.ts");
+
+  it("has exactly one route that reaches the SQL service, and it is the run route", () => {
+    const users = routeFiles
+      .filter((f) => /\.sql\.run\(/.test(readFileSync(f, "utf8")))
+      .map((f) => rel(f));
+    expect(users).toEqual([runRoute]);
+  });
+
+  it("takes only a JSON POST with the strict schema, never cached, with no GET", () => {
+    const code = readFileSync(path.join(root, runRoute), "utf8");
+    expect(code).toMatch(/export function POST\b/);
+    // No other way of exporting a handler for another method, whatever the form.
+    expect(code).not.toMatch(
+      /export\s+(async\s+)?(function|const|let|var)\s+(GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/,
+    );
+    expect(code).not.toMatch(/export\s*\{[^}]*\b(GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\b[^}]*\}/);
+    // The body is parsed with the strict schema, before anything else, and the answer is the no-store helper's.
+    expect(code).toMatch(/parseJsonBody\(\s*request\s*,\s*sqlRunRequestSchema\b/);
+    expect(code).toMatch(/return\s+jsonResponse\(/);
+    expect(code).toMatch(/handleRoute\(\s*request\b/);
+    expect(code.indexOf("parseJsonBody(")).toBeLessThan(code.indexOf(".sql.run("));
+  });
+
+  it("the request schema is strict and has no key besides the text and two limits", () => {
+    const source = readFileSync(path.join(root, "packages/shared-types/src/sql.ts"), "utf8");
+    const start = source.indexOf("export const sqlRunRequestSchema");
+    const body = source.slice(start, source.indexOf("});", start));
+    expect(body).toContain("z.strictObject");
+    expect([...body.matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1])).toEqual([
+      "text",
+      "maxRows",
+      "timeoutMs",
+    ]);
+  });
+
+  it("checks the connection, the viewing switch and the text before it uses the adapter", () => {
+    const code = readFileSync(service, "utf8");
+    const body = code.slice(code.indexOf("async run("));
+    const order = [
+      "connection_not_found",
+      "summary.dataAccess",
+      "checkStatementText",
+      "sql_busy",
+      "this.connections.use(",
+    ].map((needle) => body.indexOf(needle));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("has no code in the SQL path that writes to the console", () => {
+    for (const file of [
+      "apps/web/lib/server/sql-service.ts",
+      runRoute,
+      "packages/postgres-adapter/src/connection/run-statement.ts",
+      "packages/database-core/src/sql-run.ts",
+    ]) {
+      expect(readFileSync(path.join(root, file), "utf8"), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("opens a connection of its own and never takes one from the pool", () => {
+    const code = readFileSync(
+      path.join(root, "packages/postgres-adapter/src/connection/run-statement.ts"),
+      "utf8",
+    );
+    expect(code).toContain("new pg.Client(");
+    expect(code).not.toMatch(/pool\.connect|new pg\.Pool|pool\.query/);
+    // Read-only, and one statement (a named statement makes the driver use the extended protocol).
+    expect(code).toContain("BEGIN READ ONLY");
+    expect(code).toContain("name: STATEMENT_NAME");
+  });
+});
+
+describe("the SQL view: the documents say what it is", () => {
+  const flat = (file: string) =>
+    readFileSync(path.join(root, file), "utf8").replace(/\s+/g, " ").toLowerCase();
+  const documents = ["README.md", "SECURITY.md", "docs/getting-started.md", "docs/threat-model.md"];
+
+  it.each(documents)("%s describes the SQL view as read-only", (file) => {
+    const content = flat(file);
+    expect(content, file).toContain("sql");
+    expect(content, file).toMatch(/sql[*`]* (tab|view)/);
+    expect(content, file).toMatch(/read-only/);
+  });
+
+  it("SECURITY.md names what keeps it narrow, and what it cannot stop", () => {
+    const security = flat("SECURITY.md");
+    expect(security).toContain("one statement");
+    expect(security).toContain("connection opened for that run");
+    expect(security).toMatch(/first word must be/);
+    expect(security).toMatch(/explain analyze create table/);
+    expect(security).toMatch(/masking does not apply/);
+    expect(security).toMatch(/the role is the control/);
+    expect(security).toMatch(/nothing is kept/);
+  });
+
+  it("no product document says there is no way to run SQL, without the SQL tab beside it", () => {
+    const claim = /no (way|box|endpoint)[^.]{0,40}(run|type)[^.]{0,20}sql/g;
+    for (const file of [...documents, "docs/architecture.md"]) {
+      const content = flat(file);
+      for (const match of content.matchAll(claim)) {
+        const around = content.slice(Math.max(0, match.index - 200), match.index + 260);
+        expect(around, `${file}: "${match[0]}"`).toMatch(
+          /sql (tab|view)|except|attacker 8|1\.6\.0/,
+        );
+      }
+    }
+  });
+
+  it("the threat model has the review of the runner, with its two high findings", () => {
+    const model = flat("docs/threat-model.md");
+    expect(model).toContain("review of the sql runner");
+    expect(model).toMatch(/carriage return/);
+    expect(model).toMatch(/explain analyze create table/);
   });
 });
 

@@ -4,7 +4,7 @@
  *   loading connections          -> spinner
  *   could not load               -> error with retry
  *   no connections               -> welcome screen
- *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | Snapshots | Table details
+ *   connection selected          -> tabs: Canvas | Overview | Paths | Health | Objects | SQL | Snapshots | Table details
  */
 "use client";
 
@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   LayoutList,
   Route,
+  SquareTerminal,
   TableProperties,
 } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
@@ -30,6 +31,7 @@ import { PathView } from "@/features/paths/path-view";
 import { SchemaOverviewView } from "@/features/overview/schema-overview-view";
 import { ObjectsView } from "@/features/objects/objects-view";
 import { SnapshotsView } from "@/features/snapshots/snapshots-view";
+import { SqlView } from "@/features/sql/sql-view";
 import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
@@ -44,6 +46,7 @@ const TABS: Array<{ view: WorkspaceView; label: string; icon: typeof LayoutDashb
   { view: "paths", label: "Paths", icon: Route },
   { view: "health", label: "Health", icon: HeartPulse },
   { view: "objects", label: "Objects", icon: Boxes },
+  { view: "sql", label: "SQL", icon: SquareTerminal },
   { view: "snapshots", label: "Snapshots", icon: Camera },
   { view: "details", label: "Table details", icon: TableProperties },
 ];
@@ -133,6 +136,8 @@ export function Workspace() {
             <HealthView key={connection.id} connectionId={connection.id} />
           ) : view === "objects" ? (
             <ObjectsView key={connection.id} connectionId={connection.id} />
+          ) : view === "sql" ? (
+            <SqlView key={connection.id} connectionId={connection.id} />
           ) : view === "snapshots" ? (
             <SnapshotsView key={connection.id} connectionId={connection.id} />
           ) : table ? (

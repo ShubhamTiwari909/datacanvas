@@ -21,11 +21,12 @@ import { setDataAccess as requestDataAccess } from "@/features/data/api";
 import { useCanvasStore } from "./canvas-store";
 import { useMetadataStore } from "./metadata-store";
 import { usePersistenceStore } from "./persistence-store";
+import { useSqlStore } from "./sql-store";
 import { useWritesStore } from "./writes-store";
 
 /** What the main area shows for the selected connection. */
 export type WorkspaceView =
-  "canvas" | "details" | "overview" | "health" | "paths" | "snapshots" | "objects";
+  "canvas" | "details" | "overview" | "health" | "paths" | "snapshots" | "objects" | "sql";
 
 export interface SelectedTable {
   schema: string;
@@ -125,6 +126,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     usePersistenceStore.getState().forgetConnection(id);
     // The unlock and the history belonged to that connection only.
     useWritesStore.getState().forgetConnection(id);
+    // So did the statements typed and the last result.
+    useSqlStore.getState().forgetConnection(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;

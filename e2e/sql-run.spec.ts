@@ -61,7 +61,10 @@ function run(page: Page, id: string, text: string, abortAfterMs?: number) {
           body: JSON.stringify({ text, timeoutMs: 60_000 }),
           signal: controller.signal,
         });
-        return { status: response.status, body: (await response.json()) as Record<string, any> };
+        return {
+          status: response.status, // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          body: (await response.json()) as Record<string, any>,
+        };
       } catch (error) {
         return { status: 0, body: { aborted: (error as Error).name } };
       }

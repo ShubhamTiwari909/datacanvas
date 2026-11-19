@@ -1,0 +1,188 @@
+/**
+ * The SQL view, end to end (1.6.0, S2; docs/sql-workspace-plan.md): the SQL tab with one
+ * editor, Run and Cancel, a results grid, the database's errors with a marker in the text,
+ * a refused write, the row cap, and the viewing switch.
+ */
+import pg from "pg";
+import type { Page } from "@playwright/test";
+import { expect, test, type TestDb } from "./fixtures";
+
+async function admin<Row extends Record<string, unknown> = Record<string, unknown>>(
+  database: TestDb,
+  text: string,
+): Promise<Row[]> {
+  const c = new pg.Client({
+    host: database.host,
+    port: database.port,
+    user: database.user,
+    password: database.password,
+    database: database.name,
+  });
+  await c.connect();
+  try {
+    return (await c.query(text)).rows as Row[];
+  } finally {
+    await c.end();
+  }
+}
+
+async function open(page: Page, link: string, database: TestDb, dataAccess = true) {
+  await admin(
+    database,
+    `CREATE TABLE public.s_items (id int PRIMARY KEY, v text);
+     INSERT INTO public.s_items VALUES (1, 'one'), (2, NULL), (3, '');`,
+  );
+  await page.goto(link);
+  await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+  await page.getByLabel("Connection name").fill("Sql shop");
+  await page.getByRole("tab", { name: /connection string/i }).click();
+  await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+  if (dataAccess) await page.getByLabel("Allow viewing table data").check();
+  await page.getByRole("button", { name: /^Connect$/ }).click();
+  await expect(page.getByRole("button", { name: "Disconnect Sql shop" })).toBeVisible();
+  await page.getByRole("tab", { name: "SQL" }).click();
+}
+
+const editor = (page: Page) => page.getByRole("textbox", { name: /SQL editor/ });
+
+/** Monaco's own input is a 1 px textarea that sits under its text: click the editor, not the input. */
+const focusEditor = (page: Page) => page.locator(".monaco-editor .view-lines").first().click();
+
+/** Replace the editor's text (insertText sends no key events, so Monaco's auto-closing stays out of it). */
+async function typeSql(page: Page, text: string) {
+  await focusEditor(page);
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.insertText(text);
+}
+
+/** The result area: the page also has other alerts (the role warning, the route announcer). */
+const resultPanel = (page: Page) => page.getByRole("region", { name: "Result" });
+
+const run = (page: Page) => page.getByRole("button", { name: "Run", exact: true });
+
+test("runs a statement and shows the rows, NULL and the empty string apart", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await expect(editor(page)).toBeVisible();
+  await typeSql(page, "SELECT id, v FROM public.s_items ORDER BY id");
+  await run(page).click();
+
+  const grid = page.getByRole("grid", { name: "Query result" });
+  await expect(grid).toBeVisible();
+  await expect(grid.getByRole("columnheader")).toHaveText(["#", "id", "v"]);
+  const rows = grid.getByRole("row");
+  await expect(rows).toHaveCount(4); // header + 3
+  await expect(rows.nth(1)).toContainText("one");
+  await expect(rows.nth(2)).toContainText("NULL");
+  await expect(rows.nth(3)).toContainText("(empty)");
+  await expect(page.getByText(/^3 rows\b/)).toBeVisible();
+  await expect(page.getByText(/\d+ ms/)).toBeVisible();
+});
+
+test("Ctrl or Cmd plus Enter runs, and a selection runs alone", async ({ page, app, database }) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 1 AS first;\nSELECT 2 AS second");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  // The whole text is two statements: the database refuses it, and says so.
+  await expect(resultPanel(page).getByRole("alert")).toContainText(
+    /multiple commands|more than one/i,
+  );
+
+  // Select the second line only and run that.
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Shift+Home");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  const grid = page.getByRole("grid", { name: "Query result" });
+  await expect(grid.getByRole("columnheader", { name: "second" })).toBeVisible();
+  await expect(grid.getByRole("row").nth(1)).toContainText("2");
+});
+
+test("shows the database's error and marks the place in the text", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT * FROM public.nope");
+  await run(page).click();
+  const alert = resultPanel(page).getByRole("alert");
+  await expect(alert).toContainText('relation "public.nope" does not exist');
+  await expect(alert).toContainText("42P01");
+  await expect(page.locator(".monaco-editor .squiggly-error").first()).toBeVisible();
+  // Typing again clears the marker.
+  await focusEditor(page);
+  await page.keyboard.insertText(" ");
+  await expect(page.locator(".monaco-editor .squiggly-error")).toHaveCount(0);
+});
+
+test("refuses to write: by its first word, and in the database for what gets past it", async ({
+  page,
+  app,
+  database,
+}) => {
+  await admin(
+    database,
+    `CREATE TABLE public.s_items (id int PRIMARY KEY, v text); INSERT INTO public.s_items VALUES (1, 'one');
+     CREATE FUNCTION public.s_writer() RETURNS int LANGUAGE plpgsql AS $$ BEGIN DELETE FROM public.s_items; RETURN 1; END $$`,
+  );
+  await page.goto(app.link);
+  await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+  await page.getByLabel("Connection name").fill("Sql shop");
+  await page.getByRole("tab", { name: /connection string/i }).click();
+  await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+  await page.getByLabel("Allow viewing table data").check();
+  await page.getByRole("button", { name: /^Connect$/ }).click();
+  await expect(page.getByRole("button", { name: "Disconnect Sql shop" })).toBeVisible();
+  await page.getByRole("tab", { name: "SQL" }).click();
+
+  await typeSql(page, "DELETE FROM public.s_items");
+  await run(page).click();
+  await expect(resultPanel(page).getByRole("alert")).toContainText("read-only");
+
+  await typeSql(page, "SELECT public.s_writer()");
+  await run(page).click();
+  await expect(resultPanel(page).getByRole("alert")).toContainText(/read-only transaction/);
+  expect(await admin(database, "SELECT count(*)::int AS n FROM public.s_items")).toEqual([
+    { n: 1 },
+  ]);
+});
+
+test("Cancel stops a running statement in the database", async ({ page, app, database }) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT pg_sleep(30)");
+  await run(page).click();
+  const cancel = page.getByRole("button", { name: "Cancel", exact: true });
+  await expect(cancel).toBeVisible();
+  await expect(run(page)).toBeDisabled();
+  const backends = async () =>
+    (
+      await admin<{ n: number }>(
+        database,
+        "SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'DataCanvas SQL'",
+      )
+    )[0]!.n;
+  await expect.poll(backends, { timeout: 5000 }).toBe(1);
+  await cancel.click();
+  await expect(resultPanel(page).getByRole("status")).toContainText(/cancelled/i);
+  await expect(run(page)).toBeEnabled();
+  await expect.poll(backends, { timeout: 10_000 }).toBe(0);
+});
+
+test("stops at the row cap and says so", async ({ page, app, database }) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT g FROM generate_series(1, 5000) g");
+  await run(page).click();
+  await expect(page.getByText(/first 1,000 rows/)).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Query result" }).getByRole("row")).toHaveCount(1001);
+});
+
+test("needs table data to be on, and offers to switch it on", async ({ page, app, database }) => {
+  await open(page, app.link, database, false);
+  await expect(editor(page)).toHaveCount(0);
+  await expect(page.getByText(/needs viewing table data/i)).toBeVisible();
+  await page.getByRole("button", { name: /Switch on table data/i }).click();
+  await expect(editor(page)).toBeVisible();
+});

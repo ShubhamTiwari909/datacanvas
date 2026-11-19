@@ -191,6 +191,7 @@ const columnDdlSchema = z.strictObject({
   identity: z.enum(["always", "by_default"]).nullable(),
   generated: z.enum(["stored", "virtual"]).nullable(),
   collation: z.string().max(600).nullable(),
+  collationSchema: z.string().max(600).nullable().default(null),
 });
 const constraintDdlSchema = z.strictObject({
   schema: name,

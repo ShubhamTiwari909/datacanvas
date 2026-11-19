@@ -311,7 +311,7 @@ describe.skipIf(!testDatabaseUrl())("the planner: round trips on a real PostgreS
         "n timestamp",
         "n timestamptz",
         "INSERT INTO {s}.t (id, n) VALUES (1, '2026-01-02 03:04:05');",
-        ["lock", "rewrite"],
+        ["lock", "rewrite", "destructive"],
       ],
       [
         "jsonb to text",

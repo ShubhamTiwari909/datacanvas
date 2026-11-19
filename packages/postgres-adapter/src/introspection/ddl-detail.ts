@@ -25,9 +25,9 @@ const COLUMNS_SQL = `
   SELECT n.nspname::text AS schema, c.relname::text AS "table", a.attname::text AS name,
          a.attidentity::text AS identity, a.attgenerated::text AS generated,
          CASE WHEN a.attcollation <> 0 AND a.attcollation <> t.typcollation
-              THEN CASE WHEN cn.nspname = 'pg_catalog' THEN co.collname::text
-                        ELSE cn.nspname::text || '.' || co.collname::text END
-         END AS collation
+              THEN co.collname::text END AS collation,
+         CASE WHEN a.attcollation <> 0 AND a.attcollation <> t.typcollation
+              THEN cn.nspname::text END AS collation_schema
   FROM pg_catalog.pg_attribute a
   JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -155,6 +155,7 @@ interface ColumnRow {
   identity: string;
   generated: string;
   collation: string | null;
+  collation_schema: string | null;
 }
 interface ConstraintRow {
   schema: string;
@@ -210,6 +211,7 @@ export async function readDdlDetail(
         identity: row.identity === "a" ? "always" : row.identity === "d" ? "by_default" : null,
         generated: row.generated === "s" ? "stored" : row.generated === "v" ? "virtual" : null,
         collation: row.collation,
+        collationSchema: row.collation_schema,
       });
     }
     for (const row of (await db.query<ConstraintRow>(CONSTRAINTS_SQL, params)).rows) {

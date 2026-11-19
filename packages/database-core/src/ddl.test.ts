@@ -11,6 +11,7 @@ const base = (): DdlDetail => ({
       identity: "always",
       generated: null,
       collation: null,
+      collationSchema: null,
     },
   ],
   constraints: [
@@ -75,6 +76,7 @@ describe("normalizeDdl", () => {
       identity: null,
       generated: "stored",
       collation: "C",
+      collationSchema: "pg_catalog",
     });
     expect(normalizeDdl(d).columns.map((c) => c.schema)).toEqual(["a", "public"]);
   });

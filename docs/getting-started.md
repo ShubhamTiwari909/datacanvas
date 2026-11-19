@@ -95,7 +95,21 @@ Open the **SQL** tab. It needs **Allow viewing table data** for the connection (
 - **Errors** show the database's own sentence and the line and column, and the place is marked in the text.
 - If the role you connected with is a superuser, or may run programs or read files on the database server, a note says so: a function can reach those through a `SELECT`. Use a read-only role for SQL you did not write.
 
-## 7. Keep and share
+## 7. Write a migration (optional, nothing is run)
+
+Open the **Migrations** tab, or take a comparison in **Snapshots** and press **Generate a migration from this comparison**. Choose **From** and **To** (a snapshot, or the live database of any connection) and press **Generate migration**: the result makes _From_ look like _To_. **Swap** reverses it.
+
+- **The summary** says how many steps there are, what they risk (take a lock, rewrite a table, can fail on existing rows, destroy data) and how much of it a rollback can undo.
+- **Steps** are in the order they run. Each has badges, one sentence, and its SQL (up and down) one click away. Untick a step to leave it out: the steps that need it go with it, and the screen says so. Changing an option starts the choices again.
+- **Destructive steps** (a dropped table, column, view, function) are written **commented out** until you confirm that step.
+- **Possible renames** are offered with the reason (a table that is gone and one that is new with the same columns, a column of the same type in the same place). A comparison cannot tell a rename from a drop and an add: **a rename keeps the rows, a drop and an add does not**, so nothing is renamed until you tick it.
+- **Options**: create indexes without blocking writes (such a step cannot run in a transaction), and add checks and foreign keys unvalidated, then validate.
+- **The text** has the script, the rollback, and the notes: what needs a person and what was not compared (owners and grants, partitioning and storage options, views' options, the position of a sequence, row data).
+- **Export** writes plain SQL (for `psql -v ON_ERROR_STOP=1 -f`), one file for **dbmate** or **goose**, a **Flyway** pair, or `up.sql` and `down.sql`. A step that cannot be in a transaction is written outside it, in its place. Each file begins with what it compares and a reminder to read it: it contains view and function definitions read from the databases. A format is refused when a name in the migration would be read by that runner as one of its own commands.
+
+Read the script before you run it anywhere. DataCanvas writes the text and never runs it. Some things cannot be undone (a dropped table's rows, a new enum label), and the rollback says which.
+
+## 8. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.
 - **Export** saves a PNG or SVG. These images show table and column names, so share them only with people who should see your schema.

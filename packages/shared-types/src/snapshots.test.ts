@@ -309,6 +309,7 @@ describe("upgrading a version 2 file (1.6.0)", () => {
           identity: "always",
           generated: null,
           collation: null,
+          collationSchema: null,
         },
       ],
       constraints: [],

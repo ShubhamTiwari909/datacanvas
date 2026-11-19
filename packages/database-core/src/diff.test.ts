@@ -617,6 +617,7 @@ describe("the definition detail (ddl) and the comparison", () => {
           identity: "always",
           generated: null,
           collation: null,
+          collationSchema: null,
         },
         {
           schema: "public",
@@ -625,6 +626,7 @@ describe("the definition detail (ddl) and the comparison", () => {
           identity: null,
           generated: "stored",
           collation: null,
+          collationSchema: null,
         },
       ],
     });

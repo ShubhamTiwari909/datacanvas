@@ -29,6 +29,7 @@ import type { DatabaseStructure } from "../structure.js";
 import { SEP, tableKey, type Draft } from "./draft.js";
 import { commentOn, q, qualified } from "./sql.js";
 import { quoteString } from "../sql-text.js";
+import { flattenComment } from "./script.js";
 import type { ObjectType, StepObject } from "./types.js";
 
 export interface ObjectsContext {
@@ -39,6 +40,10 @@ export interface ObjectsContext {
   droppedTables: Set<string>;
   /** `tableKey`s of tables that stay and lose or retype a column (a view that reads one must be made again). */
   disturbedTables: Set<string>;
+  /** For a table that stays: the columns that are dropped or change type (a policy or a trigger that names one must be made again). */
+  changedColumns: Map<string, Set<string>>;
+  /** Names of columns added to tables that stay (a function that reads one waits for the columns). */
+  addedColumnNames: Set<string>;
   warnings: string[];
   /** Views (`schema SEP name`) whose starting text was rewritten for a rename: made with a column list so their columns keep their names. */
   rewrittenViews: Set<string>;
@@ -250,6 +255,7 @@ function planExtensions(
         down: `DROP EXTENSION ${q(e.name)};`,
         note: `Installs the extension ${e.name}${e.version ? ` (the target has version ${e.version})` : ""}. It needs a role that may create extensions.`,
         provides: `extension:${e.name}`,
+        needs: [`schema:${e.schema}`],
       });
       continue;
     }
@@ -284,7 +290,8 @@ function planExtensions(
       up: `DROP EXTENSION ${q(e.name)};`,
       down: `CREATE EXTENSION ${q(e.name)} WITH SCHEMA ${q(e.schema)};`,
       risk: ["destructive", "may_fail"],
-      note: `Removes the extension ${e.name} and everything it made. It fails if something still uses it.`,
+      reversibility: "data_lost",
+      note: `Removes the extension ${e.name} and everything it made. It fails if something still uses it. The rollback installs the extension again at its default version, without what it held.`,
     });
   }
 }
@@ -510,7 +517,7 @@ function planTypes(
 // ---------------------------------------------------------------------- sequences
 
 /** A sequence a column owns because the column is an identity column has no sequence of its own to plan. */
-function identitySequence(s: SequenceInfo, structure: DatabaseStructure): boolean {
+export function identitySequence(s: SequenceInfo, structure: DatabaseStructure): boolean {
   if (s.ownedBy === null) return false;
   const table = structure.tables.find(
     (t) => t.schema === s.ownedBy!.schema && t.name === s.ownedBy!.table,
@@ -647,7 +654,7 @@ function planSequences(
       kind: "drop_sequence",
       object: obj("sequence", s.schema, s.name),
       up: goesWithOwner
-        ? `-- The sequence ${name} is dropped with the column or table that owns it.`
+        ? `-- The sequence ${flattenComment(name)} is dropped with the column or table that owns it.`
         : `DROP SEQUENCE ${name};`,
       down: restore,
       risk: ["destructive"],
@@ -677,6 +684,7 @@ function planFunctions(
   const rebuilt = new Set<string>();
   const cut = (f: FunctionInfo) => isCut(f.definition) || f.definition === "";
   const names = [
+    ...ctx.addedColumnNames,
     ...[...ctx.createdTables].map((k) => k.split(SEP)[1]!),
     ...to.views
       .filter((v) => !byKey(fo.views, (x) => k2(x.schema, x.name)).has(k2(v.schema, v.name)))
@@ -878,7 +886,7 @@ function planViews(
       kind: "drop_view",
       object: obj("view", v.schema, v.name),
       up: `DROP ${viewTarget(v)};`,
-      down: `${isCut(v.definition) ? `-- The text of ${v.name} was too long to be recorded.` : createViewSql(v, false, rewritten(v))}${indexes}${v.comment === null ? "" : `\n${commentOn(viewTarget(v), v.comment)}`}`,
+      down: `${isCut(v.definition) ? `-- The text of ${flattenComment(v.name)} was too long to be recorded.` : createViewSql(v, false, rewritten(v))}${indexes}${v.comment === null ? "" : `\n${commentOn(viewTarget(v), v.comment)}`}`,
       risk: ["destructive"],
       reversibility: isCut(v.definition) ? "none" : "full",
       note: gone.has(k2(v.schema, v.name))
@@ -922,6 +930,7 @@ function planViews(
         // A view cannot lose columns by being replaced, so going back drops it and makes it again
         // (which fails if another view reads it).
         down: `DROP ${target};\n${createViewSql(was, false, rewritten(was))}${was.comment === null ? "" : `\n${commentOn(target, was.comment)}`}`,
+        risk: ["may_fail"],
         note: `Replaces the query of the view ${v.name} (it keeps its columns and adds at the end). Going back drops the view and makes it again, which fails if another view reads it.`,
         provides: `view:${key}`,
         needs,
@@ -1003,8 +1012,15 @@ function planTriggers(
 ): void {
   const before = byKey(fo.triggers, triggerKey);
   const after = byKey(to.triggers, triggerKey);
+  // PostgreSQL will not retype or drop a column a trigger's `UPDATE OF` or `WHEN` names.
+  const namesChangedColumn = (t: TriggerInfo): boolean =>
+    [...(ctx.changedColumns.get(tableKey(t.schema, t.table)) ?? [])].some((c) =>
+      mentions(t.definition, c),
+    );
   const remake = (t: TriggerInfo): boolean =>
-    rebuiltViews.has(k2(t.schema, t.table)) || rebuiltFunctions.has(t.function);
+    rebuiltViews.has(k2(t.schema, t.table)) ||
+    rebuiltFunctions.has(t.function) ||
+    namesChangedColumn(t);
   const changed = (was: TriggerInfo, now: TriggerInfo): boolean =>
     was.definition !== now.definition || remake(now);
 
@@ -1039,6 +1055,9 @@ function planTriggers(
         up: createTriggerSql(t),
         down: `DROP TRIGGER ${q(t.name)} ON ${triggerOn(t)};`,
         note: `Creates the trigger ${t.name} on ${t.table}.`,
+        needs: to.functions
+          .filter((f) => `${f.schema}.${f.name}` === t.function)
+          .map((f) => `function:${functionKey(f)}`),
         ...(ctx.createdTables.has(tableKey(t.schema, t.table))
           ? { dependsOnTable: tableKey(t.schema, t.table) }
           : {}),
@@ -1090,9 +1109,14 @@ function planPolicies(
 ): void {
   const before = byKey(fo.policies, policyKey);
   const after = byKey(to.policies, policyKey);
+  // PostgreSQL will not retype or drop a column a policy names.
+  const touched = (p: PolicyInfo): boolean =>
+    [...(ctx.changedColumns.get(tableKey(p.schema, p.table)) ?? [])].some((c) =>
+      mentions(`${p.using ?? ""} ${p.withCheck ?? ""}`, c),
+    );
   for (const p of fo.policies) {
     const now = after.get(policyKey(p));
-    if (now && (samePolicy(p, now) || canAlter(p, now))) continue;
+    if (now && !touched(p) && (samePolicy(p, now) || canAlter(p, now))) continue;
     phases.dropFirst.push({
       kind: "drop_policy",
       object: obj("policy", p.schema, p.name, p.table),
@@ -1107,8 +1131,8 @@ function planPolicies(
   for (const p of to.policies) {
     const was = before.get(policyKey(p));
     const object = obj("policy", p.schema, p.name, p.table);
-    if (!was || !canAlter(was, p)) {
-      if (was && samePolicy(was, p)) continue;
+    if (!was || !canAlter(was, p) || touched(p)) {
+      if (was && samePolicy(was, p) && !touched(p)) continue;
       phases.last.push({
         kind: "create_policy",
         object,

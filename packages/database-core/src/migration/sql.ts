@@ -10,10 +10,9 @@ import { quoteIdentifier, quoteQualified, quoteString } from "../sql-text.js";
 export const q = quoteIdentifier;
 export const qualified = quoteQualified;
 
-/** A collation as `format` stored it (`"C"` or `schema.name`) written as SQL. */
-export function collationSql(collation: string): string {
-  const dot = collation.indexOf(".");
-  return dot > 0 ? `${q(collation.slice(0, dot))}.${q(collation.slice(dot + 1))}` : q(collation);
+/** A collation written as SQL: its schema and its name, each quoted on its own (a name may hold a dot). */
+export function collationSql(collation: string, schema: string | null): string {
+  return schema === null ? q(collation) : `${q(schema)}.${q(collation)}`;
 }
 
 /** `COMMENT ON ... IS 'text'`, or `IS NULL` to remove it. */
@@ -26,7 +25,8 @@ export const commentOn = (target: string, comment: string | null): string =>
  */
 export function columnSql(column: ColumnInfo, detail: ColumnDdl | undefined): string {
   const parts = [q(column.name), column.dataType];
-  if (detail?.collation) parts.push(`COLLATE ${collationSql(detail.collation)}`);
+  if (detail?.collation)
+    parts.push(`COLLATE ${collationSql(detail.collation, detail.collationSchema)}`);
   if (detail?.identity) {
     parts.push(`GENERATED ${detail.identity === "always" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY`);
   } else if (detail?.generated && column.defaultValue !== null) {

@@ -181,6 +181,44 @@ describe("a hostile database", () => {
     const lines = files(result)[0]!.content.split(/\r\n|\r|\n/);
     expect(lines.filter((l) => l === "-- +goose Up")).toHaveLength(1);
   });
+  it("is refused when the line is exactly the runner's own marker, which would move the up and down parts", () => {
+    const attack = planOf([
+      step("s1", {
+        up: 'CREATE TABLE "a\n-- +goose Down\nDROP SCHEMA public CASCADE;\n-- +goose Up\nb" (x int);',
+      }),
+    ]);
+    expect(make(attack, "goose").ok).toBe(false);
+    const dbmate = planOf([
+      step("s1", {
+        up: 'CREATE TABLE "a\n-- migrate:down\nDROP SCHEMA public CASCADE;\nb" (x int);',
+      }),
+    ]);
+    expect(make(dbmate, "dbmate").ok).toBe(false);
+  });
+  it("is refused for the spellings a runner's parser would still read as a command", () => {
+    for (const line of [
+      "--\fmigrate:down",
+      "--\u00a0migrate:down",
+      "--\nmigrate:down",
+      "  --   +goose Down",
+      "-- MIGRATE:down",
+    ]) {
+      const plan = planOf([step("s1", { up: `CREATE TABLE "a\n${line}\nb" (x int);` })]);
+      expect(make(plan, "dbmate").ok, JSON.stringify(line)).toBe(false);
+    }
+  });
+  it("keeps a runner command in a warning or a name of the comparison on one comment line, where it is no command", () => {
+    const plan = planOf([], { warnings: ["x\n-- migrate:down"] });
+    const result = buildExport(plan, none, {
+      format: "dbmate",
+      name: "n",
+      before: "a\n-- migrate:down",
+      after: "b",
+      at,
+    });
+    const lines = files(result)[0]!.content.split(/\r\n|\r|\n/);
+    expect(lines.filter((l) => l === "-- migrate:down")).toHaveLength(1);
+  });
   it("is fine for plain SQL, where no runner reads the line", () => {
     expect(make(evil("-- +goose Down"), "sql").ok).toBe(true);
   });
@@ -194,6 +232,18 @@ describe("a hostile database", () => {
     });
     const text = files(result)[0]!.content;
     expect(text.split(/\r\n|\r|\n/).filter((l) => /^DROP TABLE/.test(l))).toEqual([]);
+  });
+  it("warns about a placeholder in the header too, and never writes one in the warning", () => {
+    const result = buildExport(planOf([]), none, {
+      format: "flyway",
+      name: "n",
+      before: "${secret}",
+      after: "b",
+      at,
+    });
+    const f = files(result)[0]!;
+    expect(f.content).toContain("placeholderReplacement=false");
+    expect(f.content.match(/\$\{/g)).toHaveLength(2); // only the header's own, not the warning
   });
   it("warns about text Flyway would read as a placeholder", () => {
     const plan = planOf([step("s1", { up: "SELECT '${x}';" })]);

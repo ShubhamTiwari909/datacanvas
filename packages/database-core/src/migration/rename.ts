@@ -19,7 +19,7 @@ import type { DatabaseStructure, StructureTable } from "../structure.js";
 import { SEP, type Draft } from "./draft.js";
 import { q, qualified } from "./sql.js";
 
-export type RenameKind = "table" | "column" | "constraint" | "index";
+export type RenameKind = "table" | "column" | "constraint" | "index" | "sequence";
 export type RenameConfidence = "high" | "medium" | "low";
 
 export interface RenameSuggestion {
@@ -293,6 +293,15 @@ function withColumnRenamed(
               ? { ...v, definition: replaceIdentifier(v.definition, oldName, newName) }
               : v,
           ),
+          // A sequence follows the column that owns it.
+          sequences: s.objects.sequences.map((x) =>
+            x.ownedBy &&
+            x.ownedBy.schema === schema &&
+            x.ownedBy.table === table &&
+            x.ownedBy.column === oldName
+              ? { ...x, ownedBy: { ...x.ownedBy, column: newName } }
+              : x,
+          ),
         };
   const relationships = s.relationships.map((r) => ({
     ...r,
@@ -401,6 +410,50 @@ function withIndexRenamed(
           ),
         },
       };
+}
+
+/** After `ALTER SEQUENCE schema.old RENAME TO new`: the defaults that call `nextval` on it print the new name. */
+function withSequenceRenamed(
+  s: DatabaseStructure,
+  schema: string,
+  oldName: string,
+  newName: string,
+): DatabaseStructure {
+  const fixDefault = (value: string | null): string | null =>
+    value === null
+      ? null
+      : value.replace(/nextval\('((?:[^']|'')*)'::regclass\)/g, (all, inner: string) => {
+          const text = inner.replace(/''/g, "'");
+          const changed = replaceIdentifier(text, oldName, newName);
+          return changed === text ? all : `nextval('${changed.replace(/'/g, "''")}'::regclass)`;
+        });
+  return {
+    ...s,
+    tables: s.tables.map((t) => ({
+      ...t,
+      columns: t.columns.map((c) => ({ ...c, defaultValue: fixDefault(c.defaultValue) })),
+    })),
+    objects:
+      s.objects === null
+        ? null
+        : {
+            ...s.objects,
+            sequences: s.objects.sequences.map((x) =>
+              x.schema === schema && x.name === oldName ? { ...x, name: newName } : x,
+            ),
+          },
+    ddl:
+      s.ddl === null
+        ? null
+        : {
+            ...s.ddl,
+            comments: s.ddl.comments.map((c) =>
+              c.target === "sequence" && c.schema === schema && c.name === oldName
+                ? { ...c, name: newName }
+                : c,
+            ),
+          },
+  };
 }
 
 // ------------------------------------------------------------------ suggestions
@@ -638,6 +691,62 @@ function suggestNamed(
   return out.sort((x, y) => compareText(x.id, y.id));
 }
 
+/** Sequences that are gone and new with the same settings and the same owner: PostgreSQL keeps a sequence's name when its column is renamed. */
+function suggestSequences(
+  hyp: DatabaseStructure,
+  to: DatabaseStructure,
+  touching: Map<string, string[]>,
+): RenameSuggestion[] {
+  if (hyp.objects === null || to.objects === null) return [];
+  // Identity columns' sequences too: PostgreSQL keeps their old name when the column is renamed.
+  const mine = (s: DatabaseStructure) => s.objects!.sequences;
+  const before = mine(hyp);
+  const after = mine(to);
+  const key = (x: { schema: string; name: string }) => tkey(x.schema, x.name);
+  const had = new Set(before.map(key));
+  const has = new Set(after.map(key));
+  const shape = (x: (typeof before)[number]) =>
+    JSON.stringify([
+      x.schema,
+      x.dataType,
+      x.start,
+      x.increment,
+      x.min,
+      x.max,
+      x.cache,
+      x.cycle,
+      x.ownedBy,
+    ]);
+  const out: RenameSuggestion[] = [];
+  const gone = before.filter((x) => !has.has(key(x)) && x.ownedBy !== null);
+  const added = after.filter((x) => !had.has(key(x)) && x.ownedBy !== null);
+  const cands: Candidate[] = [];
+  for (const d of gone) {
+    for (const c of added) {
+      if (shape(d) === shape(c)) cands.push({ from: d.name, to: c.name, score: 1 });
+    }
+  }
+  for (const { chosen, alternatives } of assign(cands)) {
+    const seq = gone.find((x) => x.name === chosen.from)!;
+    const owner = seq.ownedBy!;
+    out.push({
+      id: idOf("sequence", seq.schema, owner.table, chosen.from, chosen.to),
+      kind: "sequence",
+      schema: seq.schema,
+      table: owner.table,
+      oldName: chosen.from,
+      newName: chosen.to,
+      confidence: alternatives.length > 0 ? "low" : "high",
+      evidence: [
+        `The sequence ${chosen.from} is gone and ${chosen.to} is new, with the same settings and the same owner (${owner.table}.${owner.column}). Dropping and making it again would restart the numbering at its start and collide with the rows that exist.`,
+      ],
+      alternatives,
+      requires: touching.get(tkey(owner.schema, owner.table)) ?? [],
+    });
+  }
+  return out.sort((x, y) => compareText(x.id, y.id));
+}
+
 /** Everything that looks like a rename between two structures. The planner uses none of them until confirmed. */
 export function suggestRenames(from: DatabaseStructure, to: DatabaseStructure): RenameSuggestion[] {
   const tables = suggestTables(from, to);
@@ -651,7 +760,12 @@ export function suggestRenames(from: DatabaseStructure, to: DatabaseStructure): 
     const key = tkey(s.schema, s.kind === "table" ? s.newName : s.table);
     touching.set(key, [...(touching.get(key) ?? []), s.id]);
   }
-  return [...tables, ...columns, ...suggestNamed(hyp, to, touching)];
+  return [
+    ...tables,
+    ...columns,
+    ...suggestSequences(hyp, to, touching),
+    ...suggestNamed(hyp, to, touching),
+  ];
 }
 
 // -------------------------------------------------------------------- applying
@@ -684,6 +798,14 @@ const draftFor = (s: RenameSuggestion): Draft => {
         up: `ALTER TABLE ${t} RENAME CONSTRAINT ${q(s.oldName)} TO ${q(s.newName)};`,
         down: `ALTER TABLE ${t} RENAME CONSTRAINT ${q(s.newName)} TO ${q(s.oldName)};`,
         note: `Renames the constraint ${s.oldName} of ${s.table} to ${s.newName}.`,
+      };
+    case "sequence":
+      return {
+        kind: "rename_sequence",
+        object: { schema: s.schema, table: "", of: "sequence", name: s.newName },
+        up: `ALTER SEQUENCE ${qualified(s.schema, s.oldName)} RENAME TO ${q(s.newName)};`,
+        down: `ALTER SEQUENCE ${qualified(s.schema, s.newName)} RENAME TO ${q(s.oldName)};`,
+        note: `Renames the sequence ${s.oldName} to ${s.newName}, so its position is kept.`,
       };
     case "index":
       return {
@@ -731,6 +853,11 @@ export function applyRenames(
   for (const s of chosen) {
     if (s.kind === "column") {
       structure = withColumnRenamed(structure, s.schema, s.table, s.oldName, s.newName);
+    }
+  }
+  for (const s of chosen) {
+    if (s.kind === "sequence") {
+      structure = withSequenceRenamed(structure, s.schema, s.oldName, s.newName);
     }
   }
   for (const s of chosen) {

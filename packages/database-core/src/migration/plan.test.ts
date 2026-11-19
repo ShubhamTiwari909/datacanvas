@@ -221,3 +221,44 @@ describe("planMigration: the objects around the tables", () => {
     expect(plan.notCompared.join(" ")).toMatch(/not recorded/);
   });
 });
+
+describe("planMigration: text that is not SQL", () => {
+  const lines = (text: string) => text.split(/\r\n|\r|\n/);
+  it("keeps a hostile sequence name inside the comment of a sequence that goes with its table", () => {
+    const evil = "sq\nDROP SCHEMA public CASCADE; --";
+    const seq = {
+      schema: "public",
+      name: evil,
+      dataType: "integer",
+      start: "1",
+      increment: "1",
+      min: "1",
+      max: "100",
+      cache: "1",
+      cycle: false,
+      ownedBy: { schema: "public", table: "t", column: "id" },
+    };
+    const from = withObjects(
+      structure([table("t", [{ ...col("id"), defaultValue: "nextval('x'::regclass)" }])]),
+      { sequences: [seq] },
+    );
+    const plan = planMigration(from, withObjects(structure([]), {}));
+    const step = plan.steps.find((x) => x.kind === "drop_sequence")!;
+    // Only a comment, so it must be one line: a second line would be SQL.
+    expect(lines(step.up)).toHaveLength(1);
+    expect(step.up.startsWith("-- ")).toBe(true);
+  });
+  it("keeps a hostile view name inside the comment of a view whose text was cut", () => {
+    const evil = "v\rDROP SCHEMA public CASCADE; --";
+    const cut = view(evil, [], "SELECT ... [text cut: 25000 characters, fingerprint abc]");
+    const plan = planMigration(
+      withObjects(structure([]), {
+        views: [{ ...cut, definition: "x... [text cut: 25000 characters, fingerprint abcd1234]" }],
+      }),
+      withObjects(structure([]), {}),
+    );
+    const step = plan.steps.find((x) => x.kind === "drop_view")!;
+    expect(lines(step.down ?? "")).toHaveLength(1);
+    expect((step.down ?? "").startsWith("-- ")).toBe(true);
+  });
+});

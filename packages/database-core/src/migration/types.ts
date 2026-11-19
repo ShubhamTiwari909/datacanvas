@@ -80,7 +80,8 @@ export type StepKind =
   | "rename_table"
   | "rename_column"
   | "rename_constraint"
-  | "rename_index";
+  | "rename_index"
+  | "rename_sequence";
 
 /** What a step's object is, when it is not a table's own part. */
 export type ObjectType =

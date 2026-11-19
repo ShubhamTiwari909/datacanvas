@@ -119,7 +119,8 @@ export function classifyTypeChange(from: string, to: string): TypeChange {
         note: "Values with more decimals are rounded, and it fails for a value with too many digits.",
       };
     }
-    if (pb < pa!) {
+    // The digits left of the decimal point: they must still fit.
+    if (pb - sb < pa! - sa) {
       return {
         risk: [...rewrite, "may_fail"],
         using: false,
@@ -131,6 +132,23 @@ export function classifyTypeChange(from: string, to: string): TypeChange {
       : { risk: rewrite, using: false, note: null };
   }
 
+  // To and from the floating-point types, which keep about 6 (real) or 15 (double precision)
+  // significant digits: a value that has more is rounded without an error.
+  const FLOATS = ["real", "double precision"];
+  const lossyFloat =
+    (FLOATS.includes(a.base) && (b.base === "numeric" || FLOATS.includes(b.base))) ||
+    (a.base === "numeric" && FLOATS.includes(b.base)) ||
+    (INTEGERS.includes(a.base) &&
+      FLOATS.includes(b.base) &&
+      !(a.base === "smallint") &&
+      !(a.base === "integer" && b.base === "double precision"));
+  if (lossyFloat && !(a.base === "real" && b.base === "double precision")) {
+    return {
+      risk: [...rewrite, "destructive"],
+      using: false,
+      note: "Values are rounded to the digits the new type keeps.",
+    };
+  }
   if (a.base === "double precision" && b.base === "real") {
     return {
       risk: [...rewrite, "destructive"],
@@ -194,7 +212,7 @@ export function classifyTypeChange(from: string, to: string): TypeChange {
     }
     if (a.base.startsWith("timestamp") && b.base.startsWith("timestamp")) {
       return {
-        risk: rewrite,
+        risk: [...rewrite, "destructive"],
         using: false,
         note: "The conversion between a time with and without a time zone uses the session's time zone.",
       };

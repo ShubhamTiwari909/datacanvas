@@ -64,10 +64,24 @@ describe("classifyTypeChange", () => {
       "lock",
     ]);
     expect(risk("date", "timestamp without time zone")).toEqual(["lock", "rewrite"]);
+    // The values are converted through the session's time zone: they mean something else after.
     expect(risk("timestamp without time zone", "timestamp with time zone")).toEqual([
       "lock",
       "rewrite",
+      "destructive",
     ]);
+  });
+
+  it("numeric digits left of the point must still fit, and floating-point conversions round", () => {
+    expect(risk("numeric(10,2)", "numeric(10,4)")).toContain("may_fail");
+    expect(risk("numeric(10,2)", "numeric(12,4)")).not.toContain("may_fail");
+    expect(risk("double precision", "numeric(10,2)")).toContain("destructive");
+    expect(risk("integer", "real")).toContain("destructive");
+    expect(risk("bigint", "double precision")).toContain("destructive");
+    expect(risk("numeric", "real")).toContain("destructive");
+    expect(risk("smallint", "real")).not.toContain("destructive");
+    expect(risk("integer", "double precision")).not.toContain("destructive");
+    expect(risk("real", "double precision")).not.toContain("destructive");
   });
 
   it("anything into text is possible; text into another kind needs USING and can fail", () => {

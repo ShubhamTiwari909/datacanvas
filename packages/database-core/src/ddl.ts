@@ -27,6 +27,8 @@ export interface ColumnDdl {
   generated: GeneratedKind | null;
   /** The collation (`"C"`, `"en_US"`), as the database names it, when it is not the type's default. */
   collation: string | null;
+  /** The schema of that collation (`pg_catalog` for the built-in ones). Null when `collation` is. Kept apart so a name with a dot is not ambiguous. */
+  collationSchema: string | null;
 }
 
 /** A constraint that is deferrable, was added without being checked, or has a foreign key match type. */

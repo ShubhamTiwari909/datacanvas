@@ -73,8 +73,12 @@ export function exportName(name: string): string {
   return cleaned === "" ? "migration" : cleaned;
 }
 
-/** What a line the runners read as a command looks like. */
-const RUNNER_COMMAND = /^[ \t]*--[ \t]*(\+goose|migrate:)/im;
+/**
+ * What the runners read as a command: a comment line, white space of any kind allowed on both
+ * sides of the dashes (their parsers trim with Unicode rules, and `\s` there spans line breaks),
+ * then `+goose` or `migrate:`. Wider than any one parser on purpose.
+ */
+const RUNNER_COMMAND = /^[\s\u0085\u00a0\ufeff]*--[\s\u0085\u00a0\ufeff]*(\+goose|migrate:)/im;
 
 const WHY_OUTSIDE =
   "PostgreSQL cannot run this inside a transaction block (or what it adds could not be used in the same transaction), so it runs on its own.";
@@ -195,6 +199,24 @@ export function buildExport(
   const psql = (kind: "migration" | "rollback", text: string) =>
     `${hdr(kind)}\n${psqlHint}\n\n${text}\n`;
 
+  // A runner obeys a comment line that looks like its command, whatever the line sits in (a quoted
+  // name with a line break can start one). So the text that is ours to write, before the markers
+  // are added, must hold no such line at all: nothing can be allow-listed by what it says.
+  if (runner && options.format !== "flyway") {
+    const raw = [
+      hdr("migration"),
+      hdr("rollback"),
+      section(plan, selection, "up", { wrap: false, goose: false }).text,
+      section(plan, selection, "down", { wrap: false, goose: false }).text,
+    ].join("\n");
+    if (RUNNER_COMMAND.test(raw)) {
+      return {
+        ok: false,
+        reason: `A name or text in this migration holds a line that ${goose ? "goose" : "dbmate"} would read as one of its own commands, so it cannot be written for that runner. Choose another format.`,
+      };
+    }
+  }
+
   // For psql the file carries its own transactions. For a runner it carries none, unless a step
   // cannot be in one: then the runner is told not to wrap it, and the file keeps its own.
   const outside = section(plan, selection, "up", { wrap: false, goose }).outside;
@@ -248,41 +270,26 @@ export function buildExport(
       });
       break;
     case "flyway": {
-      const placeholder = plan.steps.some((s) => s.up.includes("${") || s.down?.includes("${"))
-        ? "-- This file contains the text ${...}. Flyway reads that as a placeholder: set flyway.placeholderReplacement=false.\n"
+      const upText = runnerUp;
+      const downText = runnerDown(false);
+      const placeholder = `${hdr("migration")}${upText}${hdr("rollback")}${downText}`.includes("${")
+        ? "-- This file contains a dollar sign followed by a brace, which Flyway reads as a placeholder: set flyway.placeholderReplacement=false to run it.\n"
         : "";
       files.push(
         {
           name: `V${stamp}__${name}.sql`,
           role: "migration",
-          content: `${hdr("migration")}\n${placeholder}\n${runnerUp}\n`,
+          content: `${hdr("migration")}\n${placeholder}\n${upText}\n`,
         },
         {
           name: `U${stamp}__${name}.sql`,
           role: "undo",
-          content: `${hdr("rollback")}\n${placeholder}\n${runnerDown(false)}\n`,
+          content: `${hdr("rollback")}\n${placeholder}\n${downText}\n`,
         },
       );
       break;
     }
   }
 
-  if (runner) {
-    // Our own markers are the only lines of this kind. Any other would be obeyed by the runner,
-    // whatever it sits in (a quoted name with a line break in it can start a line).
-    const OWN =
-      /^-- (migrate:(up|down)( transaction:false)?|\+goose (Up|Down|NO TRANSACTION|StatementBegin|StatementEnd))$/;
-    for (const f of files) {
-      const foreign = f.content
-        .split(/\r\n|\r|\n/)
-        .filter((line) => RUNNER_COMMAND.test(line) && !OWN.test(line));
-      if (foreign.length > 0) {
-        return {
-          ok: false,
-          reason: `A name or text in this migration holds a line that ${goose ? "goose" : "dbmate"} would read as one of its own commands, so it cannot be written for that runner. Choose another format.`,
-        };
-      }
-    }
-  }
   return { ok: true, files };
 }

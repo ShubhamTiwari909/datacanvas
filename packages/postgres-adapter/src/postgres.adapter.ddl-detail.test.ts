@@ -85,6 +85,7 @@ describe.skipIf(!testDatabaseUrl())("the definition detail a migration needs", (
         identity: "by_default",
         generated: null,
         collation: null,
+        collationSchema: null,
       },
       {
         schema: "app",
@@ -93,6 +94,7 @@ describe.skipIf(!testDatabaseUrl())("the definition detail a migration needs", (
         identity: null,
         generated: "stored",
         collation: null,
+        collationSchema: null,
       },
       {
         schema: "app",
@@ -101,6 +103,7 @@ describe.skipIf(!testDatabaseUrl())("the definition detail a migration needs", (
         identity: "always",
         generated: null,
         collation: null,
+        collationSchema: null,
       },
       {
         schema: "app",
@@ -109,6 +112,7 @@ describe.skipIf(!testDatabaseUrl())("the definition detail a migration needs", (
         identity: null,
         generated: null,
         collation: "C",
+        collationSchema: "pg_catalog",
       },
     ]);
   });

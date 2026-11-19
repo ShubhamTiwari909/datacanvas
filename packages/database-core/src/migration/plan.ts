@@ -60,6 +60,9 @@ interface Side {
 
 const columnKey = (schema: string, table: string, column: string): string =>
   `${schema}${SEP}${table}${SEP}${column}`;
+/** What a step that adds a column provides, and what a step that uses the column needs. */
+const providesColumn = (schema: string, table: string, column: string): string =>
+  `column:${columnKey(schema, table, column)}`;
 
 function side(structure: DatabaseStructure): Side {
   const tables = new Map<string, StructureTable>();
@@ -372,14 +375,20 @@ export function planMigration(
       down: `DROP TABLE ${qualified(t.schema, t.name)};`,
       reversibility: "full",
       note: `Creates the table ${t.name} with ${t.columns.length} column${t.columns.length === 1 ? "" : "s"}.`,
+      needs: [
+        `schema:${t.schema}`,
+        ...(to.objects?.types ?? [])
+          .filter((ty) => t.columns.some((c) => writesIdentifier(c.dataType, ty.name)))
+          .map((ty) => `type:${ty.schema}${SEP}${ty.name}`),
+        ...(to.objects?.sequences ?? [])
+          .filter((sq) =>
+            t.columns.some(
+              (c) => c.defaultValue !== null && writesIdentifier(c.defaultValue, sq.name),
+            ),
+          )
+          .map((sq) => `sequence:${sq.schema}${SEP}${sq.name}`),
+      ],
     });
-    for (const c of t.columns) {
-      if (c.defaultValue !== null && /\bnextval\s*\(/i.test(c.defaultValue)) {
-        warnings.push(
-          `${t.name}.${c.name} takes its default from a sequence (${c.defaultValue}). Sequences are planned in a later milestone: create the sequence first.`,
-        );
-      }
-    }
   }
 
   // ---------------------------------------------------------- 5. change columns
@@ -451,13 +460,9 @@ export function planMigration(
       ) {
         risk.push("rewrite");
       }
-      if (c.defaultValue !== null && /\bnextval\s*\(/i.test(c.defaultValue) && !d?.generated) {
-        warnings.push(
-          `${after.name}.${c.name} takes its default from a sequence (${c.defaultValue}). Sequences are planned in a later milestone: create the sequence first.`,
-        );
-      }
       alterColumns.push({
         kind: "add_column",
+        provides: providesColumn(after.schema, after.name, c.name),
         object: obj(c.name),
         up: `${alterTable(after)} ADD COLUMN ${columnSql(c, d)};`,
         down: `${alterTable(after)} DROP COLUMN ${q(c.name)};`,
@@ -484,10 +489,21 @@ export function planMigration(
       const idAfter = dAfter?.identity ?? null;
       const collBefore = dBefore?.collation ?? null;
       const collAfter = dAfter?.collation ?? null;
+      const collSchemaBefore = dBefore?.collationSchema ?? null;
+      const collSchemaAfter = dAfter?.collationSchema ?? null;
       const typeDiffers = was.dataType !== now.dataType;
-      const collDiffers = collBefore !== collAfter;
+      const collDiffers = collBefore !== collAfter || collSchemaBefore !== collSchemaAfter;
       const defaultBecomesIdentity =
         idAfter !== null && idBefore === null && was.defaultValue !== null;
+      // A default that cannot be cast to the new type stops the type change: drop it first, set it after.
+      const dropForType =
+        typeDiffers &&
+        was.defaultValue !== null &&
+        now.defaultValue !== null &&
+        idBefore === null &&
+        idAfter === null &&
+        (now.defaultValue !== was.defaultValue ||
+          classifyTypeChange(was.dataType, now.dataType).using);
 
       // 1. drop identity (and nothing else about it)
       if (idBefore !== null && idAfter === null) {
@@ -503,7 +519,8 @@ export function planMigration(
       // 2. drop a default that goes (or that an identity replaces)
       if (
         (was.defaultValue !== null && now.defaultValue === null && idBefore === null) ||
-        defaultBecomesIdentity
+        defaultBecomesIdentity ||
+        dropForType
       ) {
         alterColumns.push({
           kind: "drop_default",
@@ -522,8 +539,8 @@ export function planMigration(
         const back = typeDiffers
           ? classifyTypeChange(now.dataType, was.dataType)
           : { risk: [] as Risk[], using: false, note: null };
-        const target = `${now.dataType}${collAfter ? ` COLLATE ${collationSql(collAfter)}` : ""}`;
-        const source = `${was.dataType}${collBefore ? ` COLLATE ${collationSql(collBefore)}` : ""}`;
+        const target = `${now.dataType}${collAfter ? ` COLLATE ${collationSql(collAfter, collSchemaAfter)}` : ""}`;
+        const source = `${was.dataType}${collBefore ? ` COLLATE ${collationSql(collBefore, collSchemaBefore)}` : ""}`;
         const lossy = change.risk.includes("destructive");
         alterColumns.push({
           kind: "alter_column_type",
@@ -531,7 +548,7 @@ export function planMigration(
           up: `${tbl} ALTER COLUMN ${col} TYPE ${target}${change.using ? ` USING ${col}::${now.dataType}` : ""};`,
           down: `${tbl} ALTER COLUMN ${col} TYPE ${source}${back.using ? ` USING ${col}::${was.dataType}` : ""};`,
           risk: change.risk,
-          reversibility: lossy ? "data_lost" : "full",
+          reversibility: lossy || back.risk.includes("destructive") ? "data_lost" : "full",
           note: `Changes the type of ${name} of ${after.name} from ${was.dataType}${collBefore ? ` (collation ${collBefore})` : ""} to ${now.dataType}${collAfter ? ` (collation ${collAfter})` : ""}.${change.note ? ` ${change.note}` : ""}`,
         });
       }
@@ -579,13 +596,17 @@ export function planMigration(
         });
       }
       // 6. a default that is set or changed
-      if (now.defaultValue !== null && now.defaultValue !== was.defaultValue && idAfter === null) {
+      if (
+        now.defaultValue !== null &&
+        (now.defaultValue !== was.defaultValue || dropForType) &&
+        idAfter === null
+      ) {
         alterColumns.push({
           kind: "set_default",
           object: obj(name),
           up: `${tbl} ALTER COLUMN ${col} SET DEFAULT ${now.defaultValue};`,
           down:
-            was.defaultValue === null
+            was.defaultValue === null || dropForType
               ? `${tbl} ALTER COLUMN ${col} DROP DEFAULT;`
               : `${tbl} ALTER COLUMN ${col} SET DEFAULT ${was.defaultValue};`,
           reversibility: "full",
@@ -610,6 +631,7 @@ export function planMigration(
           : commentOn(`COLUMN ${qualified(after.schema, after.name)}.${q(name)}`, was.comment),
         reversibility: "full",
         note: `${made ? "Comments" : "Changes the comment on"} ${name} of ${after.name}.`,
+        needs: [providesColumn(after.schema, after.name, name)],
       });
     }
     if (before.comment !== after.comment) {
@@ -695,6 +717,7 @@ export function planMigration(
         risk: split ? ["lock"] : risk,
         reversibility: "full",
         note: `Adds the ${c.kind.replace("_", " ")} constraint ${c.name} to ${after.name}.${isNew ? "" : " It fails if a row breaks it."}`,
+        needs: c.columns.map((col) => providesColumn(after.schema, after.name, col)),
         ...depends,
       } as Draft);
       if (split) {
@@ -730,6 +753,7 @@ export function planMigration(
         reversibility: "full",
         transactional: !concurrent,
         note: `Creates the ${i.unique ? "unique " : ""}index ${i.name} on ${after.name}.${concurrent ? " It is made without blocking writes, so it cannot run inside a transaction." : ""}`,
+        needs: i.columns.map((col) => providesColumn(after.schema, after.name, col)),
         ...depends,
       } as Draft);
     }
@@ -828,6 +852,12 @@ export function planMigration(
         risk: isNew && !isRemade ? [] : split ? ["lock"] : ["lock", "may_fail"],
         reversibility: "full",
         note: `Adds the foreign key ${c.name} to ${after.name}.${isRemade ? " It is made again because the key or the column it depends on changes." : isNew ? "" : " It fails if a row breaks it."}`,
+        needs: [
+          ...c.columns.map((col) => providesColumn(after.schema, after.name, col)),
+          ...(rel?.target.columns ?? []).map((col) =>
+            providesColumn(rel!.target.schema, rel!.target.table, col),
+          ),
+        ],
         ...needs,
       } as Draft);
       if (split) {
@@ -874,16 +904,49 @@ export function planMigration(
   // ------------------------------------------- the objects around the tables
   // A table that stays and loses or retypes a column: a view that reads it must be made again.
   const disturbed = new Set<string>();
+  const changedColumns = new Map<string, Set<string>>();
+  const addedColumnNames = new Set<string>();
   for (const key of common) {
     const before = a.tables.get(key)!;
     const afterCols = byName(b.tables.get(key)!.columns);
-    if (
-      before.columns.some((c) => {
-        const now = afterCols.get(c.name);
-        return !now || now.dataType !== c.dataType;
-      })
-    )
+    const beforeCols = byName(before.columns);
+    for (const c of b.tables.get(key)!.columns)
+      if (!beforeCols.has(c.name)) addedColumnNames.add(c.name);
+    const changed = before.columns.filter((c) => {
+      const now = afterCols.get(c.name);
+      return !now || now.dataType !== c.dataType;
+    });
+    if (changed.length > 0) {
       disturbed.add(key);
+      changedColumns.set(key, new Set(changed.map((c) => c.name)));
+    }
+  }
+  // A table made or dropped with what this plan cannot say: the rest is planned, and this is said.
+  const special = (d: DdlDetail["tables"][number] | undefined): boolean =>
+    d !== undefined &&
+    (d.unlogged ||
+      d.partitionKey !== null ||
+      d.partitionOf !== null ||
+      d.inherits.length > 0 ||
+      d.options.length > 0 ||
+      d.tablespace !== null);
+  for (const [keys, ddl, verb] of [
+    [created, b.ddl, "made as an ordinary table"],
+    [
+      dropped,
+      a.ddl,
+      "dropped (a partitioned table takes its partitions with it, and the rollback makes an ordinary table)",
+    ],
+  ] as const) {
+    for (const key of keys) {
+      const t = (keys === created ? b : a).tables.get(key)!;
+      const d = ddl?.tables.find((x) => tableKey(x.schema, x.name) === key);
+      if (special(d)) {
+        warnings.push(
+          `${t.name} is partitioned, a partition, inherits, is unlogged or has storage options, which this plan does not carry: it is ${verb}.`,
+        );
+      }
+    }
   }
   if (from.objects === null || to.objects === null) {
     notCompared.push(
@@ -896,6 +959,8 @@ export function planMigration(
     createdTables: createdSet,
     droppedTables: droppedSet,
     disturbedTables: disturbed,
+    changedColumns,
+    addedColumnNames,
     warnings,
     rewrittenViews: renamed.rewrittenViews,
     remakeViews: renamed.remakeViews,

@@ -4,6 +4,32 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-19
+
+### Added
+
+- **A Migrations tab: write the SQL that makes one database look like another, with its rollback.** Choose _From_ and _To_ (a snapshot, or the live database of any connection: staging against production works) or press **Generate a migration from this comparison** in Snapshots. Tables, columns, constraints, indexes, foreign keys, schemas, extensions, types, sequences, functions, views, triggers and row-level-security policies are covered, in an order that runs (what depends on something is dropped first and made last; nothing uses `CASCADE`). DataCanvas writes the text and **runs none of it**. Decisions 147, 148, 150.
+- **Every step says what it risks**: a lock, a table rewrite, it can fail on existing rows, it destroys data, it cannot be undone. A summary shows the counts and how much of the migration a rollback can undo. You can leave a step out (what needs it goes with it) and **confirm each destructive step**: until then it is written commented out.
+- **Possible renames** are suggested with the reason (a table that is gone and one that is new with the same columns, a column of the same type in the same place, a sequence with the same settings and owner), and nothing is renamed until you confirm it: a rename keeps the rows, a drop and an add does not. Decision 149.
+- **Export** as plain SQL (for `psql`), one file for **dbmate** or **goose**, a **Flyway** pair (`V` and `U`), or `up.sql` and `down.sql`. A step that cannot be in a transaction (`CREATE INDEX CONCURRENTLY`, a new enum label) is written outside it, in its place. Every file starts with what it compares, the verdict of the rollback, what was not compared, and a reminder to read it. Decision 151.
+- Options: create indexes without blocking writes, and add checks and foreign keys unvalidated, then validate.
+- Snapshots (format 3) now also record what a migration needs: identity, generated columns and collations, deferrable and not-yet-validated constraints, partitioning, inheritance, unlogged tables, storage options, and more comments. Older files still open, and a migration says which parts a file could not give it. Decision 146.
+
+### Security
+
+The generator was read from the code by a second reviewer before this release (docs/threat-model.md, section 9b). It reproduced four high findings, all fixed:
+
+- A sequence named with a line break could put a statement on its own line in a step that was only a comment, and run it once the step was confirmed. Names in comments are now cut to one line.
+- A name that was exactly a dbmate or goose marker moved the boundary between the up and the down part. The text is now checked, before the markers are added, for any line a runner could read as a command, and the format is refused if there is one.
+- A collation with a dot in its name (`C.utf8`) could not be planned; its schema and name are now kept apart.
+- Renaming a column that owns a sequence planned a new sequence that restarted at 1; the sequence now follows the column and is offered as a rename.
+
+Six medium and five low findings (steps that did not record what they wait for, a type change with a default that cannot be cast, risks that were missed, a policy on a retyped column, and others) are fixed too. One is accepted and written down: an unconfirmed destructive step does not hold the steps that depend on it, which then fail loudly.
+
+### Changed
+
+- The first statement in a rollback of a changed numeric, floating-point or time-zone column is now marked as one that loses data.
+
 ## [1.6.0] - 2026-11-19
 
 ### Added

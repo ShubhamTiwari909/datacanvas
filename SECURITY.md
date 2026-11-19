@@ -52,6 +52,16 @@ Off unless **data viewing** is on for the connection (a result is rows). It is t
 
 **Your database role.** DataCanvas warns when the role you connected with can do more than the task needs: when browsing, a role that can change data or create objects; with writes unlocked, a superuser or a role that can create roles or databases, bypass row-level security or reach the server's files. The warning never blocks you.
 
+## Migrations (1.7.0)
+
+The **Migrations** tab writes SQL as **text** and runs none of it: there is no new route, no connection of its own and no way to apply a script from DataCanvas. It is built in your browser from the structure of the two sides (a snapshot or a live read of the structure), so it holds no rows and saves nothing.
+
+- **The text is the risk.** A script is made from names and definitions read from a database, which may be hostile. Every name goes through identifier quoting and every literal through string quoting (a backslash becomes an `E''` string); definitions PostgreSQL printed (`pg_get_constraintdef`, `pg_get_viewdef`, `pg_get_functiondef`) are used as printed. Comments are cut to one line, at carriage returns as well as line feeds. Held (unconfirmed destructive) SQL is written as comments line by line. Tested with names made of quotes, line breaks, `;`, `--`, `/*`, `$$`, emoji and 63-byte names, by running the result on a real PostgreSQL.
+- **Run what you have read.** A migration contains the **text of views and functions** read from the databases it compares, and running it runs that text. A function or view in a database you do not control can do anything its definition says. Each file says so at the top.
+- **Formats.** A dbmate or goose file is refused when a name or text in the migration holds a line that the runner would obey (`-- migrate:`, `-- +goose`). Flyway reads `${...}` as a placeholder; a file with that text says so.
+- **What it does not know.** It compares structure, not data, owners, grants, partitioning, storage options, view options or the position of a sequence, and says so in every migration. A rename is only ever applied when you confirm it, and the text of functions is not rewritten for one.
+- **Destructive changes** (drops, a column type that loses data) are flagged, and each needs its own confirmation before it is more than a comment. A rollback cannot bring back rows that a drop removed.
+
 ## How the local server is protected
 
 A web page you visit can try to reach programs listening on `127.0.0.1`. DataCanvas defends against that in layers:
@@ -92,6 +102,8 @@ The Data section is not exported or saved. If you share your screen, a screensho
 - The SQL tab runs what a role is allowed to run: a function with effects outside the database (through an extension such as `dblink`, or a privileged role) is not stopped by a read-only transaction. A statement can also change its own time limits for the rest of its transaction, which only matters to the few queries we run after it. A pooler such as PgBouncer can make Cancel reach the wrong session; use a direct connection for SQL you may need to cancel.
 - A change can wait up to 3 seconds for a lock; once it has the lock, a long `ALTER TABLE` (a type change rewrites the table) blocks every other query on that table until it finishes. The preview says when a change takes such a lock or rewrites the table.
 - Triggers on a table run when you change a row, and can do anything their code does. The preview names them.
+- A destructive step you leave unconfirmed is written commented out, but the steps after it are not: one that depended on it (a create after a held drop) runs, and fails because the object is still there. Confirm or leave out steps together.
+- A migration is as good as the structure it was made from. A structure read while another migration runs can mix before and after, and a migration made from an old snapshot may not fit the database it is run on: read it first, and run it in a test copy when you can.
 - Two DataCanvas processes sharing one data folder are not coordinated.
 
 The full reasoning is in [docs/threat-model.md](docs/threat-model.md).

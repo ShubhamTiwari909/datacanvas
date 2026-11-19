@@ -876,3 +876,62 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 **Decision:** the writes switch is on only when the process was started with `--enable-writes` AND has a session token. The CLI always sets a token; a development server (`npm run dev`) has none, so writes stay off there.
 
 **Why:** without a token only the Host check stands in front of the write routes. Found in the 1.5.2 review.
+
+## 141. The SQL view runs read-only statements, one at a time, on a connection of its own
+
+**Decision:** the SQL Workspace (1.6.0) runs the statement the person types inside a read-only transaction on a dedicated connection that is opened for that one run and closed after it, never on the pool. Several statements in one text are refused (the extended protocol is used), and writing is not offered even when `--enable-writes` is on. It needs "Table data" switched on for the connection. Column masking does not apply to its results. Details and the tests that guard each way out are in `docs/sql-workspace-plan.md`, section 3.
+
+**Why:** until now no text typed by the person became SQL (decisions 116 and 127). A SQL view is exactly that, so it is the narrowest version that is still useful: a read-only transaction stops writes in the database itself, a connection of its own means a `SET SESSION` cannot change what a later write transaction does, and one statement per run means a `COMMIT` inside the text cannot end the transaction early and run the rest.
+
+## 142. Monaco, with a curated list of features, loaded only when the SQL view opens
+
+**Decision:** the editor is `monaco-editor` 0.57.0, pinned, built into the package (no CDN, no request to another host). It is imported from `monaco-editor/editor/editor.api.js` plus a fixed list of features and the `pgsql` language, never from `monaco-editor` or `editor.main` (which register every language, the TypeScript, CSS, JSON and HTML services and a language-server client). The component that loads it is imported with `next/dynamic` and `ssr: false`, so it is in neither the first page nor the server bundle. The language `pgsql` supplies highlighting; completion comes from our own provider (plan section 4).
+
+**Measured in the packaged app (milestone S0):**
+
+|                               | Package | Static files | Server files |
+| ----------------------------- | ------- | ------------ | ------------ |
+| 1.5.2 (no Monaco)             | 31 MB   | 3.6 MB       | 8.0 MB       |
+| Curated list, `ssr: false`    | 36 MB   | 8.7 MB       | 9.0 MB       |
+| Curated list, no `ssr: false` | 45 MB   | 6.7 MB       | 19 MB        |
+| `editor.main` (everything)    | 49 MB   | 19 MB        | not measured |
+
+Opening the page that holds the editor loads about 4.9 MB (1.3 MB compressed) in 118 files, of which Monaco is roughly 3.5 MB (0.9 MB compressed); nothing else is fetched, and no request leaves the origin. The worker is built by Turbopack (`new Worker(new URL(...))`) and starts without error under the current headers (there is no CSP beyond `frame-ancestors`, so a future one must allow workers).
+
+**What S0 found, for whoever builds S2:**
+
+- Monaco 0.57 changed its layout: language definitions are in `esm/vs/languages/definitions/<name>/register.js`, and the package's `exports` map means a module is imported as `monaco-editor/editor/editor.api.js`, not `monaco-editor/esm/vs/editor/editor.api.js`. Its CSS cannot be imported by path (the map adds `.js`), but the CSS that the features need comes in with them. Side-effect imports have no types, so `apps/web/monaco-modules.d.ts` declares them.
+- Too short a list breaks the editor in ways that look like a bug of ours: with `editor.api` and six features the completion list collapsed to 2 px wide (`max-width: 0`), and Cmd+A did nothing, because `coreCommands` and `codeEditorWidget` were missing. The list below was tested in the packaged app: highlighting, completion list, select all, undo, comment, find, folding.
+- Importing the editor from a client component without `ssr: false` adds 11 MB of server files for a page that never needs them.
+
+**The tested list** (after `editor.api.js`):
+
+- `editor/editor.api.js`
+- `editor/browser/coreCommands.js`
+- `editor/browser/widget/codeEditor/codeEditorWidget.js`
+- `editor/common/standaloneStrings.js`
+- `editor/contrib/bracketMatching/browser/bracketMatching.js`
+- `editor/contrib/caretOperations/browser/caretOperations.js`
+- `editor/contrib/caretOperations/browser/transpose.js`
+- `editor/contrib/clipboard/browser/clipboard.js`
+- `editor/contrib/comment/browser/comment.js`
+- `editor/contrib/contextmenu/browser/contextmenu.js`
+- `editor/contrib/cursorUndo/browser/cursorUndo.js`
+- `features/find/register.js`
+- `editor/contrib/find/browser/findController.js`
+- `editor/contrib/folding/browser/folding.js`
+- `editor/contrib/hover/browser/hoverContribution.js`
+- `editor/contrib/indentation/browser/indentation.js`
+- `editor/contrib/linesOperations/browser/linesOperations.js`
+- `editor/contrib/multicursor/browser/multicursor.js`
+- `editor/contrib/parameterHints/browser/parameterHints.js`
+- `editor/contrib/smartSelect/browser/smartSelect.js`
+- `editor/contrib/snippet/browser/snippetController2.js`
+- `editor/contrib/suggest/browser/suggestController.js`
+- `editor/contrib/tokenization/browser/tokenization.js`
+- `editor/contrib/wordHighlighter/browser/wordHighlighter.js`
+- `editor/contrib/wordOperations/browser/wordOperations.js`
+- `editor/contrib/wordPartOperations/browser/wordPartOperations.js`
+- `languages/definitions/pgsql/register.js`
+
+**Why:** the whole of Monaco costs 18 MB more than this list, and the first version has no use for the TypeScript, CSS, JSON or HTML services. CodeMirror 6 stays the fallback if a later Monaco update breaks the bundling, but this version does not need it.

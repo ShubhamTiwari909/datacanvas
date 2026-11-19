@@ -1,6 +1,6 @@
 # SQL Workspace plan (1.6.0)
 
-Status: **planned, not started** (2026-11-18). Follows 1.5.2. Nothing here is built.
+Status: **S0 done** (2026-11-19: Monaco works in the packaged app, decision 142). S1 to S6 not started. Follows 1.5.2.
 
 A new **SQL** view in the workspace tabs: a Monaco editor with SQL highlighting and autocomplete from the connected database's own catalog, several query tabs, a results grid, and a history of what was run.
 
@@ -41,12 +41,12 @@ All values come back as text (as the Data tab does), cut at the same cell length
 
 The scan of the code found four ways a typed statement could escape `BEGIN READ ONLY`; each has an answer and a test (red first):
 
-| Risk | Answer |
-| --- | --- |
-| `SELECT 1; COMMIT; DROP TABLE x` in one text (simple query protocol runs all of it) | Run through the **extended protocol** (parameter list given, even empty): PostgreSQL then refuses more than one statement. A test sends exactly this and expects a refusal |
-| A lone `COMMIT` or `ROLLBACK` ends our transaction early | Nothing else runs after it on that connection; the connection is closed afterwards in every case, and a test checks that a following statement cannot write |
+| Risk                                                                                                                                                                     | Answer                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SELECT 1; COMMIT; DROP TABLE x` in one text (simple query protocol runs all of it)                                                                                      | Run through the **extended protocol** (parameter list given, even empty): PostgreSQL then refuses more than one statement. A test sends exactly this and expects a refusal  |
+| A lone `COMMIT` or `ROLLBACK` ends our transaction early                                                                                                                 | Nothing else runs after it on that connection; the connection is closed afterwards in every case, and a test checks that a following statement cannot write                 |
 | `SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE` or `SET default_transaction_read_only = off` leaks into a pooled connection and changes later write transactions | A query runs on a **dedicated connection** opened for it and ended after it, never on the pool. A test runs the `SET`, then checks the next write transaction is unaffected |
-| `BEGIN READ WRITE` inside the transaction | The database refuses it inside a read-only transaction; test |
+| `BEGIN READ WRITE` inside the transaction                                                                                                                                | The database refuses it inside a read-only transaction; test                                                                                                                |
 
 Also on that connection: `statement_timeout` (default 30 s, the person may choose up to 5 min), `lock_timeout` 3 s, `idle_in_transaction_session_timeout`, `application_name = 'DataCanvas SQL'`, and `default_transaction_read_only = on` as a second guard besides `BEGIN READ ONLY`. Side effects that a read-only transaction does not stop (`pg_sleep`, `nextval` is refused, `dblink`, advisory locks) are bounded by the timeout; the role warning already tells the person what the role can do.
 
@@ -74,7 +74,7 @@ Rule changes, all in the same commit as the code, not after:
 **Spike first (S0, half a day).** Monaco with the Next 16 / Turbopack build is the least proven part: the usual worker guidance targets webpack. The spike answers three questions before anything else is built, and the plan is changed if the answer is no:
 
 1. Does `monaco-editor/esm/vs/editor/editor.api` + the `pgsql` basic language + the base editor worker bundle and run offline inside `npm run package`?
-2. How big is it (target under 3 MB added to `.package`, loaded **only** when the SQL view opens, never in the first page)?
+2. How big is it (measured: +5 MB in `.package`, loaded **only** when the SQL view opens, never in the first page; decision 142)?
 3. Do workers load under the headers the app sets (`COOP/CORP same-origin`; no CSP beyond `frame-ancestors`)?
 
 Fallback if Turbopack cannot bundle the workers: copy Monaco's prebuilt `min/vs` into a `public/monaco` folder in the package build and load it with `loader.config({ paths: { vs: "/monaco/vs" } })`. Fallback of last resort, to be decided with the person: CodeMirror 6 (about a tenth of the size, no workers). `@monaco-editor/react` is used only with `loader.config({ monaco })` pointing at the local package, never its default CDN loader (a rule test greps for the CDN host).
@@ -95,15 +95,15 @@ Fallback if Turbopack cannot bundle the workers: copy Monaco's prebuilt `min/vs`
 
 Each milestone is red-first, ends with all checks green, and is a separate commit on one branch.
 
-| | Milestone | Done when |
-| --- | --- | --- |
-| S0 | Monaco spike (section 4) | The three questions are answered in writing; decision 142 records the choice |
-| S1 | Server runner and its security | `SqlRunnerAdapter` (Postgres and mock), `sql-service`, `run` route, gate, cancel, limits; the four escape tests above pass against a real Postgres; rules and docs changed in the same commit |
-| S2 | SQL view with one tab | New "SQL" tab in `workspace.tsx` (`WorkspaceView` gains `"sql"`), editor, Run/Cancel, extracted result grid, error markers, needs-data-access state; e2e: run a query, see rows, cancel `pg_sleep`, a write statement is refused |
-| S3 | Multiple tabs | Open, rename, duplicate, close, switch without losing text or results; e2e |
-| S4 | Autocomplete | Catalog-based completion incl. alias columns; unit tests for the tokenizer; e2e picks a column suggestion |
-| S5 | History and export | History list, re-run, copy and CSV export, EXPLAIN button; privacy test covers `features/sql` |
-| S6 | Polish, docs, release | Dark theme, phone layout, axe-core on the view, size and speed measured (open time, 10,000 rows), README and guide chapter, threat model, CHANGELOG, version 1.6.0, PR |
+|     | Milestone                      | Done when                                                                                                                                                                                                                        |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S0  | Monaco spike (section 4)       | **Done.** Bundles under Turbopack and runs offline; +5 MB in the package, 3.5 MB (0.9 MB compressed) loaded when the view opens; workers start under the current headers. Decision 142, with the tested import list              |
+| S1  | Server runner and its security | `SqlRunnerAdapter` (Postgres and mock), `sql-service`, `run` route, gate, cancel, limits; the four escape tests above pass against a real Postgres; rules and docs changed in the same commit                                    |
+| S2  | SQL view with one tab          | New "SQL" tab in `workspace.tsx` (`WorkspaceView` gains `"sql"`), editor, Run/Cancel, extracted result grid, error markers, needs-data-access state; e2e: run a query, see rows, cancel `pg_sleep`, a write statement is refused |
+| S3  | Multiple tabs                  | Open, rename, duplicate, close, switch without losing text or results; e2e                                                                                                                                                       |
+| S4  | Autocomplete                   | Catalog-based completion incl. alias columns; unit tests for the tokenizer; e2e picks a column suggestion                                                                                                                        |
+| S5  | History and export             | History list, re-run, copy and CSV export, EXPLAIN button; privacy test covers `features/sql`                                                                                                                                    |
+| S6  | Polish, docs, release          | Dark theme, phone layout, axe-core on the view, size and speed measured (open time, 10,000 rows), README and guide chapter, threat model, CHANGELOG, version 1.6.0, PR                                                           |
 
 Rough size: S0 0.5 day, S1 2 days (the careful one), S2 2 days, S3 1 day, S4 1.5 days, S5 1 day, S6 1.5 days.
 
@@ -117,14 +117,14 @@ Rough size: S0 0.5 day, S1 2 days (the careful one), S2 2 days, S3 1 day, S4 1.5
 
 ## 8. Risks
 
-| Risk | Plan |
-| --- | --- |
-| Monaco does not bundle under Turbopack | S0 first; fallbacks above |
-| Package grows too much | Lazy-load; a size check in `verify-package.mjs` (warn above a number chosen after S0) |
+| Risk                                            | Plan                                                                                                                          |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Monaco does not bundle under Turbopack          | S0 first; fallbacks above                                                                                                     |
+| Package grows too much                          | Lazy-load; a size check in `verify-package.mjs` (warn above a number chosen after S0)                                         |
 | A typed statement writes or changes the session | Section 3.2 and its tests; this is the review focus before release, with a second reviewer reading only the runner like 1.5.2 |
-| A long query holds a connection | Dedicated connection, gate, timeout, cancel |
-| People expect masking to hold in SQL results | Said at the top of the view and in the docs; masking was never a control |
-| Query text saved somewhere it should not be | Memory only unless section 9 says otherwise, with a privacy test either way |
+| A long query holds a connection                 | Dedicated connection, gate, timeout, cancel                                                                                   |
+| People expect masking to hold in SQL results    | Said at the top of the view and in the docs; masking was never a control                                                      |
+| Query text saved somewhere it should not be     | Memory only unless section 9 says otherwise, with a privacy test either way                                                   |
 
 ## 9. Open questions for the person
 

@@ -8,6 +8,7 @@ import {
   resultSummary,
   rowsText,
   startsWithExplain,
+  utf16Position,
 } from "./result-text";
 
 const result = (over: Partial<Parameters<typeof resultSummary>[0]> = {}) => ({
@@ -102,5 +103,19 @@ describe("durationText", () => {
     expect(durationText(12.4)).toBe("12 ms");
     expect(durationText(999)).toBe("999 ms");
     expect(durationText(1500)).toBe("1.5 s");
+  });
+});
+
+describe("utf16Position", () => {
+  it("is the same for plain text", () => {
+    expect(utf16Position("SELECT x", 8)).toBe(8);
+    expect(utf16Position("", 1)).toBe(1);
+  });
+
+  it("counts a character outside the basic plane as one for PostgreSQL and two here", () => {
+    // 'SELECT '😀', x FROM nope': PostgreSQL's position of `x` is 13, in UTF-16 it is 14.
+    const text = "SELECT '😀', x FROM nope";
+    expect(utf16Position(text, 13)).toBe(14);
+    expect(text[utf16Position(text, 13) - 1]).toBe("x");
   });
 });

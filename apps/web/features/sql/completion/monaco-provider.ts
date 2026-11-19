@@ -45,7 +45,7 @@ export function registerSqlCompletion(
         new Promise<null>((resolve) => setTimeout(() => resolve(null), CATALOG_WAIT_MS)),
       ]);
       const result = complete(catalog, model.getValue(), model.getOffsetAt(position));
-      if (result.items.length === 0) return { suggestions: [] };
+      if (result.items.length === 0) return { suggestions: [], incomplete: catalog === null };
       const from = model.getPositionAt(result.replaceFrom);
       const to = model.getPositionAt(result.replaceTo);
       const range = {
@@ -55,6 +55,9 @@ export function registerSqlCompletion(
         endColumn: to.column,
       };
       return {
+        // Without the catalog (still loading, or it could not be read) the list holds only keywords:
+        // Monaco asks again at the next key instead of filtering this one.
+        incomplete: catalog === null,
         suggestions: result.items.map((item: CompletionItem) => ({
           label: item.label,
           kind: kindOf(monaco, item.kind),

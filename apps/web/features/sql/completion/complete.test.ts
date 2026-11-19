@@ -388,3 +388,83 @@ describe("a big database", () => {
     expect(elapsed).toBeLessThan(500);
   });
 });
+
+describe("what the cursor can see", () => {
+  it("does not offer the columns of a subquery's relations outside it", () => {
+    const outer = at("SELECT | FROM users WHERE id IN (SELECT user_id FROM orders)");
+    expect(outer.labels).toContain("email");
+    lacks(outer.labels, "total", "user_id");
+  });
+
+  it("offers a subquery's own relations inside it, and those of the query around it", () => {
+    const inner = at(
+      "SELECT * FROM users u WHERE EXISTS (SELECT | FROM orders o WHERE o.user_id = u.id)",
+    );
+    has(inner.labels, "total", "email", "o", "u");
+  });
+
+  it("sees a relation joined in parentheses from inside them, not from outside", () => {
+    const text = "SELECT | FROM users u JOIN (SELECT * FROM orders) o ON true";
+    lacks(at(text).labels, "total");
+  });
+});
+
+describe("names as PostgreSQL reads them", () => {
+  const mixed: Catalog = {
+    schemas: ["public"],
+    relations: [
+      { schema: "public", name: "users", kind: "table", columns: [col("plain")] },
+      { schema: "public", name: "Users", kind: "table", columns: [col("quoted_only")] },
+    ],
+    functions: [],
+  };
+
+  it("folds an unquoted name to lower case and compares it exactly", () => {
+    expect(at("SELECT u.| FROM users u", mixed).labels).toEqual(["plain"]);
+    expect(at("SELECT u.| FROM USERS u", mixed).labels).toEqual(["plain"]);
+    expect(at('SELECT u.| FROM "Users" u', mixed).labels).toEqual(["quoted_only"]);
+    expect(at("SELECT u.| FROM Users u", mixed).labels).toEqual(["plain"]);
+  });
+
+  it("keeps the quoting of the schema and of the table apart", () => {
+    const two: Catalog = {
+      schemas: ["Sales", "sales"],
+      relations: [
+        { schema: "Sales", name: "t", kind: "table", columns: [col("upper_schema")] },
+        { schema: "sales", name: "t", kind: "table", columns: [col("lower_schema")] },
+      ],
+      functions: [],
+    };
+    expect(at('SELECT x.| FROM "Sales".t x', two).labels).toEqual(["upper_schema"]);
+    expect(at('SELECT x.| FROM sales."t" x', two).labels).toEqual(["lower_schema"]);
+    expect(at("SELECT x.| FROM Sales.t x", two).labels).toEqual(["lower_schema"]);
+    expect(at('SELECT "Sales".t.| FROM "Sales".t', two).labels).toEqual(["upper_schema"]);
+  });
+
+  it("lets a CTE hide a table of the same name", () => {
+    const r = at("WITH orders AS (SELECT 1 AS x) SELECT | FROM orders");
+    lacks(r.labels, "total", "user_id");
+    // With a schema in front it is the table again.
+    has(at("WITH orders AS (SELECT 1 AS x) SELECT | FROM public.orders").labels, "total");
+  });
+
+  it("treats GROUP and ORDER, typed before BY, as the place for a column", () => {
+    expect(at("SELECT * FROM users GROUP |").context).toBe("column");
+    expect(at("SELECT * FROM users ORDER |").context).toBe("column");
+  });
+});
+
+describe("quoting reserved words", () => {
+  it.each([
+    "left",
+    "right",
+    "full",
+    "inner",
+    "join",
+    "lateral",
+    "current_schema",
+    "natural",
+    "cross",
+    "like",
+  ])("writes %s in quotes", (name) => expect(writeName(name)).toBe(`"${name}"`));
+});

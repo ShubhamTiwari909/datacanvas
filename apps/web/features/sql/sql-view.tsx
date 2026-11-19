@@ -142,8 +142,16 @@ function Editor({ connectionId }: { connectionId: string }) {
   /** Run the selection (else everything), with `EXPLAIN ` in front for a plan. */
   function runNow(prefix = "") {
     const part = handleRef.current?.runText() ?? { text: active.text, base: 0 };
-    const sentPrefix = prefix !== "" && !startsWithExplain(part.text) ? prefix : "";
-    void store().run(connectionId, active.id, part.text, part.base, sentPrefix);
+    if (prefix !== "" && startsWithExplain(part.text)) {
+      // Putting EXPLAIN in front of an EXPLAIN is an error, and quietly running it as it is would
+      // not give the real times the menu promised.
+      setMessage(
+        "This statement already starts with EXPLAIN. Press Run to run it as it is, or remove the EXPLAIN to use this menu.",
+      );
+      return;
+    }
+    setMessage(null);
+    void store().run(connectionId, active.id, part.text, part.base, prefix);
   }
 
   /** A statement from the history, in a new tab, and run when asked (if nothing else is running). */
@@ -614,9 +622,7 @@ function Result({ state, tabName }: { state: SqlRunState; tabName: string }) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-muted-foreground">{resultSummary(result).join(" · ")}</p>
-        {result.rows.length > 0 ? (
-          <ExportMenu result={result} tabName={tabName} plan={isPlan} />
-        ) : null}
+        <ExportMenu result={result} tabName={tabName} plan={isPlan} />
       </div>
     </>
   );

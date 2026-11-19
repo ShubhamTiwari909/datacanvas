@@ -376,3 +376,14 @@ describe("the SQL store: a statement with a prefix (explain)", () => {
     expect(stateOf("a")).toMatchObject({ failure: { position: null } });
   });
 });
+
+describe("the SQL store: error positions", () => {
+  it("turns PostgreSQL's character position into the editor's UTF-16 position", async () => {
+    const text = "SELECT '😀', x FROM nope";
+    runStatement.mockResolvedValue(
+      ok({ failure: { code: "42703", message: "no x", position: 13 } }),
+    );
+    await useSqlStore.getState().run("a", "tab-1", text);
+    expect(stateOf("a")).toMatchObject({ failure: { position: 14 } });
+  });
+});

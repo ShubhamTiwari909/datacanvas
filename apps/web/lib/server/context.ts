@@ -71,7 +71,7 @@ export function getServerContext(): ServerContext {
   const holder = globalThis as WithContext;
   const held = holder[CONTEXT_KEY] as Partial<ServerContext> | undefined;
   // In development a hot reload can leave a context made by older code, without
-  // the write service. Replace it (closing its connections) instead of serving
+  // the write service or the SQL service. Replace it (closing its connections) instead of serving
   // routes that cannot work; in production this never happens.
   if (held && (!held.writes || !held.sql)) {
     void held.connections?.dispose().catch(() => {});

@@ -5,6 +5,7 @@ DataCanvas is licensed under the Apache License 2.0 (see `LICENSE`). It includes
 ## Packages used under a chosen license
 
 - **elkjs** 0.12.1 is offered under "EPL-2.0 OR GPL-3.0-or-later". DataCanvas uses it under **EPL-2.0**. Source: https://github.com/kieler/elkjs. If you modify this package you must make those modifications available under EPL-2.0.
+- **dompurify** 3.4.15 is offered under "(MPL-2.0 OR Apache-2.0)". DataCanvas uses it under **Apache-2.0**. Source: git://github.com/cure53/DOMPurify. If you modify this package you must make those modifications available under Apache-2.0.
 
 ## All runtime dependencies
 

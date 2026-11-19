@@ -934,7 +934,7 @@ Opening the page that holds the editor loads about 4.9 MB (1.3 MB compressed) in
 - `editor/contrib/wordPartOperations/browser/wordPartOperations.js`
 - `languages/definitions/pgsql/register.js`
 
-**Why:** the whole of Monaco costs 18 MB more than this list, and the first version has no use for the TypeScript, CSS, JSON or HTML services. CodeMirror 6 stays the fallback if a later Monaco update breaks the bundling, but this version does not need it.
+**Why:** the whole of Monaco costs 13 MB more in the package than this list (49 MB against 36 MB, of which 10 MB in the files the browser fetches), and the first version has no use for the TypeScript, CSS, JSON or HTML services. CodeMirror 6 stays the fallback if a later Monaco update breaks the bundling, but this version does not need it.
 
 ## 143. Completion in the SQL view is a pure function of the catalog, the text and the cursor
 
@@ -947,3 +947,9 @@ Opening the page that holds the editor loads about 4.9 MB (1.3 MB compressed) in
 **Decision:** the first-word check treats only space, tab and line feed as white space and ends a `--` comment at a line feed, as PostgreSQL's lexer does where it matters; a text with any other control character (a carriage return, a form feed, a vertical tab, NUL) is refused, so the string that is checked is the string that is sent. `EXPLAIN` (with its options and `ANALYZE`) must be followed by `SELECT`, `WITH`, `VALUES` or `TABLE`, and the text may not contain the word `INTO`, even inside a string. A result is read 25 rows at a time and stops at 64 MB. A cancel is sent again every 250 ms until the run ends, and the backend is ended after twelve tries. The abort is heard before the connection is made.
 
 **Why:** the review of the SQL runner found that a carriage return made the check and the server disagree about where a comment ends, which let a `COPY ... TO PROGRAM` or a `DO` through behind an allowed word; and that PostgreSQL runs `EXPLAIN ANALYZE CREATE TABLE ... AS` and `SELECT ... INTO` without its read-only check, so a "read-only" transaction was not read-only for them. Refusing what is ambiguous costs a few unusual texts; reading both the way the server does would mean parsing PostgreSQL. **Left over:** a single value of hundreds of megabytes is read whole; the role is the control for functions that reach outside the database.
+
+## 145. `dompurify`, which the editor brings, is used under its Apache-2.0 option
+
+**Decision:** `monaco-editor` depends on `dompurify`, offered as "MPL-2.0 OR Apache-2.0". DataCanvas uses it under **Apache-2.0**, which is the license of DataCanvas itself, and `THIRD-PARTY-NOTICES.md` says so (`scripts/generate-notices.mjs`, `CHOICES`).
+
+**Why:** a dual license leaves the choice to the user, and the notices file is where that choice is recorded, as it is for `elkjs` (decision 91). Apache-2.0 asks nothing of DataCanvas beyond the notice; MPL-2.0 would add file-level source obligations for any change to the package.

@@ -54,6 +54,27 @@ describe("getServerContext", () => {
     expect(closed).toBe(1);
   });
 
+  it("replaces a context that has a write service but no SQL service (left by code from before 1.6.0)", async () => {
+    let closed = 0;
+    const stale = {
+      connections: {
+        dispose: async () => {
+          closed += 1;
+        },
+      },
+      profiles: {},
+      workspaces: {},
+      snapshots: {},
+      writes: {},
+    } as unknown as ServerContext;
+    setServerContextForTests(stale);
+
+    const context = getServerContext();
+    expect(context).not.toBe(stale);
+    expect(typeof context.sql.run).toBe("function");
+    expect(closed).toBe(1);
+  });
+
   it("keeps a current context, so open connections survive a reload", () => {
     const first = getServerContext();
     expect(getServerContext()).toBe(first);

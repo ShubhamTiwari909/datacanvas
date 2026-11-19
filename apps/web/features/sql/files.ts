@@ -14,7 +14,9 @@ export function sqlFileName(tabName: string): string {
     // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_")
     .replace(/^[.\s]+|[.\s]+$/g, "");
-  return `${safe || "query"}.sql`;
+  // Windows will not save a file under the name of a device (CON, NUL, COM1, ...), with or without an extension.
+  const named = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i.test(safe) ? `_${safe}` : safe;
+  return `${named || "query"}.sql`;
 }
 
 /** The same name with another extension (`Query 1.csv`). */

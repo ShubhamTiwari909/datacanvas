@@ -188,6 +188,33 @@ describe("writes are a separate capability (1.4.0)", () => {
     expect(users).toEqual(["apps/web/lib/server/sql-service.ts"]);
   });
 
+  it("no other class or object declares the method either, so no adapter has it without saying so", () => {
+    const declares = [
+      ...sourceFiles(path.join(root, "packages")),
+      ...sourceFiles(path.join(root, "apps/web")),
+    ]
+      .filter(
+        (file) =>
+          !file.endsWith(".test.ts") &&
+          !file.endsWith(".d.ts") &&
+          !file.includes("node_modules") &&
+          !file.includes(`${path.sep}dist${path.sep}`) &&
+          !file.includes(`${path.sep}.next${path.sep}`),
+      )
+      // A method definition (`runStatement(request) {`, `async runStatement(`), not a call or the browser's function.
+      .filter((file) =>
+        /^\s*(async\s+)?runStatement\s*\([^)]*\)\s*(:\s*[^{;]+)?\{/m.test(
+          strip(readFileSync(file, "utf8")),
+        ),
+      )
+      .map((f) => posix(path.relative(root, f)))
+      .sort();
+    expect(declares).toEqual([
+      "packages/database-core/src/testing/mock-adapter.ts",
+      "packages/postgres-adapter/src/postgres.adapter.ts",
+    ]);
+  });
+
   it("the runner's types stay free of drivers and frameworks", () => {
     const source = readFileSync(path.join(coreDir, "src/sql-run.ts"), "utf8");
     for (const specifier of importSpecifiers(source)) {

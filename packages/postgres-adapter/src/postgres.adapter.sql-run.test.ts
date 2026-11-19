@@ -226,21 +226,39 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
   });
 
   describe("how much is read", () => {
+    // The budget is the product's 64 MB; these use a small one, so the tests do not make the server work for it.
+    const budgeted = (text: string, bytes: number) =>
+      runStatementOnOwnConnection(config, { text, maxRows: 1000, timeoutMs: 30_000 }, bytes);
+
     it("stops at a byte budget, however large the rows, and says there was more", async () => {
-      const started = Date.now();
-      // 100 rows of 2 MB: 200 MB if all were read; the budget is 64 MB.
-      const result = await run(
-        "SELECT repeat('x', 2000000) AS big, g FROM generate_series(1, 100) g",
-        {
-          maxRows: 1000,
-          timeoutMs: 60_000,
-        },
+      // 100 rows of 200 KB: 20 MB if all were read; the budget here is 1 MB.
+      const result = await budgeted(
+        "SELECT repeat('x', 200000) AS big, g FROM generate_series(1, 100) g",
+        1_000_000,
       );
       expect(result.truncated).toBe(true);
-      expect(result.rows.length).toBeGreaterThanOrEqual(25);
-      expect(result.rows.length).toBeLessThan(100);
+      expect(result.rows.length).toBeGreaterThanOrEqual(1);
+      expect(result.rows.length).toBeLessThanOrEqual(6);
       expect(result.cutCells).toBe(result.rows.length);
-      expect(Date.now() - started).toBeLessThan(30_000);
+    });
+
+    it("keeps at least the first row, however large it is", async () => {
+      const result = await budgeted(
+        "SELECT repeat('x', 3000000) AS big FROM generate_series(1, 3)",
+        1000,
+      );
+      expect(result.rows).toHaveLength(1);
+      expect(result.truncated).toBe(true);
+    });
+
+    it("counts bytes, not characters: multibyte text reaches the budget sooner", async () => {
+      // 400,000 characters of two bytes: 800 KB a row. Counted as characters two rows would fit in 1 MB.
+      const result = await budgeted(
+        "SELECT repeat('é', 400000) AS c FROM generate_series(1, 5)",
+        1_000_000,
+      );
+      expect(result.truncated).toBe(true);
+      expect(result.rows).toHaveLength(1);
     });
 
     it("does not call a result truncated that fits", async () => {
@@ -284,6 +302,21 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
       setTimeout(() => controller.abort(), 600);
       expect((await refusal(running)).code).toBe("cancelled");
       expect(Date.now() - started).toBeLessThan(5000);
+    });
+  });
+
+  describe("one time limit for the whole statement", () => {
+    it("stops a statement that is fetched in many pieces, not after each piece has had its own limit", async () => {
+      const started = Date.now();
+      // Twenty rows, 0.3 s each: 6 s in all, fetched one at a time. The limit is 1.5 s for all of it.
+      const error = await refusal(
+        run("SELECT g, pg_sleep(0.3) FROM generate_series(1, 20) g", {
+          timeoutMs: 1500,
+          maxRows: 100,
+        }),
+      );
+      expect(error.code).toBe("57014");
+      expect(Date.now() - started).toBeLessThan(4500);
     });
   });
 

@@ -130,6 +130,11 @@ export type StatementCheck = { ok: true } | { ok: false; message: string };
  * or a block comment is never closed.
  */
 export function firstKeyword(text: string): string | null {
+  return scanFirstKeyword(text)?.word ?? null;
+}
+
+/** The first word as `firstKeyword` finds it, and the offset just after it. */
+export function scanFirstKeyword(text: string): { word: string; end: number } | null {
   let i = 0;
   const n = text.length;
   const skip = (): boolean => {
@@ -159,7 +164,7 @@ export function firstKeyword(text: string): string | null {
     else break;
   }
   const match = /^[A-Za-z]+/.exec(text.slice(i, i + 20));
-  return match ? match[0].toLowerCase() : null;
+  return match ? { word: match[0].toLowerCase(), end: i + match[0].length } : null;
 }
 
 const QUERY_WORDS = ["select", "with", "values", "table"];
@@ -177,8 +182,8 @@ export const EXPLAIN_NOT_ALLOWED_MESSAGE =
  */
 function checkExplained(text: string): StatementCheck {
   // After EXPLAIN: options in parentheses, or the words ANALYZE and VERBOSE, then the statement.
-  const afterWord = text.search(/explain/i);
-  let rest = text.slice(afterWord + "explain".length);
+  // After the keyword PostgreSQL reads, not after the first `explain` in the text (a comment may hold one).
+  let rest = text.slice(scanFirstKeyword(text)?.end ?? text.length);
   for (;;) {
     const trimmed = rest.replace(/^(?:[ \t\n]|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "");
     if (trimmed.startsWith("(")) {

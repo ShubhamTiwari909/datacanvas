@@ -18,6 +18,7 @@ export interface Token {
 
 const WORD_START = /[A-Za-z_\u0080-￿]/;
 const WORD_PART = /[A-Za-z0-9_$\u0080-￿]/;
+const DOLLAR_TAG = /^\$(?:[A-Za-z_\u0080-\uffff][A-Za-z0-9_\u0080-\uffff]*)?\$/;
 
 export function tokenize(text: string): Token[] {
   const tokens: Token[] = [];
@@ -50,10 +51,15 @@ export function tokenize(text: string): Token[] {
       push("comment", start, i, depth > 0);
     } else if (c === "'") {
       const start = i;
+      // E'...' (an escape string) reads a backslash as an escape; '...' does not.
+      const escapes =
+        (text[start - 1] === "E" || text[start - 1] === "e") &&
+        (start < 2 || !WORD_PART.test(text[start - 2]!));
       i++;
       let closed = false;
       while (i < n) {
-        if (text[i] === "'" && text[i + 1] === "'") i += 2;
+        if (escapes && text[i] === "\\") i += 2;
+        else if (text[i] === "'" && text[i + 1] === "'") i += 2;
         else if (text[i] === "'") {
           i++;
           closed = true;
@@ -74,10 +80,10 @@ export function tokenize(text: string): Token[] {
         } else i++;
       }
       push("quoted", start, i, !closed);
-    } else if (c === "$" && /^\$[A-Za-z_]*\$/.test(text.slice(i, i + 40))) {
-      // A dollar-quoted string: $$ ... $$ or $tag$ ... $tag$.
+    } else if (c === "$" && DOLLAR_TAG.test(text.slice(i, i + 100))) {
+      // A dollar-quoted string: $$ ... $$ or $tag$ ... $tag$ (a tag is a name: letters, digits after the first, underscores).
       const start = i;
-      const tag = /^\$[A-Za-z_]*\$/.exec(text.slice(i, i + 40))![0];
+      const tag = DOLLAR_TAG.exec(text.slice(i, i + 100))![0];
       const close = text.indexOf(tag, i + tag.length);
       i = close < 0 ? n : close + tag.length;
       push("string", start, i, close < 0);

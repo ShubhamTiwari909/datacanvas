@@ -44,7 +44,7 @@ export function HistoryDialog(props: {
 }) {
   return (
     <Dialog open={props.open} onOpenChange={(isOpen) => !isOpen && props.onClose()}>
-      <DialogContent size="builder">
+      <DialogContent size="form">
         {/* The body is made when the dialog opens, so a search typed last time is gone. */}
         <HistoryBody {...props} />
       </DialogContent>

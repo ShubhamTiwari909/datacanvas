@@ -22,7 +22,7 @@ import {
   RESERVED,
   STATEMENT_KEYWORDS,
 } from "./keywords";
-import { findRelations, sameName, type Catalog, type CatalogRelation } from "./catalog";
+import { findRelations, fold, matches, type Catalog, type CatalogRelation } from "./catalog";
 import { insideStringOrComment, nameOf, tokenize, type Token } from "./tokenize";
 
 export type ItemKind =
@@ -77,16 +77,41 @@ interface ScopeEntry {
   label: string;
   quoted: boolean;
   relation: CatalogRelation | null;
+  /** The parentheses it sits in (an id for each group, outermost first): a subquery's relations are its own. */
+  path: number[];
 }
 
-/** The relations a statement reads, from its FROM and JOIN clauses, and the names of its CTEs. */
+/** The ids of the parenthesis groups around each token of a statement, outermost first. */
+function groupPaths(tokens: readonly Token[]): number[][] {
+  const paths: number[][] = [];
+  const stack: number[] = [];
+  let next = 0;
+  for (const t of tokens) {
+    if (isPunct(t, ")")) stack.pop();
+    paths.push([...stack]);
+    if (isPunct(t, "(")) stack.push(next++);
+  }
+  return paths;
+}
+
+const isPrefix = (inner: readonly number[], outer: readonly number[]): boolean =>
+  inner.length <= outer.length && inner.every((id, i) => outer[i] === id);
+
+/**
+ * The relations a statement reads, from its FROM and JOIN clauses, and the names of its CTEs.
+ * With a cursor offset, only the relations the cursor can see: those of its own query and of the
+ * queries around it, not those of a subquery it is not in.
+ */
 export function readScope(
   catalog: Catalog | null,
   statement: readonly Token[],
+  cursor?: number,
 ): { entries: ScopeEntry[]; ctes: string[] } {
   const entries: ScopeEntry[] = [];
   const ctes: string[] = [];
+  const cteKeys: string[] = [];
   const tokens = statement.filter((t) => t.type !== "comment");
+  const paths = groupPaths(tokens);
 
   // WITH name AS ( ... ), name2 AS ( ... )
   if (wordIs(tokens[0], "with")) {
@@ -102,6 +127,7 @@ export function readScope(
         isPunct(tokens[i + 2], "(")
       ) {
         ctes.push(nameOf(t));
+        cteKeys.push(fold(nameOf(t), t.type === "quoted"));
       }
     }
   }
@@ -117,7 +143,7 @@ export function readScope(
   };
 
   /** One relation after FROM, JOIN or a comma: `[schema.]name [[AS] alias]` or `(subquery) [AS] alias`. */
-  const readRef = (from: number): number => {
+  const readRef = (from: number, path: number[]): number => {
     let i = from;
     while (wordIs(tokens[i], "lateral", "only")) i++;
     let label: string | null = null;
@@ -135,11 +161,16 @@ export function readScope(
       const last = parts[parts.length - 1]!;
       label = nameOf(last);
       quoted = last.type === "quoted";
-      if (catalog) {
-        const found =
-          parts.length >= 2
-            ? findRelations(catalog, nameOf(parts[parts.length - 2]!), label, quoted)
-            : findRelations(catalog, null, label, quoted);
+      // A CTE of that name hides a table of the same name; one with a schema in front does not.
+      const shadowed = parts.length === 1 && cteKeys.includes(fold(label, quoted));
+      if (catalog && !shadowed) {
+        const schemaToken = parts.length >= 2 ? parts[parts.length - 2]! : null;
+        const found = findRelations(
+          catalog,
+          schemaToken ? { name: nameOf(schemaToken), quoted: schemaToken.type === "quoted" } : null,
+          label,
+          quoted,
+        );
         relation = found[0] ?? null;
       }
     } else {
@@ -148,29 +179,55 @@ export function readScope(
     if (wordIs(tokens[i], "as")) i++;
     const alias = tokens[i];
     if (isName(alias) && !(alias.type === "word" && CLAUSE_WORDS.has(alias.text.toLowerCase()))) {
-      entries.push({ label: nameOf(alias), quoted: alias.type === "quoted", relation });
+      entries.push({ label: nameOf(alias), quoted: alias.type === "quoted", relation, path });
       i++;
     } else if (label !== null) {
-      entries.push({ label, quoted, relation });
+      entries.push({ label, quoted, relation, path });
     }
     return i;
   };
 
   for (let i = 0; i < tokens.length; i++) {
+    const path = paths[i]!;
     if (wordIs(tokens[i], "from")) {
-      i = readRef(i + 1) - 1;
-      while (isPunct(tokens[i + 1], ",")) i = readRef(i + 2) - 1;
+      i = readRef(i + 1, path) - 1;
+      while (isPunct(tokens[i + 1], ",")) i = readRef(i + 2, path) - 1;
     } else if (wordIs(tokens[i], "join")) {
-      i = readRef(i + 1) - 1;
+      i = readRef(i + 1, path) - 1;
     }
   }
-  return { entries, ctes };
+
+  if (cursor === undefined) return { entries, ctes };
+  // The groups the cursor is in: those opened before it and not yet closed.
+  const before = tokens.filter((t) => t.end <= cursor);
+  const here =
+    before.length > 0
+      ? [
+          ...(groupPaths([
+            ...before,
+            { ...before[0]!, type: "word", text: "", start: cursor, end: cursor, open: false },
+          ]).at(-1) ?? []),
+        ]
+      : [];
+  return { entries: entries.filter((e) => isPrefix(e.path, here)), ctes };
 }
 
 // --------------------------------------------------------------- context ---
 
 const TABLE_WORDS = ["from", "join", "update", "into", "table"];
-const COLUMN_WORDS = ["select", "where", "on", "by", "having", "set", "when", "and", "or"];
+const COLUMN_WORDS = [
+  "select",
+  "where",
+  "on",
+  "by",
+  "group",
+  "order",
+  "having",
+  "set",
+  "when",
+  "and",
+  "or",
+];
 const CLAUSE_KEYWORDS = [...TABLE_WORDS, ...COLUMN_WORDS, "with", "values", "limit", "offset"];
 
 /** What is wanted after the tokens before the cursor, when no `name.` is in front of it. */
@@ -212,9 +269,8 @@ function contextBefore(before: readonly Token[]): CompletionContext {
 
 // --------------------------------------------------------------- the items ---
 
-let counter = 0;
-const sort = (group: number, label: string): string =>
-  `${group}${label.toLowerCase()}${String(counter++ % 1000).padStart(3, "0")}`;
+/** Group first, then the name: the same text always gives the same order. */
+const sort = (group: number, label: string): string => `${group}${label.toLowerCase()}`;
 
 const relationKind = (r: CatalogRelation): ItemKind => (r.kind === "table" ? "table" : "view");
 
@@ -357,7 +413,7 @@ export function complete(catalog: Catalog | null, text: string, offset: number):
   if (!partial && last?.type === "number" && last.text.endsWith(".") && last.end === offset)
     return NONE; // `1.`
 
-  const { entries, ctes } = readScope(catalog, statement);
+  const { entries, ctes } = readScope(catalog, statement, replaceFrom);
 
   if (chain.length > 0) {
     if (!catalog) return done("qualified", []);
@@ -365,15 +421,15 @@ export function complete(catalog: Catalog | null, text: string, offset: number):
     const firstQuoted = chain[0]!.type === "quoted";
     if (chain.length === 1) {
       const items: CompletionItem[] = [];
-      const hit = entries.find((e) => sameName(e.label, first, e.quoted || firstQuoted));
+      const hit = entries.find((e) => fold(e.label, e.quoted) === fold(first, firstQuoted));
       if (hit?.relation) items.push(...columnItems(hit.relation, hit.label, forceQuotes, 0));
       else if (!hit) {
         for (const r of findRelations(catalog, null, first, firstQuoted).slice(0, 1)) {
           items.push(...columnItems(r, r.name, forceQuotes, 0));
         }
       }
-      if (catalog.schemas.some((s) => sameName(s, first, firstQuoted))) {
-        const inSchema = catalog.relations.filter((r) => sameName(r.schema, first, firstQuoted));
+      if (catalog.schemas.some((s) => matches(s, first, firstQuoted))) {
+        const inSchema = catalog.relations.filter((r) => matches(r.schema, first, firstQuoted));
         items.push(...relationItems(catalog, inSchema, false, forceQuotes));
         const wantsFunctions = contextBefore(before.slice(0, before.length - 2)) === "column";
         if (wantsFunctions) {
@@ -381,7 +437,7 @@ export function complete(catalog: Catalog | null, text: string, offset: number):
             ...functionItems(
               {
                 ...catalog,
-                functions: catalog.functions.filter((f) => sameName(f.schema, first, firstQuoted)),
+                functions: catalog.functions.filter((f) => matches(f.schema, first, firstQuoted)),
               },
               forceQuotes,
               2,
@@ -394,7 +450,7 @@ export function complete(catalog: Catalog | null, text: string, offset: number):
     if (chain.length === 2) {
       const relation = findRelations(
         catalog,
-        first,
+        { name: first, quoted: firstQuoted },
         nameOf(chain[1]!),
         chain[1]!.type === "quoted",
       )[0];

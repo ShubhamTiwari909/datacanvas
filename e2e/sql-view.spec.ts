@@ -530,7 +530,7 @@ test("shows the plan of a statement, with or without running it", async ({
   await expect(page.getByRole("menuitem", { name: "Copy the plan" })).toBeVisible();
 });
 
-test("explains a statement that is already an EXPLAIN as it is, and marks an error in the right place", async ({
+test("says so when the statement already starts with EXPLAIN, and Run runs it as it is", async ({
   page,
   app,
   database,
@@ -538,9 +538,25 @@ test("explains a statement that is already an EXPLAIN as it is, and marks an err
   await open(page, app.link, database);
   await typeSql(page, "EXPLAIN SELECT 1");
   await page.getByRole("button", { name: "Explain" }).click();
-  await page.getByRole("menuitem", { name: /^Explain Shows the plan/ }).click();
-  await expect(resultPanel(page).getByLabel("Query plan")).toContainText("Result");
+  await page.getByRole("menuitem", { name: /^Explain analyze/ }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "already starts with EXPLAIN" }),
+  ).toBeVisible();
+  await expect(resultPanel(page).getByLabel("Query plan")).toHaveCount(0);
 
+  await run(page).click();
+  await expect(resultPanel(page).getByLabel("Query plan")).toContainText("Result");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "already starts with EXPLAIN" }),
+  ).toHaveCount(0);
+});
+
+test("marks an error in the right place when explaining, counting from the person's text", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
   await typeSql(page, "SELECT * FROM public.nope");
   await page.getByRole("button", { name: "Explain" }).click();
   await page.getByRole("menuitem", { name: /^Explain Shows the plan/ }).click();

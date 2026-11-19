@@ -49,11 +49,13 @@ export const csvFile = (columns: Columns, rows: Rows): string => `${BOM}${toCsv(
 
 /** An array of objects, one per row, keyed by column. A repeated column name gets `(2)`, `(3)`, ... */
 export function toJson(columns: Columns, rows: Rows): string {
-  const seen = new Map<string, number>();
+  // A key is never one that was already given, whatever the columns are called.
+  const taken = new Set<string>();
   const keys = columns.map((c) => {
-    const n = (seen.get(c.name) ?? 0) + 1;
-    seen.set(c.name, n);
-    return n === 1 ? c.name : `${c.name} (${n})`;
+    let key = c.name;
+    for (let n = 2; taken.has(key); n++) key = `${c.name} (${n})`;
+    taken.add(key);
+    return key;
   });
   const objects = rows.map((row) => Object.fromEntries(keys.map((k, i) => [k, row[i] ?? null])));
   return JSON.stringify(objects, null, 2);

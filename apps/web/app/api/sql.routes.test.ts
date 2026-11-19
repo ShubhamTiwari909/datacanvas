@@ -131,12 +131,15 @@ describe("POST /connections/:id/run", () => {
   it("refuses a second statement while one runs: 429 sql_busy", async () => {
     const id = await connect({ dataAccess: true });
     let release: () => void = () => {};
+    let started: () => void = () => {};
+    const running = new Promise<void>((resolve) => (started = resolve));
     adapterOf().sqlHandler = () =>
       new Promise<SqlRunResult>((resolve) => {
         release = () => resolve(answer("late"));
+        started();
       });
     const first = sql(id, { text: "SELECT 1" });
-    await new Promise((r) => setTimeout(r, 10));
+    await running; // the first statement is with the adapter: the connection is busy
     const second = await sql(id, { text: "SELECT 2" });
     expect(second.status).toBe(429);
     expect(second.body.error.code).toBe("sql_busy");
@@ -146,15 +149,18 @@ describe("POST /connections/:id/run", () => {
 
   it("cancels the statement when the request is aborted", async () => {
     const id = await connect({ dataAccess: true });
+    let listening: () => void = () => {};
+    const ready = new Promise<void>((resolve) => (listening = resolve));
     adapterOf().sqlHandler = (r) =>
       new Promise<SqlRunResult>((_, reject) => {
         r.signal?.addEventListener("abort", () =>
           reject(new SqlStatementError("cancelled", "The query was cancelled.")),
         );
+        listening();
       });
     const controller = new AbortController();
     const running = sql(id, { text: "SELECT pg_sleep(30)" }, { signal: controller.signal });
-    await new Promise((r) => setTimeout(r, 10));
+    await ready; // the adapter is listening for the abort
     controller.abort();
     expect((await running).body.failure.code).toBe("cancelled");
   });
@@ -205,12 +211,26 @@ describe("the body", () => {
         new Request(`${BASE}/connections/${id}/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: `SELECT '${"x".repeat(300_000)}'` }),
+          // More than the longest statement could ever take, in any encoding.
+          body: JSON.stringify({ text: `SELECT '${"x".repeat(1_300_000)}'` }),
         }),
         params({ id }),
       ),
     );
     expect(huge.status).toBe(413);
+  });
+
+  it("is limited by the statement's length, not by the size of its body: a long statement in a wide script passes", async () => {
+    const id = await connect({ dataAccess: true });
+    adapterOf().sqlHandler = async () => answer("long");
+    // 200,000 characters of three bytes each in UTF-8: 600 KB, more than the old body limit, and a legal statement.
+    const text = `SELECT '${"名".repeat(199_000)}'`;
+    const accepted = await sql(id, { text });
+    expect(accepted.status).toBe(200);
+    // One character over the limit is refused by the schema.
+    const over = await sql(id, { text: `SELECT '${"名".repeat(200_001)}'` });
+    expect(over.status).toBe(400);
+    expect(over.body.error.code).toBe("validation_error");
   });
 });
 

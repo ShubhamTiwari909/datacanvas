@@ -13,7 +13,7 @@
 import type { SqlFailure, SqlResult } from "@datacanvas/shared-types";
 import { create } from "zustand";
 import { runStatement } from "@/features/sql/api";
-import { DEFAULT_ROW_LIMIT } from "@/features/sql/result-text";
+import { DEFAULT_ROW_LIMIT, utf16Position } from "@/features/sql/result-text";
 
 export type SqlRunState =
   | { kind: "idle" }
@@ -297,10 +297,11 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
       } else if ("failure" in result.data) {
         // The position counts from the text sent; the person's text starts after the prefix.
         const { failure: sentFailure } = result.data;
+        // ... and in characters, where the editor counts UTF-16 units.
         const position =
           sentFailure.position === null || sentFailure.position <= prefix.length
             ? null
-            : sentFailure.position - prefix.length;
+            : utf16Position(text, sentFailure.position - prefix.length);
         const failure = { ...sentFailure, position };
         patchTab(id, tabId, {
           state:

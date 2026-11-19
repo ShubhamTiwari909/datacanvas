@@ -11,6 +11,7 @@
 
 import { memo, useCallback, useRef, useState, type KeyboardEvent } from "react";
 import type { RowCell, RowColumn } from "@datacanvas/database-core";
+import { SQL_LIMITS } from "@datacanvas/database-core";
 import type { SqlResult } from "@datacanvas/shared-types";
 import { cn } from "@/lib/utils";
 import { BLUR_IN_GRID, useBlurStore } from "@/features/data/blur-store";
@@ -26,7 +27,16 @@ const toColumn = (c: SqlResult["columns"][number]): RowColumn => ({
   masked: false,
   kind: "other",
 });
-const toCell = (value: string | null): RowCell => ({ value, truncated: false });
+/**
+ * The runner cuts a cell to `maxCellChars` and reports only how many it cut. A cell of exactly that
+ * length (or one short of it, when a surrogate pair was not split) in a result that had cuts is
+ * taken as cut: the dialog then says the rest is missing. An uncut cell of exactly that length in
+ * the same result would be marked too, which is the price of not sending a flag for every cell.
+ */
+const toCell = (value: string | null, anyCut: boolean): RowCell => ({
+  value,
+  truncated: anyCut && value !== null && value.length >= SQL_LIMITS.maxCellChars - 1,
+});
 
 export function ResultGrid({ result }: { result: SqlResult }) {
   const tableRef = useRef<HTMLTableElement>(null);
@@ -37,6 +47,9 @@ export function ResultGrid({ result }: { result: SqlResult }) {
   const columns = result.columns.map(toColumn);
   const lastRow = result.rows.length - 1;
   const lastCol = columns.length - 1;
+  // A new result may be smaller than the last: the cell that has the tab stop must exist.
+  const activeRow = Math.min(active.row, Math.max(0, lastRow));
+  const activeCol = Math.min(active.col, Math.max(0, lastCol));
 
   const focusCell = (row: number, col: number) => {
     const next = {
@@ -54,7 +67,7 @@ export function ResultGrid({ result }: { result: SqlResult }) {
       const value = result.rows[row]?.[col];
       const column = result.columns[col];
       if (value === undefined || value === null || !column) return;
-      setOpenCell({ column: toColumn(column), cell: toCell(value) });
+      setOpenCell({ column: toColumn(column), cell: toCell(value, result.cutCells > 0) });
     },
     [result],
   );
@@ -119,9 +132,10 @@ export function ResultGrid({ result }: { result: SqlResult }) {
                 key={r}
                 row={row}
                 r={r}
-                activeCol={active.row === r ? active.col : -1}
+                activeCol={activeRow === r ? activeCol : -1}
                 onActivate={activate}
                 onOpen={open}
+                anyCut={result.cutCells > 0}
               />
             ))}
           </tbody>
@@ -139,7 +153,9 @@ const GridRow = memo(function GridRow({
   activeCol,
   onActivate,
   onOpen,
+  anyCut,
 }: {
+  anyCut: boolean;
   row: (string | null)[];
   r: number;
   /** The focusable column of this row, or -1 when the row has no tab stop. */
@@ -156,7 +172,7 @@ const GridRow = memo(function GridRow({
         {r + 1}
       </th>
       {row.map((value, c) => {
-        const cell = toCell(value);
+        const cell = toCell(value, anyCut);
         const shown = describeCell(cell, false);
         const openable = value !== null;
         return (

@@ -71,10 +71,16 @@ describe("the SQL view: exactly one route takes SQL text (decision 141)", () => 
   it("takes only a JSON POST with the strict schema, never cached, with no GET", () => {
     const code = readFileSync(path.join(root, runRoute), "utf8");
     expect(code).toMatch(/export function POST\b/);
-    expect(code).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
-    expect(code).toContain("sqlRunRequestSchema");
-    expect(code).toContain("jsonResponse"); // no-store
+    // No other way of exporting a handler for another method, whatever the form.
+    expect(code).not.toMatch(
+      /export\s+(async\s+)?(function|const|let|var)\s+(GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/,
+    );
+    expect(code).not.toMatch(/export\s*\{[^}]*\b(GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\b[^}]*\}/);
+    // The body is parsed with the strict schema, before anything else, and the answer is the no-store helper's.
+    expect(code).toMatch(/parseJsonBody\(\s*request\s*,\s*sqlRunRequestSchema\b/);
+    expect(code).toMatch(/return\s+jsonResponse\(/);
     expect(code).toMatch(/handleRoute\(\s*request\b/);
+    expect(code.indexOf("parseJsonBody(")).toBeLessThan(code.indexOf(".sql.run("));
   });
 
   it("the request schema is strict and has no key besides the text and two limits", () => {

@@ -116,6 +116,8 @@ describe("EXPLAIN", () => {
     "EXPLAIN ANALYZE VERBOSE VALUES (1)",
     "EXPLAIN /* c */ ANALYZE -- c\n TABLE t",
     "EXPLAIN SELECT 'a'",
+    "/* explain */ EXPLAIN SELECT 1",
+    "-- explain me\nEXPLAIN ANALYZE SELECT 1",
   ])("allows explaining a query: %s", (text) => expect(ok(text)).toBe(true));
 
   it.each([

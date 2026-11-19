@@ -54,6 +54,8 @@ export async function apiRequest<S extends z.ZodType>(
   try {
     json = await response.json();
   } catch {
+    // Cancelling while the body is read is still a cancel.
+    if (options.signal?.aborted) return failure("aborted", "The request was cancelled.");
     return failure("bad_response", "The server sent an unreadable response.");
   }
 

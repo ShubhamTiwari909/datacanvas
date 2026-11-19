@@ -30,12 +30,12 @@ Said plainly in the docs: **column masking does not apply to SQL results.** A qu
 A new interface `SqlRunnerAdapter` in `database-core` (not a method on `DatabaseAdapter`, which keeps "there is deliberately no method that runs arbitrary SQL"), detected by `isSqlRunnerAdapter` like `isWritableAdapter`. Implemented by `PostgresAdapter` and `MockDatabaseAdapter`. Only one file, `apps/web/lib/server/sql-service.ts`, may touch it; an architecture rule says so, in the same style as the write rule.
 
 ```ts
-runStatement(request: { text: string; maxRows: number; timeoutMs: number; signal: AbortSignal })
+runStatement(request: { text: string; maxRows: number; timeoutMs: number; signal?: AbortLike })
   : Promise<{ columns: { name: string; dataType: string }[]; rows: (string | null)[][];
-              truncated: boolean; command: string; rowCount: number | null; elapsedMs: number }>
+              truncated: boolean; command: string; cutCells: number; elapsedMs: number }>
 ```
 
-All values come back as text (as the Data tab does), cut at the same cell length inside the database where possible, with the same response byte cap (`MAX_RESPONSE_CHARS`).
+All values come back as text (as the Data tab does), cut at `SQL_LIMITS.maxCellChars` in the runner, with a byte budget on what is read (`SQL_LIMITS.maxResultBytes`).
 
 ### 3.2 How a statement runs (the part that must be right)
 
@@ -47,20 +47,22 @@ The scan of the code found four ways a typed statement could escape `BEGIN READ 
 | A lone `COMMIT` or `ROLLBACK` ends our transaction early                                                                                                                 | Nothing else runs after it on that connection; the connection is closed afterwards in every case, and a test checks that a following statement cannot write                                                                      |
 | `COPY (...) TO PROGRAM`, `DO $$ ... $$`, `CALL`: a read-only transaction does not stop them (found in S1)                                                                | The first word must be SELECT, WITH, VALUES, TABLE, EXPLAIN or SHOW, checked in the service and again in the adapter; a role that may run server programs from a function it calls stays a risk, and **the role is the control** |
 | `SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE` or `SET default_transaction_read_only = off` leaks into a pooled connection and changes later write transactions | A query runs on a **dedicated connection** opened for it and ended after it, never on the pool. A test runs the `SET`, then checks the next write transaction is unaffected                                                      |
+| `--` ended at a carriage return by PostgreSQL but not by the check (found in the review)                                                                                 | White space as PostgreSQL has it; any other control character is refused; tests against a real server (decision 144)                                                                                                             |
+| `EXPLAIN ANALYZE CREATE TABLE ... AS`, `CREATE MATERIALIZED VIEW` and `SELECT ... INTO` run without PostgreSQL's read-only check (found in the review)                   | `EXPLAIN` is allowed only for a plain query without the word `INTO`; a test for each form against a real server (decision 144)                                                                                                   |
 | `BEGIN READ WRITE` inside the transaction                                                                                                                                | The database refuses it inside a read-only transaction; test                                                                                                                                                                     |
 
-Also on that connection: `statement_timeout` (default 30 s, the person may choose up to 5 min), `lock_timeout` 3 s, `idle_in_transaction_session_timeout`, `application_name = 'DataCanvas SQL'`, and `default_transaction_read_only = on` as a second guard besides `BEGIN READ ONLY`. Side effects that a read-only transaction does not stop (`pg_sleep`, `nextval` is refused, `dblink`, advisory locks) are bounded by the timeout; the role warning already tells the person what the role can do.
+Also on that connection: `statement_timeout` (default 30 s, the person may choose up to 5 min), `lock_timeout` 3 s, `idle_in_transaction_session_timeout`, `application_name = 'DataCanvas SQL'`, and `default_transaction_read_only = on` as a second guard besides `BEGIN READ ONLY`. Side effects that a read-only transaction does not stop (`pg_sleep`, `dblink`, advisory locks) are bounded by the timeout (`nextval` is refused by it); the role warning already tells the person what the role can do.
 
 ### 3.3 Limits, gate, cancel
 
-- Rows: 1,000 by default, up to 10,000 by choice; "Showing the first N rows" when cut. A cursor-less cut: fetch N+1 through the driver's row stream and stop, so a huge result never fully crosses the wire.
+- Rows: 1,000 by default, up to 10,000 by choice; "Showing the first N rows" when cut. A cursor-backed cut: the statement is declared as a cursor and N+1 rows are fetched a few at a time, stopping at a byte budget (64 MB), so a huge result never fully crosses the wire.
 - A `SqlGate` like `RowsGate`: one query at a time per connection, a second says `sql_busy` plainly (a tab shows "another query is running").
 - Cancel: abort the request; the server sends `pg_cancel_backend(pid)` from a second connection (pid known from the dedicated one) and closes it. Test with `pg_sleep(30)`.
 - Errors: the database's own message is shown (a SQL tool is useless without it) but passed through the same redaction as other errors for the connection string and password; position is mapped to the editor as a marker.
 
 ### 3.4 The route and the rules that change
 
-`POST /api/connections/:id/run` with a strict body `{ text, maxRows, timeoutMs }` and JSON only, no GET, the same guards as every write route (host, origin, token, size limit; the body limit is 256 KB). The route name avoids the words the existing test forbids; that test (`tests/security.test.ts`, "no arbitrary SQL, ever") is **amended to allow exactly one route** and to fail if a second one appears, rather than loosened.
+`POST /api/connections/:id/run` with a strict body `{ text, maxRows, timeoutMs }` and JSON only, no GET, the same guards as every write route (host, origin, token, size limit; the body limit lets the longest statement through in its widest encoding, and the schema is what limits the text). The route name avoids the words the existing test forbids; that test (`tests/security.test.ts`, "no arbitrary SQL, ever") is **amended to allow exactly one route** and to fail if a second one appears, rather than loosened.
 
 Rule changes, all in the same commit as the code, not after:
 
@@ -131,4 +133,4 @@ Rough size: S0 0.5 day, S1 2 days (the careful one), S2 2 days, S3 1 day, S4 1.5
 
 1. **Keep the text of tabs across a reload?** The default here is no (memory only), which means a page refresh loses unsaved queries. The options are: (a) memory only, with "Save as .sql file" and "Open .sql file" on each tab; (b) also keep tab text in this browser's `localStorage` (not results, never history), cleared by a "Forget my queries" button; (c) keep tabs in a file on disk next to the saved workspaces. **Recommendation: (a) for 1.6.0**, and (b) as an opt-in switch afterwards, because query text is typed data and it is better to add saving later than to remove it.
 2. **Default row cap**: 1,000 with a 10,000 maximum, or lower?
-3. **Should `EXPLAIN ANALYZE` be offered?** It runs the statement (still read-only). Recommendation: yes, labelled "runs the query".
+3. **Should `EXPLAIN ANALYZE` be offered?** It runs the statement. It is read-only only because the runner refuses what PostgreSQL does not stop under it: `EXPLAIN ANALYZE CREATE TABLE ... AS`, `CREATE MATERIALIZED VIEW` and `SELECT ... INTO` create the table inside a read-only transaction (found in the review, decision 144). Decided: yes, labelled "runs the statement", for a plain query without the word `INTO`.

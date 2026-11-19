@@ -105,6 +105,14 @@ describe("toJson", () => {
     ]);
   });
 
+  it("never reuses a key, even when a made-up one is also a column name", () => {
+    const parsed = JSON.parse(toJson(cols("id", "id (2)", "id"), [["1", "2", "3"]])) as Record<
+      string,
+      string
+    >[];
+    expect(parsed[0]).toEqual({ id: "1", "id (2)": "2", "id (3)": "3" });
+  });
+
   it("treats a column called __proto__ as a name", () => {
     const parsed = JSON.parse(toJson(cols("__proto__"), [["x"]])) as unknown[];
     expect(Object.keys(parsed[0] as object)).toEqual(["__proto__"]);

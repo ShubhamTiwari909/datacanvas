@@ -57,6 +57,8 @@ const TEXT_ONLY = {
 export async function runStatementOnOwnConnection(
   config: pg.PoolConfig,
   request: SqlRunRequest,
+  /** The byte budget of the result; the limit of the product unless a test asks for a smaller one. */
+  maxResultBytes: number = SQL_LIMITS.maxResultBytes,
 ): Promise<SqlRunResult> {
   const { signal } = request;
   if (signal?.aborted) throw new SqlStatementError("cancelled", CANCELLED);
@@ -137,13 +139,14 @@ export async function runStatementOnOwnConnection(
     throwIfAborted();
 
     const started = Date.now();
+    const deadline = started + request.timeoutMs;
     const word = firstKeyword(request.text);
     const asCursor = word !== null && QUERY_WORDS.includes(word);
     let raw: Raw;
     try {
       raw = asCursor
-        ? await readThroughCursor(client, request, throwIfAborted)
-        : await readPlain(client, request);
+        ? await readThroughCursor(client, request, throwIfAborted, deadline, maxResultBytes)
+        : await readPlain(client, request, maxResultBytes);
     } catch (error) {
       throw aborted
         ? new SqlStatementError("cancelled", CANCELLED)
@@ -151,8 +154,17 @@ export async function runStatementOnOwnConnection(
     }
     const truncated = raw.rows.length > request.maxRows || raw.budgetHit;
     const kept = raw.rows.length > request.maxRows ? raw.rows.slice(0, request.maxRows) : raw.rows;
-    const columns = await describeColumns(client, raw.fields);
-    await client.query("COMMIT");
+    // An abort that lands while the columns are described or the transaction ends is still a cancel.
+    let columns: SqlResultColumn[];
+    try {
+      throwIfAborted();
+      columns = await describeColumns(client, raw.fields);
+      throwIfAborted();
+      await client.query("COMMIT");
+      throwIfAborted();
+    } catch (error) {
+      throw aborted ? new SqlStatementError("cancelled", CANCELLED) : error;
+    }
     const cut = cutLongCells(kept);
     return {
       columns,
@@ -183,17 +195,30 @@ async function readThroughCursor(
   client: pg.Client,
   request: SqlRunRequest,
   throwIfAborted: () => void,
+  deadline: number,
+  maxResultBytes: number,
 ): Promise<Raw> {
   await client.query({ name: STATEMENT_NAME, text: CURSOR_PREFIX + request.text });
   throwIfAborted();
-  // Fetched a few rows at a time: one more than wanted, so "there were more" is known, and
-  // never more bytes than the budget, whatever the size of a row.
   const rows: (string | null)[][] = [];
   let fields: pg.FieldDef[] = [];
   let bytes = 0;
   let budgetHit = false;
-  while (rows.length < request.maxRows + 1) {
-    const want = Math.min(BATCH_ROWS, request.maxRows + 1 - rows.length);
+  fetching: while (rows.length < request.maxRows + 1) {
+    // One time limit for the whole statement, not one per fetch: what is left of it goes to the server.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new SqlStatementError("57014", "canceling statement due to statement timeout");
+    }
+    if (rows.length > 0) {
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [String(remaining)]);
+    }
+    // The first fetch is one row, to see how big rows are; after that as many as fit twice over in
+    // what is left of the byte budget (at most a batch), so a batch is never much larger than it.
+    const average = rows.length > 0 ? bytes / rows.length : Number.POSITIVE_INFINITY;
+    const room = maxResultBytes - bytes;
+    const fit = Number.isFinite(average) ? Math.max(1, Math.floor(room / (average * 2 + 1))) : 1;
+    const want = Math.min(BATCH_ROWS, fit, request.maxRows + 1 - rows.length);
     const fetched = await client.query({
       text: `FETCH FORWARD ${want} FROM ${CURSOR}`,
       rowMode: "array",
@@ -201,12 +226,13 @@ async function readThroughCursor(
     });
     if (fields.length === 0) fields = fetched.fields;
     for (const row of fetched.rows as (string | null)[][]) {
+      const size = rowBytes(row);
+      if (rows.length > 0 && bytes + size > maxResultBytes) {
+        budgetHit = true;
+        break fetching;
+      }
       rows.push(row);
-      for (const cell of row) bytes += cell === null ? 0 : cell.length;
-    }
-    if (bytes > SQL_LIMITS.maxResultBytes) {
-      budgetHit = true;
-      break;
+      bytes += size;
     }
     if (fetched.rows.length < want) break; // the cursor is exhausted
     throwIfAborted();
@@ -214,19 +240,38 @@ async function readThroughCursor(
   return { fields, rows, command: "SELECT", budgetHit };
 }
 
-async function readPlain(client: pg.Client, request: SqlRunRequest): Promise<Raw> {
+/** The bytes a row takes as UTF-8, which is what the budget counts. */
+function rowBytes(row: readonly (string | null)[]): number {
+  let size = 0;
+  for (const cell of row) if (cell !== null) size += Buffer.byteLength(cell, "utf8");
+  return size;
+}
+
+async function readPlain(
+  client: pg.Client,
+  request: SqlRunRequest,
+  maxResultBytes: number,
+): Promise<Raw> {
   const result = await client.query({
     name: STATEMENT_NAME,
     text: request.text,
     rowMode: "array",
     types: TEXT_ONLY,
   });
-  return {
-    fields: result.fields,
-    rows: result.rows as (string | null)[][],
-    command: result.command ?? "",
-    budgetHit: false,
-  };
+  // EXPLAIN and SHOW are small and cannot be read in pieces, but the same limits apply to what is kept.
+  const rows: (string | null)[][] = [];
+  let bytes = 0;
+  let budgetHit = false;
+  for (const row of result.rows as (string | null)[][]) {
+    const size = rowBytes(row);
+    if (rows.length > 0 && bytes + size > maxResultBytes) {
+      budgetHit = true;
+      break;
+    }
+    rows.push(row);
+    bytes += size;
+  }
+  return { fields: result.fields, rows, command: result.command ?? "", budgetHit };
 }
 
 /** Type names as the database prints them, with length and precision. */

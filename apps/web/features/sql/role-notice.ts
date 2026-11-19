@@ -20,7 +20,7 @@ export function sqlRoleNotice(
   const why = role.superuser
     ? `${role.roleName} is a superuser`
     : `${role.roleName} can ${rights.map(describe).join(" and ")}`;
-  return `${why}. Nothing typed here can write to the database, but a function a statement calls can reach the database server's files or programs. Use a read-only role for SQL you did not write yourself.`;
+  return `${why}. A read-only transaction stops every write in the database, but not what a function can do outside it: reach the database server's files or programs, or write through another connection (an extension such as dblink). Use a read-only role for SQL you did not write yourself.`;
 }
 
 function describe(right: string): string {

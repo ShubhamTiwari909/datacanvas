@@ -48,9 +48,18 @@ export function buildCatalog(structure: DatabaseStructure): Catalog {
   };
 }
 
-/** Names compare the way the database reads them, once the quotes are off: unquoted ones ignore case. */
-export const sameName = (a: string, b: string, quoted = false): boolean =>
-  quoted ? a === b : a.toLowerCase() === b.toLowerCase();
+/** A typed name as PostgreSQL reads it: an unquoted one is folded to lower case, a quoted one is exact. */
+export const fold = (name: string, quoted: boolean): string => (quoted ? name : name.toLowerCase());
+
+/** A name PostgreSQL stored is exactly what it is; a typed one is folded first, and then compared exactly. */
+export const matches = (stored: string, typed: string, typedQuoted: boolean): boolean =>
+  stored === fold(typed, typedQuoted);
+
+/** A schema as typed: its name and whether it was quoted. */
+export interface TypedSchema {
+  name: string;
+  quoted: boolean;
+}
 
 /**
  * The relations a name may mean. With a schema it is exact. Without one, PostgreSQL would use
@@ -58,13 +67,15 @@ export const sameName = (a: string, b: string, quoted = false): boolean =>
  */
 export function findRelations(
   catalog: Catalog,
-  schema: string | null,
+  schema: TypedSchema | null,
   name: string,
   quoted = false,
 ): CatalogRelation[] {
-  const matches = catalog.relations.filter(
-    (r) => sameName(r.name, name, quoted) && (schema === null || sameName(r.schema, schema)),
+  const found = catalog.relations.filter(
+    (r) =>
+      matches(r.name, name, quoted) &&
+      (schema === null || matches(r.schema, schema.name, schema.quoted)),
   );
-  if (schema !== null || matches.length < 2) return matches;
-  return [...matches].sort((a, b) => Number(b.schema === "public") - Number(a.schema === "public"));
+  if (schema !== null || found.length < 2) return found;
+  return [...found].sort((a, b) => Number(b.schema === "public") - Number(a.schema === "public"));
 }

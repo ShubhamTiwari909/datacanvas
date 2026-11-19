@@ -200,7 +200,8 @@ test("says so when the role can reach the database server's files or programs", 
   await open(page, app.link, database);
   const note = page.getByRole("note", { name: "About this role" });
   await expect(note).toContainText("is a superuser");
-  await expect(note).toContainText("Nothing typed here can write");
+  await expect(note).toContainText("A read-only transaction stops every write");
+  await expect(note).toContainText("dblink");
 });
 
 test("opens quickly and shows 10,000 rows without trouble", async ({ page, app, database }) => {
@@ -237,6 +238,18 @@ test("opens quickly and shows 10,000 rows without trouble", async ({ page, app, 
   });
   await expect(grid.getByRole("row").last()).toContainText("10000");
   const scrollMs = Date.now() - scrolled;
+  // The box really moved to its end, and back again.
+  const position = () =>
+    grid.evaluate((el) => {
+      const box = el.parentElement!;
+      return {
+        top: box.scrollTop,
+        atEnd: box.scrollTop + box.clientHeight >= box.scrollHeight - 2,
+      };
+    });
+  expect((await position()).atEnd).toBe(true);
+  await grid.evaluate((el) => el.parentElement!.scrollTo({ top: 0 }));
+  expect((await position()).top).toBe(0);
   console.log(`sql view: open ${openMs} ms, 10,000 rows shown ${showMs} ms, scroll ${scrollMs} ms`);
   expect(openMs).toBeLessThan(5000);
   expect(showMs).toBeLessThan(8000);

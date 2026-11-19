@@ -20,6 +20,7 @@ describe("sqlRoleNotice", () => {
     const notice = sqlRoleNotice(role({ superuser: true }))!;
     expect(notice).toContain("alice is a superuser");
     expect(notice).toContain("read-only role");
+    expect(notice).toContain("dblink");
   });
 
   it("warns about each right over the database server's files and programs", () => {

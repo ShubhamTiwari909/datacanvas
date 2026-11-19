@@ -8,6 +8,7 @@
  */
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import {
   Boxes,
@@ -31,10 +32,15 @@ import { PathView } from "@/features/paths/path-view";
 import { SchemaOverviewView } from "@/features/overview/schema-overview-view";
 import { ObjectsView } from "@/features/objects/objects-view";
 import { SnapshotsView } from "@/features/snapshots/snapshots-view";
-import { SqlView } from "@/features/sql/sql-view";
 import { autosaver } from "@/features/workspaces/autosave-instance";
 import { useWorkspaceStore, type WorkspaceView } from "@/stores/workspace-store";
 import { TableDetails } from "./table-details";
+
+// The SQL view (and the editor in it) is fetched when its tab is first opened, not with the page.
+const SqlView = dynamic(() => import("@/features/sql/sql-view").then((m) => m.SqlView), {
+  ssr: false,
+  loading: () => <LoadingState label="Loading the SQL view…" />,
+});
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-full items-center justify-center">{children}</div>;

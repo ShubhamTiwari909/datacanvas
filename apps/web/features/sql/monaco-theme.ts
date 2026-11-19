@@ -16,11 +16,13 @@ function toHex(css: string): string | null {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
   ctx.clearRect(0, 0, 1, 1);
-  ctx.fillStyle = "#000000";
+  // A transparent start: a colour the browser cannot parse leaves it as it is, and is seen as not read.
+  ctx.fillStyle = "rgba(0, 0, 0, 0)";
   ctx.fillStyle = css;
   ctx.fillRect(0, 0, 1, 1);
   const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-  if (r === undefined || g === undefined || b === undefined || a === undefined) return null;
+  if (r === undefined || g === undefined || b === undefined || a === undefined || a === 0)
+    return null;
   const hex = (n: number) => n.toString(16).padStart(2, "0");
   return `#${hex(r)}${hex(g)}${hex(b)}${a === 255 ? "" : hex(a)}`;
 }

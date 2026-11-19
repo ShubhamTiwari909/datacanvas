@@ -86,3 +86,30 @@ describe("insideStringOrComment", () => {
     expect(at("SELECT |")).toBe(false);
   });
 });
+
+describe("strings PostgreSQL has", () => {
+  it("reads a backslash in E'...' as an escape, and not in '...'", () => {
+    expect(kinds("E'it\\'s' x")).toEqual(["word:E", "string:'it\\'s'", "word:x"]);
+    expect(kinds("e'a\\\\' x")).toEqual(["word:e", "string:'a\\\\'", "word:x"]);
+    // A plain string ends at the second quote: the backslash is an ordinary character.
+    expect(kinds("'it\\' x")).toEqual(["string:'it\\'", "word:x"]);
+    // An E that ends a longer word is not the E of an escape string.
+    expect(kinds("ONE'a\\' x")).toEqual(["word:ONE", "string:'a\\'", "word:x"]);
+  });
+
+  it("reads dollar-quoted strings with digits and long tags", () => {
+    expect(kinds("$a1$ x; y $a1$ z")).toEqual(["string:$a1$ x; y $a1$", "word:z"]);
+    expect(kinds("$very_long_tag_name_2$ q $very_long_tag_name_2$")).toEqual([
+      "string:$very_long_tag_name_2$ q $very_long_tag_name_2$",
+    ]);
+    expect(kinds("$1 + $2")).toEqual(["punct:$", "number:1", "punct:+", "punct:$", "number:2"]);
+  });
+
+  it("stays quiet inside an escape string and a long-tag string", () => {
+    const at = (text: string) =>
+      insideStringOrComment(tokenize(text.replace("|", "")), text.indexOf("|"));
+    expect(at("SELECT E'it\\'s | x'")).toBe(true);
+    expect(at("SELECT $t2$ in | side $t2$")).toBe(true);
+    expect(at("SELECT $t2$ inside $t2$ |")).toBe(false);
+  });
+});

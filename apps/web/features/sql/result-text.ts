@@ -2,7 +2,12 @@
  * Words and positions for the SQL view. Pure, so every rule is tested without a browser.
  */
 import { firstKeyword } from "@datacanvas/database-core";
-import type { SqlFailure, SqlResult } from "@datacanvas/shared-types";
+import {
+  SQL_DEFAULT_MAX_ROWS,
+  SQL_MAX_MAX_ROWS,
+  type SqlFailure,
+  type SqlResult,
+} from "@datacanvas/shared-types";
 
 const number = new Intl.NumberFormat("en");
 
@@ -56,8 +61,8 @@ export function failureTitle(failure: SqlFailure): string {
 }
 
 /** The row limits the person can choose. */
-export const ROW_LIMITS = [100, 1000, 5000, 10_000] as const;
-export const DEFAULT_ROW_LIMIT = 1000;
+export const ROW_LIMITS = [100, SQL_DEFAULT_MAX_ROWS, 5000, SQL_MAX_MAX_ROWS] as const;
+export const DEFAULT_ROW_LIMIT: number = SQL_DEFAULT_MAX_ROWS;
 
 /** A tab name from a statement: its first line, on one line, cut short. */
 export function nameFromStatement(text: string): string {
@@ -72,4 +77,20 @@ export const startsWithExplain = (text: string): boolean => firstKeyword(text) =
 /** "0.4 s" for a statement's time: milliseconds under a second. */
 export function durationText(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)} ms` : elapsedText(ms);
+}
+
+/**
+ * PostgreSQL counts the position of an error in characters (code points); JavaScript text and the
+ * editor count UTF-16 units, which differ after an emoji or another character outside the basic
+ * plane. 1-based in, 1-based out.
+ */
+export function utf16Position(text: string, position: number): number {
+  let units = 0;
+  let chars = 0;
+  for (const char of text) {
+    if (chars >= position - 1) break;
+    units += char.length;
+    chars++;
+  }
+  return units + 1;
 }

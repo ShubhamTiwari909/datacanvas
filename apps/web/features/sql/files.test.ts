@@ -22,6 +22,14 @@ describe("sqlFileName", () => {
     expect(sqlFileName("line\nbreak")).toBe("line_break.sql");
   });
 
+  it("does not use the name of a Windows device", () => {
+    expect(sqlFileName("CON")).toBe("_CON.sql");
+    expect(sqlFileName("nul")).toBe("_nul.sql");
+    expect(sqlFileName("Com1")).toBe("_Com1.sql");
+    expect(sqlFileName("LPT9")).toBe("_LPT9.sql");
+    expect(sqlFileName("console")).toBe("console.sql");
+  });
+
   it("never yields a path", () => {
     for (const name of ["../x", "/abs", "C:\\win", "a/../b"]) {
       expect(sqlFileName(name)).not.toMatch(/[\\/]/);

@@ -22,3 +22,4 @@ export * from "./changes.js";
 export * from "./sql-run.js";
 export * from "./ddl.js";
 export * from "./capture.js";
+export * from "./migration/index.js";

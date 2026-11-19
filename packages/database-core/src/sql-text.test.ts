@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quoteIdentifier, quoteQualified } from "./sql-text.js";
+import { quoteIdentifier, quoteQualified, quoteString } from "./sql-text.js";
 
 describe("quoteIdentifier", () => {
   it("wraps a plain name in double quotes", () => {
@@ -31,5 +31,23 @@ describe("quoteQualified", () => {
 
   it("does not let a dot inside a name split it", () => {
     expect(quoteQualified("a.b", "c.d")).toBe('"a.b"."c.d"');
+  });
+});
+
+describe("quoteString", () => {
+  it("doubles single quotes and keeps plain text plain", () => {
+    expect(quoteString("it's")).toBe("'it''s'");
+    expect(quoteString("")).toBe("''");
+    expect(quoteString("a; DROP TABLE x; --")).toBe("'a; DROP TABLE x; --'");
+  });
+
+  it("writes a string with a backslash as an escape string with the backslashes doubled", () => {
+    expect(quoteString("a\\b")).toBe("E'a\\\\b'");
+    expect(quoteString("it's \\")).toBe("E'it''s \\\\'");
+  });
+
+  it("keeps line breaks and other characters as they are, and refuses NUL", () => {
+    expect(quoteString("a\nbé\u{1F600}")).toBe("'a\nbé\u{1F600}'");
+    expect(() => quoteString("a\0b")).toThrow(RangeError);
   });
 });

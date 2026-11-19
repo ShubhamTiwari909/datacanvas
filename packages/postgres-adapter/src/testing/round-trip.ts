@@ -17,7 +17,11 @@ import {
   ddlDifferences,
   diffStructures,
   diffToMarkdown,
+  downScript,
+  planMigration,
   type DatabaseStructure,
+  type MigrationPlan,
+  type PlanOptions,
 } from "@datacanvas/database-core";
 import pg from "pg";
 import { PostgresAdapter } from "../postgres.adapter.js";
@@ -118,5 +122,117 @@ export async function runRoundTrip(scenario: Scenario): Promise<RoundTripResult>
   } finally {
     await from.dispose().catch(() => {});
     await to?.dispose().catch(() => {});
+  }
+}
+
+// ----------------------------------------------------------------- the planner
+
+/**
+ * A scenario for the planner (milestone M1): the planner makes the migration, so the scenario holds
+ * only the two states. SQL may say `{s}` for the scenario's own schema, written as an identifier
+ * (quoted), so many scenarios can share one pair of databases and not see each other.
+ */
+export interface PlanScenario {
+  name: string;
+  from: string;
+  to: string;
+  /** Rows (or anything else) added to both databases after their states are made, before they are read. */
+  data?: string;
+  /** Rows for the starting database only: for data that the target's own rules would refuse (a NOT NULL, a column that is not there). */
+  fromData?: string;
+  options?: PlanOptions;
+  /** The schema's name; by default a plain one. Hostile names are tested by choosing one. */
+  schema?: string;
+}
+
+export interface PlanRoundTrip {
+  plan: MigrationPlan;
+  /** The step that failed when the migration ran, with the error: the plan was wrong. Null when it ran. */
+  upError: string | null;
+  upDifferences: string[];
+  downError: string | null;
+  downDifferences: string[];
+}
+
+export interface Pair {
+  from: TestDatabase;
+  to: TestDatabase;
+}
+
+let scenarioCounter = 0;
+
+const quote = (name: string): string => `"${name.replace(/"/g, '""')}"`;
+
+/** Two databases for a whole file of scenarios. */
+export async function createPair(): Promise<Pair> {
+  const from = await createTestDatabase();
+  try {
+    return { from, to: await createTestDatabase() };
+  } catch (error) {
+    await from.dispose().catch(() => {});
+    throw error;
+  }
+}
+
+export async function disposePair(pair: Pair | undefined): Promise<void> {
+  await pair?.from.dispose().catch(() => {});
+  await pair?.to.dispose().catch(() => {});
+}
+
+async function execute(db: TestDatabase, statements: string[]): Promise<string | null> {
+  const { host, port, username, password } = db.connection;
+  const client = new pg.Client({ host, port, user: username, password, database: db.dbName });
+  await client.connect();
+  try {
+    for (const sql of statements) {
+      if (sql.trim() === "") continue;
+      try {
+        await client.query(sql);
+      } catch (error) {
+        return `${(error as Error).message}\n--- while running:\n${sql}`;
+      }
+    }
+    return null;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+export async function runPlanScenario(pair: Pair, scenario: PlanScenario): Promise<PlanRoundTrip> {
+  const schema = scenario.schema ?? `rt${++scenarioCounter}`;
+  const sql = (text: string) => text.replaceAll("{s}", quote(schema));
+  const cleanup = `DROP SCHEMA IF EXISTS ${quote(schema)} CASCADE`;
+  try {
+    for (const [db, text, extra] of [
+      [pair.from, scenario.from, `${scenario.data ?? ""} ${scenario.fromData ?? ""}`],
+      [pair.to, scenario.to, scenario.data ?? ""],
+    ] as const) {
+      const error = await execute(db, [sql(text), sql(extra)]);
+      if (error) throw new Error(`the scenario "${scenario.name}" could not be set up: ${error}`);
+    }
+    const start = await read(pair.from);
+    const target = await read(pair.to);
+    const plan = planMigration(start, target, scenario.options);
+
+    const upError = await execute(
+      pair.from,
+      plan.steps.map((step) => step.up),
+    );
+    const migrated = await read(pair.from);
+    const upDifferences = describeDifferences(migrated, target, {
+      before: "after the migration",
+      after: "the target",
+    });
+
+    const downError = await execute(pair.from, [downScript(plan)]);
+    const rolledBack = await read(pair.from);
+    const downDifferences = describeDifferences(rolledBack, start, {
+      before: "after the rollback",
+      after: "the starting point",
+    });
+    return { plan, upError, upDifferences, downError, downDifferences };
+  } finally {
+    await execute(pair.from, [cleanup]);
+    await execute(pair.to, [cleanup]);
   }
 }

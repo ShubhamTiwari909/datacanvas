@@ -187,6 +187,7 @@ describe("WriteService: the switches", () => {
       searchObjects: (q, l) => readOnly.searchObjects(q, l),
       getRelationships: () => readOnly.getRelationships(),
       getObjects: () => readOnly.getObjects(),
+      getDdlDetail: (t, s) => readOnly.getDdlDetail(t, s),
       getIndexUsage: () => readOnly.getIndexUsage(),
       getRows: (t, o) => readOnly.getRows(t, o),
       getRoleInfo: () => readOnly.getRoleInfo(),

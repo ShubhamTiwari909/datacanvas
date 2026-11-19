@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { emptyDdl } from "./ddl.js";
 import { diffStructures, diffToMarkdown, formatValue } from "./diff.js";
 import type {
   ColumnInfo,
@@ -600,5 +601,56 @@ describe("buildStructure: objects", () => {
       functions: [func("b"), func("a")],
     });
     expect(built.objects?.functions.map((f) => f.name)).toEqual(["a", "b"]);
+  });
+});
+
+describe("the definition detail (ddl) and the comparison", () => {
+  it("is kept as it is, sorted, and null when it was not recorded", () => {
+    expect(buildStructure(["public"], [], []).ddl).toBeNull();
+    const built = buildStructure(["public"], [], [], null, {
+      ...emptyDdl(160000),
+      columns: [
+        {
+          schema: "public",
+          table: "b",
+          column: "x",
+          identity: "always",
+          generated: null,
+          collation: null,
+        },
+        {
+          schema: "public",
+          table: "a",
+          column: "x",
+          identity: null,
+          generated: "stored",
+          collation: null,
+        },
+      ],
+    });
+    expect(built.ddl?.columns.map((c) => c.table)).toEqual(["a", "b"]);
+  });
+
+  it("is not looked at by the comparison: two structures that differ only in it show no difference", () => {
+    const plain = buildStructure(["public"], [], [], emptyObjects(), emptyDdl(160000));
+    const detailed = buildStructure(["public"], [], [], emptyObjects(), {
+      ...emptyDdl(120000),
+      tables: [
+        {
+          schema: "public",
+          name: "t",
+          unlogged: true,
+          partitionKey: null,
+          partitionOf: null,
+          inherits: [],
+          options: [],
+          tablespace: null,
+        },
+      ],
+    });
+    expect(diffStructures(plain, detailed).isEmpty).toBe(true);
+    expect(
+      diffStructures(detailed, buildStructure(["public"], [], [], emptyObjects(), null)).isEmpty,
+    ).toBe(true);
   });
 });

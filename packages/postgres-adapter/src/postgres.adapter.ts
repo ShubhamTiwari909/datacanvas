@@ -39,6 +39,7 @@ import {
   type ConstraintInfo,
   type DatabaseAdapter,
   type DatabaseObjects,
+  type DdlDetail,
   type IndexInfo,
   type IndexUsageReport,
   type RowPage,
@@ -70,6 +71,7 @@ import { listConstraints } from "./introspection/constraints.js";
 import { assertRelationExists, assertSchemaExists } from "./introspection/existence.js";
 import { listIndexes } from "./introspection/indexes.js";
 import { listIndexUsage } from "./introspection/index-usage.js";
+import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
 import { readRows } from "./introspection/rows.js";
 import { listRelationships } from "./introspection/relationships.js";
@@ -185,6 +187,10 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
 
   getRelationships(): Promise<RelationshipInfo[]> {
     return this.read((db) => listRelationships(db));
+  }
+
+  getDdlDetail(tables: readonly TableRef[], schemas: readonly string[]): Promise<DdlDetail> {
+    return this.read((db) => readDdlDetail(db, tables, schemas));
   }
 
   getObjects(): Promise<DatabaseObjects> {

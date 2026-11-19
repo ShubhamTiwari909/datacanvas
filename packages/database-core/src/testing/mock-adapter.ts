@@ -17,6 +17,7 @@ import type {
   StructureChange,
   TableEditInfo,
 } from "../changes.js";
+import { emptyDdl, type DdlDetail } from "../ddl.js";
 import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
   ColumnInfo,
@@ -255,6 +256,15 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
   async getRelationships(): Promise<RelationshipInfo[]> {
     this.requireConnection();
     return copy(this.data.relationships);
+  }
+
+  /** The mock has no definitions to speak of: nothing special, on a recent server. */
+  async getDdlDetail(
+    _tables?: readonly TableRef[],
+    _schemas?: readonly string[],
+  ): Promise<DdlDetail> {
+    this.requireConnection();
+    return emptyDdl(160000);
   }
 
   async getObjects(): Promise<DatabaseObjects> {

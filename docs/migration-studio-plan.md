@@ -1,6 +1,6 @@
 # Migration Studio plan (1.7.0)
 
-Status: **planned, scope decided** (2026-11-19). Follows 1.6.0. Nothing here is built. The questions of section 13 are answered: a new tab, the recommended formats, renames in, owners and grants out, no applying, PostgreSQL 12 to 18.
+Status: **M0 done** (2026-11-19: the structure detail and the round-trip harness). M1 to M6 not started. Follows 1.6.0. The questions of section 13 are answered: a new tab, the recommended formats, renames in, owners and grants out, no applying, PostgreSQL 12 to 18.
 
 Phase 3 asks for five things: **compare database environments, generate migration SQL, detect destructive changes, export a migration, and generate a rollback where possible.** DataCanvas already compares two structures; this phase turns a comparison into a script a person can review, trust and run elsewhere.
 
@@ -117,7 +117,7 @@ PostgreSQL 12 to 18, as the rest of the product; syntax that differs (`NULLS NOT
 
 ## 7. How it is tested
 
-- **The round trip is the oracle.** For each kind of change there is a pair of databases in a container (from, to). Apply `up` to a copy of `from`, read its structure again, and `diffStructures` against `to` must be empty. Apply `down` after it, and the structure must equal `from` again for a step claimed fully reversible. A scenario table (about 150 pairs) covers every row of sections 4 and 5, with data in the tables, so a rewrite or a failing constraint really happens.
+- **The round trip is the oracle.** For each kind of change there is a pair of databases in a container (from, to). Apply `up` to a copy of `from`, read its structure again, and `diffStructures` against `to` must be empty. Apply `down` after it, and the structure must equal `from` again for a step claimed fully reversible. A scenario table (about 150 pairs; each makes two databases today, so M1 moves to one schema per scenario in a single pair) covers every row of sections 4 and 5, with data in the tables, so a rewrite or a failing constraint really happens.
 - **Hostile names.** The same round trip with identifiers and literals made to break a generator: quotes, line breaks, `;`, `--`, `/*`, `$$`, emoji, 63-byte names, reserved words, mixed case. A generated file must run as written and change nothing else.
 - **Ordering.** Cycles (foreign keys both ways, views on views, a function used by a default and a view), and dropping something others depend on.
 - **Property check.** Random structures (small, generated) as `from` and `to`; the plan must pass the round trip. A failure prints the pair.

@@ -205,7 +205,7 @@ describe("export and import", () => {
       'attachment; filename="Q4 _final__v2.snapshot.json"',
     );
     const file = JSON.parse(await exported.text());
-    expect(file).toMatchObject({ format: "datacanvas-snapshot", schemaVersion: 2 });
+    expect(file).toMatchObject({ format: "datacanvas-snapshot", schemaVersion: 3 });
 
     const imported = await call(importSnapshot(json(`${BASE}/snapshots/import`, "POST", file)));
     expect(imported.status).toBe(201);

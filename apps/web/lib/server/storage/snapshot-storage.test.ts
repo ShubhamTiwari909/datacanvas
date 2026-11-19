@@ -7,12 +7,12 @@ import { SnapshotStorage } from "./snapshot-storage";
 
 const snapshot = (id: string, overrides: Partial<Snapshot> = {}): Snapshot => ({
   format: "datacanvas-snapshot",
-  schemaVersion: 2,
+  schemaVersion: 3,
   id,
   name: `Snapshot ${id}`,
   createdAt: "2026-11-14T10:00:00.000Z",
   source: { connectionName: "Shop", database: "shop" },
-  structure: { schemas: ["public"], tables: [], relationships: [], objects: null },
+  structure: { schemas: ["public"], tables: [], relationships: [], objects: null, ddl: null },
   ...overrides,
 });
 
@@ -97,12 +97,29 @@ describe("SnapshotStorage", () => {
     const file = path.join(dir, "snapshots", "snap-aaaaaaaa.json");
     const old = JSON.parse(await fs.readFile(file, "utf8"));
     delete old.structure.objects;
+    delete old.structure.ddl;
     old.schemaVersion = 1;
     await fs.writeFile(file, JSON.stringify(old));
 
     const opened = await storage.get("snap-aaaaaaaa");
-    expect(opened?.schemaVersion).toBe(2);
+    expect(opened?.schemaVersion).toBe(3);
     expect(opened?.structure.objects).toBeNull();
+    expect(opened?.structure.ddl).toBeNull();
+  });
+
+  it("opens a file written by 1.6.0 (version 2, no ddl) and marks the detail not recorded", async () => {
+    const dir = createTestDataDir();
+    const storage = new SnapshotStorage(dir);
+    await storage.put(snapshot("snap-bbbbbbbb"));
+    const file = path.join(dir, "snapshots", "snap-bbbbbbbb.json");
+    const old = JSON.parse(await fs.readFile(file, "utf8"));
+    delete old.structure.ddl;
+    old.schemaVersion = 2;
+    await fs.writeFile(file, JSON.stringify(old));
+
+    const opened = await storage.get("snap-bbbbbbbb");
+    expect(opened?.schemaVersion).toBe(3);
+    expect(opened?.structure.ddl).toBeNull();
   });
 
   it("never turns an id into a path", async () => {

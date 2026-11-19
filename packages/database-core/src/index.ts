@@ -20,3 +20,5 @@ export * from "./rows.js";
 export * from "./diff.js";
 export * from "./changes.js";
 export * from "./sql-run.js";
+export * from "./ddl.js";
+export * from "./capture.js";

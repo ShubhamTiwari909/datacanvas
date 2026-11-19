@@ -20,6 +20,7 @@ const structure = (...names: string[]): DatabaseStructure => ({
   tables: names.map(table),
   relationships: [],
   objects: null,
+  ddl: null,
 });
 
 const snapshotSide = { kind: "snapshot", id: "snap-aaaaaaaa", label: "Baseline" } as const;

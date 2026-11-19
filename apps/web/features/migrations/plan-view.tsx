@@ -5,10 +5,13 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import {
+  buildExport,
   buildScripts,
+  EXPORT_FORMATS,
+  type ExportFormat,
   isDestructive,
   resolveSelection,
   summarize,
@@ -20,6 +23,8 @@ import {
 import { CopyButton } from "@/components/copy-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
@@ -192,11 +197,99 @@ function download(name: string, text: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const stamp = (): string => {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-};
+function ExportPanel({
+  plan,
+  selection,
+  before,
+  after,
+}: {
+  plan: MigrationPlan;
+  selection: Selection;
+  before: string;
+  after: string;
+}) {
+  const [format, setFormat] = useState<ExportFormat>("sql");
+  const [name, setName] = useState("");
+  // The file names carry the moment the plan was made or its choices last changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const at = useMemo(() => new Date(), [plan, selection, format, name]);
+  const result = useMemo(
+    () => buildExport(plan, selection, { format, name, before, after, at }),
+    [plan, selection, format, name, before, after, at],
+  );
+  return (
+    <section aria-labelledby="export-heading" className="flex flex-col gap-2">
+      <h3 id="export-heading" className="text-base font-semibold">
+        Export
+      </h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex min-w-48 flex-col gap-1.5">
+          <Label htmlFor="export-format">Format</Label>
+          <select
+            id="export-format"
+            className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            value={format}
+            onChange={(event) => setFormat(event.target.value as ExportFormat)}
+          >
+            {(Object.keys(EXPORT_FORMATS) as ExportFormat[]).map((f) => (
+              <option key={f} value={f}>
+                {EXPORT_FORMATS[f].label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex min-w-48 flex-1 flex-col gap-1.5">
+          <Label htmlFor="export-name">Name of the migration</Label>
+          <Input
+            id="export-name"
+            value={name}
+            maxLength={60}
+            placeholder="add_orders"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {EXPORT_FORMATS[format].description} The file name uses your clock and the name you give;
+        the name of a database is not used.
+      </p>
+      {result.ok ? (
+        <ul className="flex flex-col gap-2">
+          {result.files.map((file) => (
+            <li key={file.name} className="flex flex-col gap-1 rounded-lg border bg-card p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <code className="font-mono text-sm break-all">{file.name}</code>
+                <span className="flex items-center gap-1">
+                  <CopyButton text={file.content} label={`Copy ${file.name}`} />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Download ${file.name}`}
+                    onClick={() => download(file.name, file.content)}
+                  >
+                    <Download aria-hidden="true" />
+                    Download
+                  </Button>
+                </span>
+              </div>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">Show {file.name}</summary>
+                <pre className="mt-1 max-h-72 overflow-auto rounded-md bg-muted p-2 whitespace-pre-wrap break-words">
+                  {file.content}
+                </pre>
+              </details>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p role="alert" className="text-sm text-destructive">
+          {result.reason}
+        </p>
+      )}
+    </section>
+  );
+}
 
 export function PlanView({
   plan,
@@ -375,17 +468,6 @@ export function PlanView({
                 text={text}
                 label={tab === "rollback" ? "Copy the rollback" : "Copy the script"}
               />
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  download(`${tab === "rollback" ? "rollback" : "migration"}-${stamp()}.sql`, text)
-                }
-              >
-                <Download aria-hidden="true" />
-                Download
-              </Button>
             </div>
             <pre
               aria-label={tab === "rollback" ? "Rollback" : "Script"}
@@ -397,6 +479,8 @@ export function PlanView({
           </>
         )}
       </section>
+
+      <ExportPanel plan={plan} selection={selection} before={before} after={after} />
     </div>
   );
 }

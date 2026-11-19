@@ -145,15 +145,25 @@ test("makes a migration from a comparison: renames, leaving out, destructive ste
   await page.getByRole("tab", { name: /^Notes/ }).click();
   await expect(page.getByText(/Not compared, so not in this migration/)).toBeVisible();
 
-  // The script downloads as a file with the header.
-  await page.getByRole("tab", { name: "Script" }).click();
+  // Export: each format is files with a name made from the clock and the name given.
+  await page.getByLabel("Name of the migration").fill("Add the shop!");
+  await page.getByLabel("Format").selectOption("flyway");
+  const names = page.getByRole("region", { name: "Export" }).locator("code");
+  await expect(names).toHaveText([/^V\d{14}__add_the_shop\.sql$/, /^U\d{14}__add_the_shop\.sql$/]);
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download" }).click();
+  await page.getByRole("button", { name: /^Download V\d{14}__add_the_shop\.sql$/ }).click();
   const file = await download;
-  expect(file.suggestedFilename()).toMatch(/^migration-\d{8}-\d{4}\.sql$/);
   const content = readFileSync((await file.path())!, "utf8");
   expect(content).toContain("Read it before you run it");
   expect(content).toContain('ALTER TABLE "public"."m_old" RENAME TO "m_fresh";');
+  expect(content).not.toContain("BEGIN;");
+
+  await page.getByLabel("Format").selectOption("goose");
+  await expect(names).toHaveText([/^\d{14}_add_the_shop\.sql$/]);
+  await page.getByText(/^Show \d{14}_add_the_shop\.sql$/).click();
+  await expect(page.getByRole("region", { name: "Export" }).locator("pre")).toContainText(
+    "-- +goose Up",
+  );
 
   // From and To swap, and a new plan is made on request.
   await page.getByRole("button", { name: "Swap From and To" }).click();

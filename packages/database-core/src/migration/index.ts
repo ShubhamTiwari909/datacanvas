@@ -12,3 +12,5 @@ export {
   isDestructive,
 } from "./script.js";
 export type { Selection, Resolved, Scripts, Summary } from "./script.js";
+export { buildExport, exportName, exportTimestamp, EXPORT_FORMATS } from "./export.js";
+export type { ExportFormat, ExportOptions, ExportFile, ExportResult } from "./export.js";

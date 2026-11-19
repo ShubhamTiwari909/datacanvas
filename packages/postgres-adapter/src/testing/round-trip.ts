@@ -258,3 +258,7 @@ export async function runPlanScenario(pair: Pair, scenario: PlanScenario): Promi
     await execute(pair.to, [...cleanup, ...after]);
   }
 }
+
+/** For tests that run a file themselves: read a database's structure, and run statements one by one (the error, or null). */
+export const readStructure = read;
+export const executeSql = execute;

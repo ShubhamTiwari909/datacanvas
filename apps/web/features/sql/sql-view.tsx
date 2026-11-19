@@ -13,9 +13,12 @@ import dynamic from "next/dynamic";
 import {
   AlertTriangle,
   Copy,
+  ChevronDown,
   Database,
   Download,
   FolderOpen,
+  History,
+  Share2,
   Pencil,
   Play,
   Plus,
@@ -25,6 +28,12 @@ import {
 import { EmptyState } from "@/components/states/empty-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -35,13 +44,32 @@ import {
   useConnectionSql,
   useSqlStore,
   type ConnectionSql,
+  type HistoryEntry,
   type SqlRunState,
 } from "@/stores/sql-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { checkFileSize, checkFileText, normalizeText, sqlFileName, tabNameFromFile } from "./files";
+import {
+  checkFileSize,
+  checkFileText,
+  exportFileName,
+  normalizeText,
+  sqlFileName,
+  tabNameFromFile,
+} from "./files";
 import { ensureCatalog } from "./completion/catalog-cache";
+import { csvFile, planText, toCsv, toJson, toTsv } from "./export";
+import { HistoryDialog } from "./history-dialog";
 import { ResultGrid } from "./result-grid";
-import { elapsedText, failureTitle, lineColumn, resultSummary, ROW_LIMITS } from "./result-text";
+import type { EditorHandle } from "./sql-editor";
+import {
+  elapsedText,
+  failureTitle,
+  lineColumn,
+  nameFromStatement,
+  resultSummary,
+  ROW_LIMITS,
+  startsWithExplain,
+} from "./result-text";
 
 // Monaco is big: it is fetched when this view opens, never with the first page.
 const SqlEditor = dynamic(() => import("./sql-editor"), {
@@ -79,6 +107,8 @@ function Editor({ connectionId }: { connectionId: string }) {
   const running = runningTab(sql);
   const [message, setMessage] = useState<string | null>(null);
   const openInput = useRef<HTMLInputElement>(null);
+  const handleRef = useRef<EditorHandle | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Read the database's names once, so completion is ready when the person starts typing.
   useEffect(() => {
@@ -99,6 +129,27 @@ function Editor({ connectionId }: { connectionId: string }) {
     () => (failureOffset === null ? null : { offset: failureOffset, message: failureMessage }),
     [failureOffset, failureMessage],
   );
+
+  /** Run the selection (else everything), with `EXPLAIN ` in front for a plan. */
+  function runNow(prefix = "") {
+    const part = handleRef.current?.runText() ?? { text: active.text, base: 0 };
+    const sentPrefix = prefix !== "" && !startsWithExplain(part.text) ? prefix : "";
+    void store().run(connectionId, active.id, part.text, part.base, sentPrefix);
+  }
+
+  /** A statement from the history, in a new tab, and run when asked (if nothing else is running). */
+  function reopen(entry: HistoryEntry, thenRun: boolean) {
+    setHistoryOpen(false);
+    const id = store().newTab(connectionId, {
+      name: nameFromStatement(entry.text),
+      text: entry.text,
+    });
+    if (id === null)
+      return setMessage(`At most ${MAX_TABS} query tabs can be open. Close one first.`);
+    setMessage(null);
+    const now = useSqlStore.getState().byConnection[connectionId];
+    if (thenRun && now && !runningTab(now)) void store().run(connectionId, id, entry.text, 0);
+  }
 
   function save() {
     // A download made in the browser from text already in hand: nothing is stored.
@@ -129,15 +180,36 @@ function Editor({ connectionId }: { connectionId: string }) {
     <div className="flex h-full min-h-[28rem] flex-col">
       <QueryTabs connectionId={connectionId} sql={sql} />
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={running !== undefined}
-          onClick={() => void store().run(connectionId, active.id, active.text, 0)}
-        >
+        <Button type="button" size="sm" disabled={running !== undefined} onClick={() => runNow()}>
           <Play aria-hidden="true" />
           Run
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" size="sm" variant="outline" disabled={running !== undefined}>
+              Explain
+              <ChevronDown aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-72">
+            <DropdownMenuItem onSelect={() => runNow("EXPLAIN ")}>
+              <span className="flex flex-col">
+                <span>Explain</span>
+                <span className="text-xs text-muted-foreground">
+                  Shows the plan. The statement is not run.
+                </span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => runNow("EXPLAIN (ANALYZE, BUFFERS) ")}>
+              <span className="flex flex-col">
+                <span>Explain analyze</span>
+                <span className="text-xs text-muted-foreground">
+                  Runs the statement, and shows the plan with the real times.
+                </span>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {running ? (
           <>
             <Button
@@ -173,6 +245,17 @@ function Editor({ connectionId }: { connectionId: string }) {
           </select>
         </label>
         <div className="ml-auto flex items-center gap-1">
+          <Tip label="Statements run on this connection">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Query history"
+              onClick={() => setHistoryOpen(true)}
+            >
+              <History aria-hidden="true" />
+            </Button>
+          </Tip>
           <Tip label="Duplicate this tab">
             <Button
               type="button"
@@ -235,6 +318,7 @@ function Editor({ connectionId }: { connectionId: string }) {
           tabId={active.id}
           textFor={textFor}
           openTabIds={openTabIds}
+          handle={handleRef}
           onChange={(tabId, value) => store().setText(connectionId, tabId, value)}
           onRun={(tabId, runText, base) => void store().run(connectionId, tabId, runText, base)}
           marker={marker}
@@ -242,8 +326,16 @@ function Editor({ connectionId }: { connectionId: string }) {
         />
       </div>
       <section aria-label="Result" className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <Result state={active.state} />
+        <Result state={active.state} tabName={active.name} />
       </section>
+      <HistoryDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        history={sql.history}
+        canRun={running === undefined}
+        onOpen={reopen}
+        onClear={() => store().clearHistory(connectionId)}
+      />
     </div>
   );
 }
@@ -398,7 +490,7 @@ function RenameInput({
   );
 }
 
-function Result({ state }: { state: SqlRunState }) {
+function Result({ state, tabName }: { state: SqlRunState; tabName: string }) {
   if (state.kind === "idle") {
     return (
       <p className="p-4 text-sm text-muted-foreground">
@@ -449,6 +541,8 @@ function Result({ state }: { state: SqlRunState }) {
     );
   }
   const { result } = state;
+  // An explain is one column of text lines: shown as it is printed, not as a table.
+  const isPlan = result.command === "EXPLAIN" && result.columns.length === 1;
   if (result.columns.length === 0) {
     return (
       <p className="p-4 text-sm text-muted-foreground">
@@ -464,11 +558,24 @@ function Result({ state }: { state: SqlRunState }) {
             No rows. Columns:{" "}
             <span className="font-mono">{result.columns.map((c) => c.name).join(", ")}</span>
           </p>
+        ) : isPlan ? (
+          <pre
+            tabIndex={0}
+            aria-label="Query plan"
+            className="h-full overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs whitespace-pre"
+          >
+            {planText(result.rows)}
+          </pre>
         ) : (
           <ResultGrid result={result} />
         )}
       </div>
-      <p className="text-xs text-muted-foreground">{resultSummary(result).join(" · ")}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs text-muted-foreground">{resultSummary(result).join(" · ")}</p>
+        {result.rows.length > 0 ? (
+          <ExportMenu result={result} tabName={tabName} plan={isPlan} />
+        ) : null}
+      </div>
     </>
   );
 }
@@ -483,5 +590,75 @@ function Running({ startedAt }: { startedAt: number }) {
     <div role="status" className="p-4 text-sm text-muted-foreground">
       Running… {elapsedText(elapsed)}
     </div>
+  );
+}
+
+/** Copy the rows as TSV, CSV or JSON, or save them as a CSV file: exactly what the grid holds. */
+function ExportMenu({
+  result,
+  tabName,
+  plan,
+}: {
+  result: Extract<SqlRunState, { kind: "result" }>["result"];
+  tabName: string;
+  plan: boolean;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(label: string, text: string) {
+    // The clipboard can be unavailable (permissions, insecure context): then nothing happens.
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(label);
+        window.setTimeout(() => setCopied(null), 1500);
+      })
+      .catch(() => {});
+  }
+
+  function download() {
+    const url = URL.createObjectURL(
+      new Blob([csvFile(result.columns, result.rows)], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFileName(tabName, "csv");
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="xs" variant="outline">
+          <Share2 aria-hidden="true" />
+          {copied ? `Copied as ${copied}` : "Export"}
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {plan ? (
+          <DropdownMenuItem onSelect={() => copy("text", planText(result.rows))}>
+            Copy the plan
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onSelect={() => copy("TSV", toTsv(result.columns, result.rows))}>
+          Copy as TSV
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => copy("CSV", toCsv(result.columns, result.rows))}>
+          Copy as CSV
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => copy("JSON", toJson(result.columns, result.rows))}>
+          Copy as JSON
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={download}>
+          <Download aria-hidden="true" />
+          Download CSV
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -265,3 +265,114 @@ describe("the SQL store: running", () => {
     expect(useSqlStore.getState().byConnection.a).toBeUndefined();
   });
 });
+
+describe("the SQL store: history", () => {
+  const history = (id: string) => useSqlStore.getState().byConnection[id]?.history ?? [];
+
+  it("keeps what ran, newest first, with how it went", async () => {
+    const { run, setText } = useSqlStore.getState();
+    setText("a", "tab-1", "x");
+    runStatement.mockResolvedValueOnce(ok({ result }));
+    await run("a", "tab-1", "SELECT 1");
+    runStatement.mockResolvedValueOnce(
+      ok({ failure: { code: "42P01", message: "no table", position: 3 } }),
+    );
+    await run("a", "tab-1", "SELECT * FROM nope");
+    runStatement.mockResolvedValueOnce(
+      ok({ failure: { code: "cancelled", message: "m", position: null } }),
+    );
+    await run("a", "tab-1", "SELECT pg_sleep(30)");
+    expect(history("a").map((h) => [h.text, h.outcome, h.code, h.rows])).toEqual([
+      ["SELECT pg_sleep(30)", "cancelled", null, null],
+      ["SELECT * FROM nope", "failed", "42P01", null],
+      ["SELECT 1", "ok", null, 1],
+    ]);
+    expect(history("a")[2]).toMatchObject({ tabName: "Query 1", elapsedMs: 4 });
+    expect(new Set(history("a").map((h) => h.id)).size).toBe(3);
+  });
+
+  it("records a cancel made here, and never a request that failed", async () => {
+    const request = pending();
+    const running = useSqlStore.getState().run("a", "tab-1", "SELECT pg_sleep(30)");
+    useSqlStore.getState().cancel("a");
+    await running;
+    expect(history("a").map((h) => h.outcome)).toEqual(["cancelled"]);
+    // (On another connection, where nothing was cancelled, so a busy answer is not retried.)
+    runStatement.mockResolvedValueOnce(fail("sql_busy", "busy"));
+    await useSqlStore.getState().run("c", "tab-1", "SELECT 1");
+    runStatement.mockResolvedValueOnce(fail("data_access_disabled", "off"));
+    await useSqlStore.getState().run("c", "tab-1", "SELECT 2");
+    expect(history("c")).toEqual([]);
+    expect(history("a")).toHaveLength(1);
+    expect(request.signal()?.aborted).toBe(true);
+  });
+
+  it("keeps the statement even when its tab was closed while it ran", async () => {
+    const { newTab, closeTab, run } = useSqlStore.getState();
+    newTab("a");
+    const request = pending();
+    const running = run("a", "tab-1", "SELECT slow()");
+    closeTab("a", "tab-1");
+    await running;
+    expect(request.signal()?.aborted).toBe(true);
+    expect(history("a").map((h) => [h.text, h.tabName])).toEqual([["SELECT slow()", "Query 1"]]);
+  });
+
+  it("keeps at most 200 entries, and a bounded number of characters", async () => {
+    runStatement.mockResolvedValue(ok({ result }));
+    for (let i = 0; i < 205; i++) await useSqlStore.getState().run("a", "tab-1", `SELECT ${i}`);
+    expect(history("a")).toHaveLength(200);
+    expect(history("a")[0]?.text).toBe("SELECT 204");
+    expect(history("a").at(-1)?.text).toBe("SELECT 5");
+
+    useSqlStore.setState({ byConnection: {} });
+    const big = `SELECT '${"x".repeat(900_000)}'`;
+    for (let i = 0; i < 4; i++) await useSqlStore.getState().run("b", "tab-1", big);
+    // Two fit under two million characters; the newest is always kept.
+    expect(history("b").length).toBe(2);
+    // A single statement over the limit is still kept: it is the one just run.
+    await useSqlStore.getState().run("d", "tab-1", `SELECT '${"x".repeat(2_500_000)}'`);
+    expect(history("d")).toHaveLength(1);
+  });
+
+  it("clears the history of one connection only, and drops it with the connection", async () => {
+    runStatement.mockResolvedValue(ok({ result }));
+    await useSqlStore.getState().run("a", "tab-1", "SELECT 1");
+    await useSqlStore.getState().run("b", "tab-1", "SELECT 2");
+    useSqlStore.getState().clearHistory("a");
+    expect(history("a")).toEqual([]);
+    expect(history("b")).toHaveLength(1);
+    useSqlStore.getState().forgetConnection("b");
+    expect(history("b")).toEqual([]);
+  });
+});
+
+describe("the SQL store: a statement with a prefix (explain)", () => {
+  it("sends the prefix, keeps the person's text, and counts the position from it", async () => {
+    runStatement.mockResolvedValue(
+      ok({ failure: { code: "42P01", message: "no table", position: 8 + 15 } }),
+    );
+    await useSqlStore.getState().run("a", "tab-1", "SELECT * FROM nope", 0, "EXPLAIN ");
+    expect(runStatement).toHaveBeenCalledWith(
+      "a",
+      { text: "EXPLAIN SELECT * FROM nope", maxRows: 1000 },
+      expect.anything(),
+    );
+    expect(stateOf("a")).toMatchObject({
+      kind: "failure",
+      ranText: "SELECT * FROM nope",
+      failure: { position: 15 },
+    });
+    expect(useSqlStore.getState().byConnection.a!.history[0]?.text).toBe(
+      "EXPLAIN SELECT * FROM nope",
+    );
+  });
+
+  it("has no position for an error in the prefix itself", async () => {
+    runStatement.mockResolvedValue(
+      ok({ failure: { code: "42601", message: "syntax", position: 3 } }),
+    );
+    await useSqlStore.getState().run("a", "tab-1", "x", 0, "EXPLAIN ");
+    expect(stateOf("a")).toMatchObject({ failure: { position: null } });
+  });
+});

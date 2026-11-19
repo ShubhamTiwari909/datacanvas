@@ -17,6 +17,10 @@ export function sqlFileName(tabName: string): string {
   return `${safe || "query"}.sql`;
 }
 
+/** The same name with another extension (`Query 1.csv`). */
+export const exportFileName = (tabName: string, extension: "csv" | "json" | "txt"): string =>
+  sqlFileName(tabName).replace(/\.sql$/, `.${extension}`);
+
 /** A tab name from a file name: without its extension. */
 export function tabNameFromFile(fileName: string): string {
   const base = fileName.split(/[\\/]/).pop() ?? fileName;

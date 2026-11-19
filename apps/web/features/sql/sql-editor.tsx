@@ -12,7 +12,7 @@
  */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type * as Monaco from "monaco-editor/editor/editor.api.js";
 import { LoadingState } from "@/components/states/loading-state";
 import { useThemeStore } from "@/stores/theme-store";
@@ -26,7 +26,14 @@ export interface EditorMarker {
   message: string;
 }
 
+/** What the view asks of the editor from outside: the text to run (the selection, else everything). */
+export interface EditorHandle {
+  runText: () => { text: string; base: number } | null;
+}
+
 export interface SqlEditorProps {
+  /** Filled in once the editor is up (a plain prop, because the editor is loaded on demand). */
+  handle?: RefObject<EditorHandle | null>;
   /** The tab shown. */
   tabId: string;
   /** The text a tab's model starts with, the first time the tab is shown. */
@@ -52,6 +59,7 @@ export default function SqlEditor({
   onRun,
   marker,
   getCatalog,
+  handle,
   readOnly = false,
 }: SqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -103,25 +111,29 @@ export default function SqlEditor({
           if (model) api.editor.setModelMarkers(model, MARKER_OWNER, []);
           latest.current.onChange(latest.current.tabId, model?.getValue() ?? "");
         });
+        /** The selection if there is one, else the whole text. */
+        const textToRun = (ed: Monaco.editor.ICodeEditor) => {
+          const model = ed.getModel();
+          if (!model) return null;
+          const selection = ed.getSelection();
+          return selection && !selection.isEmpty()
+            ? {
+                text: model.getValueInRange(selection),
+                base: model.getOffsetAt(selection.getStartPosition()),
+              }
+            : { text: model.getValue(), base: 0 };
+        };
         editor.addAction({
           id: "datacanvas.run",
           label: "Run statement",
           keybindings: [api.KeyMod.CtrlCmd | api.KeyCode.Enter],
           run: (ed) => {
-            const model = ed.getModel();
-            if (!model) return;
-            const selection = ed.getSelection();
-            if (selection && !selection.isEmpty()) {
-              latest.current.onRun(
-                latest.current.tabId,
-                model.getValueInRange(selection),
-                model.getOffsetAt(selection.getStartPosition()),
-              );
-            } else {
-              latest.current.onRun(latest.current.tabId, model.getValue(), 0);
-            }
+            const part = textToRun(ed);
+            if (part) latest.current.onRun(latest.current.tabId, part.text, part.base);
           },
         });
+        const ownHandle = { runText: () => (editor ? textToRun(editor) : null) };
+        if (handle) handle.current = ownHandle;
         editorRef.current = editor;
         setMonaco(api);
       },
@@ -131,10 +143,13 @@ export default function SqlEditor({
       disposed = true;
       editorRef.current = null;
       completion?.dispose();
+      if (handle) handle.current = null;
       editor?.dispose();
       for (const model of modelsOfThisEditor.values()) model.dispose();
       modelsOfThisEditor.clear();
     };
+    // The editor is made once; its text, theme and callbacks are kept up to date below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Show the model of the tab: make it the first time, and put back the cursor and scroll.

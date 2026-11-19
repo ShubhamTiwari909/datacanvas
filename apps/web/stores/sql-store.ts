@@ -34,12 +34,35 @@ export interface SqlTab {
   state: SqlRunState;
 }
 
+/** One statement that was run: kept in memory, newest first, never saved (decision 141). */
+export interface HistoryEntry {
+  id: string;
+  /** The statement as it was sent (for an explain, with its EXPLAIN in front). */
+  text: string;
+  /** When it finished, in milliseconds since 1970. */
+  at: number;
+  tabName: string;
+  outcome: "ok" | "failed" | "cancelled";
+  /** The database's code for a failure (a SQLSTATE, or `not_allowed`). */
+  code: string | null;
+  /** Rows of the result, for a statement that ran. */
+  rows: number | null;
+  elapsedMs: number;
+}
+
 export interface ConnectionSql {
   tabs: SqlTab[];
   activeId: string;
   /** The number the next new tab is named and identified by; never reused. */
   nextNumber: number;
+  history: HistoryEntry[];
+  /** The number the next history entry is identified by. */
+  nextHistory: number;
 }
+
+export const MAX_HISTORY = 200;
+/** Statements can be long: the whole history keeps at most this many characters, oldest dropped first. */
+export const MAX_HISTORY_CHARS = 2_000_000;
 
 export const MAX_TABS = 20;
 export const MAX_TAB_NAME_CHARS = 60;
@@ -58,6 +81,8 @@ const EMPTY: ConnectionSql = {
   tabs: [newTabRecord(1)],
   activeId: "tab-1",
   nextNumber: 2,
+  history: [],
+  nextHistory: 1,
 };
 
 /** The tab whose statement is running, if any. */
@@ -74,8 +99,18 @@ interface SqlStoreState {
   duplicateTab: (connectionId: string, tabId: string) => string | null;
   setText: (connectionId: string, tabId: string, text: string) => void;
   setMaxRows: (connectionId: string, tabId: string, maxRows: number) => void;
-  /** Run `text` (the whole editor or a selection that starts `base` characters in) from a tab. */
-  run: (connectionId: string, tabId: string, text: string, base?: number) => Promise<void>;
+  /**
+   * Run `text` (the whole editor or a selection that starts `base` characters in) from a tab.
+   * `prefix` is sent in front of it (`EXPLAIN `): the answer's position is counted from `text`.
+   */
+  run: (
+    connectionId: string,
+    tabId: string,
+    text: string,
+    base?: number,
+    prefix?: string,
+  ) => Promise<void>;
+  clearHistory: (connectionId: string) => void;
   /** Cancel the statement running on the connection, if any. */
   cancel: (connectionId: string) => void;
   forgetConnection: (connectionId: string) => void;
@@ -102,7 +137,17 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
     const sql = current(id);
     const at = sql.tabs.findIndex((t) => t.id === sql.activeId);
     const tabs = [...sql.tabs.slice(0, at + 1), tab, ...sql.tabs.slice(at + 1)];
-    write(id, { tabs, activeId: tab.id, nextNumber: sql.nextNumber + 1 });
+    write(id, { ...sql, tabs, activeId: tab.id, nextNumber: sql.nextNumber + 1 });
+  };
+  const record = (id: string, entry: Omit<HistoryEntry, "id">) => {
+    const sql = current(id);
+    let history = [{ ...entry, id: `h-${sql.nextHistory}` }, ...sql.history].slice(0, MAX_HISTORY);
+    let chars = 0;
+    history = history.filter((h, i) => {
+      chars += h.text.length;
+      return i === 0 || chars <= MAX_HISTORY_CHARS;
+    });
+    write(id, { ...sql, history, nextHistory: sql.nextHistory + 1 });
   };
 
   return {
@@ -135,7 +180,7 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
       if (tabs.length === 0) {
         // The last tab is replaced by an empty one.
         const fresh = newTabRecord(sql.nextNumber);
-        write(id, { tabs: [fresh], activeId: fresh.id, nextNumber: sql.nextNumber + 1 });
+        write(id, { ...sql, tabs: [fresh], activeId: fresh.id, nextNumber: sql.nextNumber + 1 });
         return;
       }
       const activeId =
@@ -160,6 +205,7 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
       // The copy goes right after the source, whichever tab is shown.
       const at = sql.tabs.findIndex((t) => t.id === tabId);
       write(id, {
+        ...sql,
         tabs: [...sql.tabs.slice(0, at + 1), copy, ...sql.tabs.slice(at + 1)],
         activeId: copy.id,
         nextNumber: sql.nextNumber + 1,
@@ -170,19 +216,21 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
     setText: (id, tabId, text) => patchTab(id, tabId, { text }),
     setMaxRows: (id, tabId, maxRows) => patchTab(id, tabId, { maxRows }),
 
-    async run(id, tabId, text, base = 0) {
+    async run(id, tabId, text, base = 0, prefix = "") {
       const before = current(id);
       if (runningTab(before)) return;
       const tab = before.tabs.find((t) => t.id === tabId);
       if (!tab) return;
       const controller = new AbortController();
       controllers.set(id, controller);
-      patchTab(id, tabId, { state: { kind: "running", startedAt: Date.now() } });
+      const startedAt = Date.now();
+      patchTab(id, tabId, { state: { kind: "running", startedAt } });
+      const sent = prefix + text;
       const { maxRows } = tab;
       const docText = tab.text;
 
       // Right after a Cancel the server may still be letting go: wait a little, a few times.
-      let result = await runStatement(id, { text, maxRows }, controller.signal);
+      let result = await runStatement(id, { text: sent, maxRows }, controller.signal);
       for (
         let i = 0;
         i < BUSY_RETRIES &&
@@ -193,11 +241,51 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
         i++
       ) {
         await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
-        result = await runStatement(id, { text, maxRows }, controller.signal);
+        result = await runStatement(id, { text: sent, maxRows }, controller.signal);
       }
 
       if (controllers.get(id) === controller) controllers.delete(id);
-      // The connection or the tab may have been closed meanwhile: then there is nothing to show.
+      // The connection may have been closed meanwhile: then there is nothing to keep.
+      if (!get().byConnection[id]) return;
+      const tabName = tab.name;
+      const took = Date.now() - startedAt;
+      // What happened goes into the history, even when the tab was closed meanwhile. A request
+      // that failed (the server was busy, data viewing off) is not a statement that ran.
+      if (result.ok) {
+        const answer = result.data;
+        if ("failure" in answer) {
+          record(id, {
+            text: sent,
+            at: Date.now(),
+            tabName,
+            outcome: answer.failure.code === "cancelled" ? "cancelled" : "failed",
+            code: answer.failure.code === "cancelled" ? null : answer.failure.code,
+            rows: null,
+            elapsedMs: took,
+          });
+        } else {
+          record(id, {
+            text: sent,
+            at: Date.now(),
+            tabName,
+            outcome: "ok",
+            code: null,
+            rows: answer.result.rows.length,
+            elapsedMs: answer.result.elapsedMs,
+          });
+        }
+      } else if (result.error.code === "aborted") {
+        record(id, {
+          text: sent,
+          at: Date.now(),
+          tabName,
+          outcome: "cancelled",
+          code: null,
+          rows: null,
+          elapsedMs: took,
+        });
+      }
+      // The tab may have been closed meanwhile: then there is nothing to show in it.
       if (!get().byConnection[id]?.tabs.some((t) => t.id === tabId)) return;
       if (!result.ok) {
         patchTab(id, tabId, {
@@ -207,7 +295,13 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
               : { kind: "error", code: result.error.code, message: result.error.message },
         });
       } else if ("failure" in result.data) {
-        const { failure } = result.data;
+        // The position counts from the text sent; the person's text starts after the prefix.
+        const { failure: sentFailure } = result.data;
+        const position =
+          sentFailure.position === null || sentFailure.position <= prefix.length
+            ? null
+            : sentFailure.position - prefix.length;
+        const failure = { ...sentFailure, position };
         patchTab(id, tabId, {
           state:
             failure.code === "cancelled"
@@ -224,6 +318,11 @@ export const useSqlStore = create<SqlStoreState>((set, get) => {
       } else {
         patchTab(id, tabId, { state: { kind: "result", result: result.data.result } });
       }
+    },
+
+    clearHistory(id) {
+      const sql = get().byConnection[id];
+      if (sql) write(id, { ...sql, history: [] });
     },
 
     cancel(id) {

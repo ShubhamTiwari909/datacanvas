@@ -397,3 +397,166 @@ test("suggests names of the database after the schema and a dot, and nothing ins
   await page.keyboard.press("ControlOrMeta+Space");
   await expect(page.locator(".suggest-widget.visible")).toHaveCount(0);
 });
+
+// -------------------------------------------------- history, export, explain (S5) ---
+
+const historyDialog = (page: Page) => page.getByRole("dialog", { name: "Query history" });
+const statements = (page: Page) => historyDialog(page).getByRole("list", { name: "Statements" });
+
+test("keeps a history of what ran, searchable, to open or run again", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 1 AS first_one");
+  await run(page).click();
+  await expect(resultPanel(page).getByRole("grid")).toBeVisible();
+  await typeSql(page, "SELECT * FROM public.nope");
+  await run(page).click();
+  await expect(resultPanel(page).getByRole("alert")).toBeVisible();
+  await typeSql(page, "SELECT 2 AS second_one");
+  await run(page).click();
+  await expect(
+    resultPanel(page).getByRole("grid").getByRole("columnheader", { name: "second_one" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Query history" }).click();
+  const items = statements(page).getByRole("listitem");
+  await expect(items).toHaveCount(3);
+  // Newest first, with how each went.
+  await expect(items.nth(0)).toContainText("SELECT 2 AS second_one");
+  await expect(items.nth(0)).toContainText("1 row");
+  await expect(items.nth(1)).toContainText("SELECT * FROM public.nope");
+  await expect(items.nth(1)).toContainText("42P01");
+  await expect(items.nth(2)).toContainText("SELECT 1 AS first_one");
+
+  await historyDialog(page).getByRole("searchbox", { name: "Search the history" }).fill("first");
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText("first_one");
+
+  // Open it in a new tab: the text is there and nothing was run.
+  await items.first().getByRole("button", { name: "Open in a new tab" }).click();
+  await expect(historyDialog(page)).toHaveCount(0);
+  await expect(queryTabs(page).getByRole("tab")).toHaveCount(2);
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 1 AS first_one");
+  await expect(resultPanel(page).getByRole("grid")).toHaveCount(0);
+
+  // Run again: another tab, and a result.
+  await page.getByRole("button", { name: "Query history" }).click();
+  await statements(page)
+    .getByRole("listitem")
+    .filter({ hasText: "second_one" })
+    .getByRole("button", { name: "Run again" })
+    .click();
+  await expect(queryTabs(page).getByRole("tab")).toHaveCount(3);
+  await expect(
+    resultPanel(page).getByRole("grid").getByRole("columnheader", { name: "second_one" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Query history" }).click();
+  await expect(statements(page).getByRole("listitem")).toHaveCount(4);
+  await historyDialog(page).getByRole("button", { name: "Clear history" }).click();
+  await expect(historyDialog(page).getByText("Nothing was run yet.")).toBeVisible();
+});
+
+test("copies the rows as TSV, CSV and JSON, and saves a CSV file", async ({
+  page,
+  app,
+  database,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT id, v, '=1+1' AS f FROM public.s_items ORDER BY id");
+  await run(page).click();
+  await expect(resultPanel(page).getByRole("grid")).toBeVisible();
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+  await resultPanel(page).getByRole("button", { name: "Export" }).click();
+  await page.getByRole("menuitem", { name: "Copy as TSV" }).click();
+  expect(await clipboard()).toBe("id\tv\tf\r\n1\tone\t'=1+1\r\n2\t\t'=1+1\r\n3\t\t'=1+1");
+
+  await resultPanel(page)
+    .getByRole("button", { name: /Export|Copied/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Copy as CSV" }).click();
+  expect(await clipboard()).toBe("id,v,f\r\n1,one,'=1+1\r\n2,,'=1+1\r\n3,,'=1+1");
+
+  await resultPanel(page)
+    .getByRole("button", { name: /Export|Copied/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Copy as JSON" }).click();
+  expect(JSON.parse(await clipboard())).toEqual([
+    { id: "1", v: "one", f: "=1+1" },
+    { id: "2", v: null, f: "=1+1" },
+    { id: "3", v: "", f: "=1+1" },
+  ]);
+
+  await resultPanel(page)
+    .getByRole("button", { name: /Export|Copied/ })
+    .click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("menuitem", { name: "Download CSV" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("Query 1.csv");
+  const file = (await import("node:fs")).readFileSync((await download.path())!, "utf8");
+  expect(file).toBe("﻿id,v,f\r\n1,one,'=1+1\r\n2,,'=1+1\r\n3,,'=1+1");
+});
+
+test("shows the plan of a statement, with or without running it", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT * FROM public.s_items WHERE id = 2");
+  await page.getByRole("button", { name: "Explain" }).click();
+  await page.getByRole("menuitem", { name: /^Explain Shows the plan/ }).click();
+  const plan = resultPanel(page).getByLabel("Query plan");
+  await expect(plan).toContainText(/Scan.*s_items/);
+  await expect(plan).not.toContainText("Execution Time");
+
+  await page.getByRole("button", { name: "Explain" }).click();
+  await page.getByRole("menuitem", { name: /^Explain analyze/ }).click();
+  await expect(resultPanel(page).getByLabel("Query plan")).toContainText("Execution Time");
+
+  // The plan can be copied as text.
+  await resultPanel(page)
+    .getByRole("button", { name: /Export/ })
+    .click();
+  await expect(page.getByRole("menuitem", { name: "Copy the plan" })).toBeVisible();
+});
+
+test("explains a statement that is already an EXPLAIN as it is, and marks an error in the right place", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "EXPLAIN SELECT 1");
+  await page.getByRole("button", { name: "Explain" }).click();
+  await page.getByRole("menuitem", { name: /^Explain Shows the plan/ }).click();
+  await expect(resultPanel(page).getByLabel("Query plan")).toContainText("Result");
+
+  await typeSql(page, "SELECT * FROM public.nope");
+  await page.getByRole("button", { name: "Explain" }).click();
+  await page.getByRole("menuitem", { name: /^Explain Shows the plan/ }).click();
+  const alert = resultPanel(page).getByRole("alert");
+  await expect(alert).toContainText('relation "public.nope" does not exist');
+  // The column counts from the person's text, not from the EXPLAIN in front of it.
+  await expect(alert).toContainText("line 1, column 15");
+  await expect(page.locator(".monaco-editor .squiggly-error").first()).toBeVisible();
+});
+
+test("Run and Explain use the selection when there is one", async ({ page, app, database }) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 1 AS a;\nSELECT 2 AS b");
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Shift+Home");
+  await run(page).click();
+  await expect(
+    resultPanel(page).getByRole("grid").getByRole("columnheader", { name: "b" }),
+  ).toBeVisible();
+});

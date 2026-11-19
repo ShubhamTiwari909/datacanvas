@@ -57,3 +57,19 @@ export function failureTitle(failure: SqlFailure): string {
 /** The row limits the person can choose. */
 export const ROW_LIMITS = [100, 1000, 5000, 10_000] as const;
 export const DEFAULT_ROW_LIMIT = 1000;
+
+/** A tab name from a statement: its first line, on one line, cut short. */
+export function nameFromStatement(text: string): string {
+  const line = text.split("\n").find((l) => l.trim() !== "") ?? "";
+  const flat = line.replace(/\s+/g, " ").trim();
+  return flat.length > 24 ? `${flat.slice(0, 24).trimEnd()}…` : flat || "Statement";
+}
+
+/** Does the statement already start with EXPLAIN (so another one in front would be an error)? */
+export const startsWithExplain = (text: string): boolean =>
+  /^(\s|--[^\n]*\n|\/\*[\s\S]*?\*\/)*explain\b/i.test(text);
+
+/** "0.4 s" for a statement's time: milliseconds under a second. */
+export function durationText(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)} ms` : elapsedText(ms);
+}

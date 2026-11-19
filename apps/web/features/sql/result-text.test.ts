@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { elapsedText, failureTitle, lineColumn, resultSummary, rowsText } from "./result-text";
+import {
+  durationText,
+  elapsedText,
+  failureTitle,
+  lineColumn,
+  nameFromStatement,
+  resultSummary,
+  rowsText,
+  startsWithExplain,
+} from "./result-text";
 
 const result = (over: Partial<Parameters<typeof resultSummary>[0]> = {}) => ({
   columns: [],
@@ -64,5 +73,34 @@ describe("failureTitle", () => {
     expect(failureTitle({ code: "cancelled", message: "", position: null })).toMatch(/cancelled/);
     expect(failureTitle({ code: "57014", message: "", position: null })).toMatch(/stopped/);
     expect(failureTitle({ code: "42P01", message: "", position: null })).toMatch(/refused/);
+  });
+});
+
+describe("nameFromStatement", () => {
+  it("is the first line, flattened and cut", () => {
+    expect(nameFromStatement("SELECT 1")).toBe("SELECT 1");
+    expect(nameFromStatement("\n  SELECT   id,\n  v FROM t")).toBe("SELECT id,");
+    expect(nameFromStatement("SELECT a_very_long_column_name FROM a_very_long_table")).toBe(
+      "SELECT a_very_long_colum…",
+    );
+    expect(nameFromStatement("   \n  ")).toBe("Statement");
+  });
+});
+
+describe("startsWithExplain", () => {
+  it("sees EXPLAIN after whitespace and comments, in any case", () => {
+    expect(startsWithExplain("EXPLAIN SELECT 1")).toBe(true);
+    expect(startsWithExplain("  explain analyze select 1")).toBe(true);
+    expect(startsWithExplain("-- plan\n/* x */ EXPLAIN SELECT 1")).toBe(true);
+    expect(startsWithExplain("SELECT 'explain'")).toBe(false);
+    expect(startsWithExplain("EXPLAINED")).toBe(false);
+  });
+});
+
+describe("durationText", () => {
+  it("is milliseconds under a second, then seconds", () => {
+    expect(durationText(12.4)).toBe("12 ms");
+    expect(durationText(999)).toBe("999 ms");
+    expect(durationText(1500)).toBe("1.5 s");
   });
 });

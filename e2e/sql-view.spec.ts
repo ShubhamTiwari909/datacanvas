@@ -186,3 +186,148 @@ test("needs table data to be on, and offers to switch it on", async ({ page, app
   await page.getByRole("button", { name: /Switch on table data/i }).click();
   await expect(editor(page)).toBeVisible();
 });
+
+// ------------------------------------------------------------------ tabs (S3) ---
+
+const queryTabs = (page: Page) => page.getByRole("tablist", { name: "Query tabs" });
+const queryTab = (page: Page, name: string | RegExp) => queryTabs(page).getByRole("tab", { name });
+
+test("opens several query tabs, each keeping its text and its result", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await expect(queryTab(page, "Query 1")).toHaveAttribute("aria-selected", "true");
+  await typeSql(page, "SELECT 1 AS first_tab");
+  await run(page).click();
+  await expect(page.getByRole("grid", { name: "Query result" })).toContainText("1");
+
+  await page.getByRole("button", { name: "New query tab" }).click();
+  await expect(queryTab(page, "Query 2")).toHaveAttribute("aria-selected", "true");
+  // A new tab is empty and has no result.
+  await expect(page.getByRole("grid", { name: "Query result" })).toHaveCount(0);
+  await typeSql(page, "SELECT 2 AS second_tab");
+  await run(page).click();
+  await expect(
+    page
+      .getByRole("grid", { name: "Query result" })
+      .getByRole("columnheader", { name: "second_tab" }),
+  ).toBeVisible();
+
+  await queryTab(page, "Query 1").click();
+  await expect(
+    page
+      .getByRole("grid", { name: "Query result" })
+      .getByRole("columnheader", { name: "first_tab" }),
+  ).toBeVisible();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 1 AS first_tab");
+  await queryTab(page, "Query 2").click();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 2 AS second_tab");
+});
+
+test("renames, duplicates and closes a tab, and the last one is replaced by an empty one", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 'keep me' AS v");
+  await page.getByRole("button", { name: "Rename query tab" }).click();
+  const name = page.getByRole("textbox", { name: "Tab name" });
+  await name.fill("Orders check");
+  await name.press("Enter");
+  await expect(queryTab(page, "Orders check")).toBeVisible();
+
+  await page.getByRole("button", { name: "Duplicate query tab" }).click();
+  await expect(queryTab(page, "Orders check (copy)")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 'keep me' AS v");
+
+  await page.getByRole("button", { name: "Close Orders check (copy)" }).click();
+  await expect(queryTab(page, "Orders check (copy)")).toHaveCount(0);
+  await expect(queryTab(page, "Orders check")).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("button", { name: "Close Orders check" }).click();
+  await expect(queryTabs(page).getByRole("tab")).toHaveCount(1);
+  await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("keep me");
+});
+
+test("one statement runs at a time: another tab waits, and closing the running tab cancels it", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT pg_sleep(30)");
+  await run(page).click();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "New query tab" }).click();
+  await typeSql(page, "SELECT 1");
+  await expect(run(page)).toBeDisabled();
+  await expect(page.getByText(/Query 1 is running/)).toBeVisible();
+
+  const backends = async () =>
+    (
+      await admin<{ n: number }>(
+        database,
+        "SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'DataCanvas SQL'",
+      )
+    )[0]!.n;
+  await expect.poll(backends, { timeout: 5000 }).toBe(1);
+  await page.getByRole("button", { name: "Close Query 1" }).click();
+  await expect.poll(backends, { timeout: 10_000 }).toBe(0);
+  await expect(run(page)).toBeEnabled();
+});
+
+test("saves a tab as a .sql file and opens a .sql file in a new tab", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 'saved' AS v");
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Save query as .sql" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe("Query 1.sql");
+  const saved = (await import("node:fs")).readFileSync((await download.path())!, "utf8");
+  expect(saved).toBe("SELECT 'saved' AS v");
+
+  await page.getByLabel("Open a .sql file").setInputFiles({
+    name: "from-disk.sql",
+    mimeType: "application/sql",
+    buffer: Buffer.from("SELECT 'from disk' AS v"),
+  });
+  await expect(queryTab(page, "from-disk")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 'from disk' AS v");
+});
+
+test("each tab keeps its own undo history, and arrow keys move between tabs", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 1");
+  await page.getByRole("button", { name: "New query tab" }).click();
+  await typeSql(page, "SELECT 2");
+
+  await queryTab(page, "Query 1").click();
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 1");
+  // Undo in the first tab goes back through ITS typing: the second tab's text never appears.
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("SELECT 2");
+  await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("SELECT 1");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("SELECT 1");
+
+  // Arrow keys on a tab move to the next one.
+  await queryTab(page, "Query 1").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(queryTab(page, "Query 2")).toHaveAttribute("aria-selected", "true");
+  await expect(queryTab(page, "Query 2")).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(queryTab(page, "Query 1")).toBeFocused();
+});

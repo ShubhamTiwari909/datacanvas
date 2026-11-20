@@ -206,3 +206,22 @@ README (the feature list and the sentence about what DataCanvas never does), `do
 | A filter tree is too complex to use, or to build safely                            | Depth 2, 10 conditions, a strict schema, a builder that is a pure function with a table of tests; the panel shows the filter in words                                       |
 | The write path grows and its guarantees thin out                                   | Bulk operations are variants of the same operation union, through the same service, the same layers, with an architecture test; the independent review reads the write side |
 | Scope: five features, three of them large                                          | Two releases; the read side first; each milestone ends green                                                                                                                |
+
+## 15. What D0 found (2026-11-20)
+
+Spikes for 1.8.0. (The `COPY` against batched `INSERT` measurement belongs to 1.9.0 and is done at D5.)
+
+**Validation in a temporary table** (`postgres.adapter.validation-spike.test.ts`, kept as tests so a PostgreSQL that changes a fact is noticed; the CI matrix runs them on PostgreSQL 12 to 18). The design of section 6.2 stands, with these corrections:
+
+- `CREATE TEMP TABLE ... (LIKE target INCLUDING CONSTRAINTS INCLUDING GENERATED)` copies types, domains (so a domain's check applies), `NOT NULL`, `CHECK` and generated columns, and **no triggers and no foreign keys**. A trigger of the real table never fires.
+- **`INCLUDING DEFAULTS` must not be used.** A copied default that calls a sequence advances the real sequence, and a rollback does not undo that (a measured gap in the numbering). The copy gets **no defaults and no indexes**, and **the `NOT NULL` of every column the database would fill itself (a default, an identity, a serial) is dropped**, because the row is not asked for what it will not give. (Found when an identity key made every row fail "null value in column id".)
+- **Uniqueness is asked in queries, not by copied indexes**: duplicates inside the batch with `GROUP BY ... HAVING count(*) > 1` on the key columns the rows supply, collisions with existing rows with `EXISTS` on the real table. This also avoids demanding a key the database would generate.
+- **What the error tells:** the SQLSTATE always; the column for `NOT NULL` (`23502`); the constraint for `CHECK` and domain checks (`23514`); **nothing** for a value that does not cast (`22P02`, `22003`). The column of such a failure is found by casting the failing row's cells one at a time, in a read-only `SELECT`, never by reading the message.
+- **Failing rows are found by splitting the batch in halves** (savepoints): 4 bad rows in 20,000 took fewer than 200 statements, not 20,000. The first 20 failures are enough for a report, so the search stops there.
+
+**The JSON editor** (`apps/web/features/json/json-text.ts`, 28 tests). Monaco's JSON support is its own language service with a web worker (`language/json`); the `basic-languages` list has no JSON. The editor will register a small Monarch tokenizer of its own with `setMonarchTokensProvider` from `editor.api`, which adds nothing to the bundle. Two things the spike settled:
+
+- **Format must not go through `JSON.parse` and `JSON.stringify`**: they turn `12345678901234567890` into `12345678901234567000`. The text is tokenized strictly (RFC 8259) and re-written with other white space, so every number and string stays as written. A test pins it.
+- **Our own checker, not `JSON.parse`'s message**: the message and its position differ between browsers. The checker reports the first error with a line and a column (counting `\r`, `\n` and `\r\n` as one break each), refuses a document nested more than 200 levels deep (a hostile one must not exhaust the stack), and says what was expected.
+
+**Export** (`postgres.adapter.export-spike.test.ts`): 100,000 rows of six columns (30 MB of CSV, with a `jsonb` document and a 200-character note) read through `DECLARE ... NO SCROLL CURSOR` and `FETCH 1000` in a read-only transaction took **0.5 seconds**, and the heap grew by 38 MB (garbage between collections; it does not grow with the rows). The 64 MB default limit is reached at about 200,000 rows of this size, before the 100,000-row limit matters for wide tables, so both limits stay. Memory is not the constraint; the browser receiving the file is.

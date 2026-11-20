@@ -245,7 +245,7 @@ describe("a sort and conditions in POST /connections/:id/rows", () => {
     ["a sort that is text", { sort: "email" }],
     ["a sort with another direction", { sort: { column: "email", direction: "up" } }],
     ["a sort with an extra key", { sort: { column: "email", direction: "asc", nulls: "first" } }],
-    ["four conditions", { filters: Array(4).fill({ column: "email", op: "neq", value: "z" }) }],
+    ["eleven conditions", { filters: Array(11).fill({ column: "email", op: "neq", value: "z" }) }],
     ["an operator that does not exist", { filters: [{ column: "email", op: "like", value: "%" }] }],
     ["a missing value", { filters: [{ column: "email", op: "eq" }] }],
     ["a value on is_null", { filters: [{ column: "email", op: "is_null", value: "x" }] }],

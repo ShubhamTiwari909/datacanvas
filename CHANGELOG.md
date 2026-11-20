@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **More ways to filter the rows of a table.** Up to ten conditions (from three); conditions can be put in a group so that any one of the group is enough ("A and (B or C)"); new conditions: ends with, does not contain, matches a pattern, is empty, is one of a list, is none of a list, is between, the date shortcuts (today, last 7 days, last 30 days, this month) on dates and timestamps, and for `json` and `jsonb` has the key, contains some JSON and the value at a path, for arrays contains all of, contains any of and is empty. **Filter by this value** from a cell, and **saved filters** per table (the columns and conditions, never the values). Decision 155.
+
+### Fixed
+
+- The columns table of the Table details tab can be scrolled by the keyboard on a narrow screen.
+
 ## [1.7.1] - 2026-11-20
 
 ### Added

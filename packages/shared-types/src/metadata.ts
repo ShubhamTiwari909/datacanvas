@@ -8,6 +8,7 @@
  * a schema here and its database-core interface ever drift apart.
  */
 import { z } from "zod";
+import { rowFilterShapeFields } from "./row-filters.js";
 
 export const schemaInfoSchema = z.object({ name: z.string() });
 
@@ -107,7 +108,7 @@ export const rowPageSchema = z.object({
       name: z.string(),
       dataType: z.string(),
       masked: z.boolean(),
-      kind: z.enum(["text", "ordered", "other"]),
+      kind: z.enum(["text", "ordered", "json", "array", "other"]),
     }),
   ),
   rows: z.array(z.array(z.object({ value: z.string().nullable(), truncated: z.boolean() }))),
@@ -121,24 +122,7 @@ export const rowPageSchema = z.object({
   offsetCapped: z.boolean(),
   rowSecurity: z.enum(["off", "applies", "exempt"]),
   sort: z.object({ column: z.string(), direction: z.enum(["asc", "desc"]) }).nullable(),
-  filters: z.array(
-    z.object({
-      column: z.string(),
-      op: z.enum([
-        "eq",
-        "neq",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
-        "contains",
-        "starts_with",
-        "is_null",
-        "is_not_null",
-      ]),
-      value: z.string().optional(),
-    }),
-  ),
+  filters: z.array(z.object(rowFilterShapeFields)),
   sortValueTooLong: z.boolean(),
 });
 

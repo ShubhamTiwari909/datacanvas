@@ -225,3 +225,16 @@ Spikes for 1.8.0. (The `COPY` against batched `INSERT` measurement belongs to 1.
 - **Our own checker, not `JSON.parse`'s message**: the message and its position differ between browsers. The checker reports the first error with a line and a column (counting `\r`, `\n` and `\r\n` as one break each), refuses a document nested more than 200 levels deep (a hostile one must not exhaust the stack), and says what was expected.
 
 **Export** (`postgres.adapter.export-spike.test.ts`): 100,000 rows of six columns (30 MB of CSV, with a `jsonb` document and a 200-character note) read through `DECLARE ... NO SCROLL CURSOR` and `FETCH 1000` in a read-only transaction took **0.5 seconds**, and the heap grew by 38 MB (garbage between collections; it does not grow with the rows). The 64 MB default limit is reached at about 200,000 rows of this size, before the 100,000-row limit matters for wide tables, so both limits stay. Memory is not the constraint; the browser receiving the file is.
+
+## 16. What D1 found (2026-11-20)
+
+The filters of section 4 are built (core, schema, adapter, panel). Where the build differs from the plan:
+
+- **Groups are numbers, not a tree.** A condition has an optional `group` (1 to 3): conditions with the same number are OR-ed, conditions without one are all required. That is "A and (B or C)" and "A or B" with one flat list, which fits the existing request, the cursor, the chips and the saved shapes without a second structure, and it is what the panel can show clearly (a "Combine" box on each condition). It cannot say "(A and B) or C" without repeating C in two groups; that case is left out, on purpose.
+- **Ten conditions** (from three), at most 50 values in a list, a path of at most 10 steps.
+- **Kinds.** `json` (json and jsonb) and `array` are kinds of their own now, so each is offered its own conditions; neither can be sorted. The date shortcuts are offered by the column's type (a date or a timestamp), and are written for that type so no time zone is guessed.
+- **A value used twice is cast to text** (`length(CAST($1 AS text))`), so PostgreSQL never has to guess which `length` it means. A list of an array condition is cast into the column's own array type (`CAST(ARRAY[...] AS integer[])`), the type text coming from the catalog, never from the request.
+- **A regular expression** (`matches`) is `~*` with the pattern bound; one that does not compile is a data exception and so the fixed `invalid_request`; one that never ends is stopped by the 5-second read timeout. A hidden column is refused for every new operator, as before.
+- **Filter by this value** is a button in the dialog of a cell, for text and ordered columns (an equals, or a NULL test for NULL); a value that was cut or is over 200 characters offers none.
+- **Saved shapes** are kept per table in local storage as `{name, conditions: [{column, op, group}]}`, read back as untrusted data, at most 20 per table, and using one opens a form that asks for the values again.
+- **A neighbour found by axe on a phone:** the columns table of the Table details tab scrolled sideways without being reachable by the keyboard; it is a focusable region now.

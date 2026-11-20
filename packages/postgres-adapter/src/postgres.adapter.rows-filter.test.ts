@@ -457,14 +457,12 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL getRows with conditions", () => 
       });
     });
 
-    it("more than three conditions", async () => {
+    it("more than ten conditions", async () => {
       const filter: RowFilter = { column: "score", op: "gte", value: "0" };
       expect(
-        (await read("things", { filters: [filter, filter, filter] })).rows.length,
+        (await read("things", { filters: Array(10).fill(filter) })).rows.length,
       ).toBeGreaterThan(0);
-      await expect(
-        read("things", { filters: [filter, filter, filter, filter] }),
-      ).rejects.toMatchObject({
+      await expect(read("things", { filters: Array(11).fill(filter) })).rejects.toMatchObject({
         code: "invalid_request",
       });
     });

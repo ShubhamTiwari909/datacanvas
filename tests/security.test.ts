@@ -287,9 +287,13 @@ describe("a sort and conditions never become SQL text", () => {
     const code = read("packages/shared-types/src/connections.ts");
     expect(code).toMatch(/rowsRequestSchema = z\s*\.strictObject/);
     expect(code).toMatch(/rowSortSchema = z\s*\.strictObject/);
-    expect(code).toMatch(/rowFilterSchema = z\s*\.strictObject/);
-    // The operator is one of a fixed list, never free text.
-    expect(code).toMatch(/op: z\.enum\(ROW_FILTER_OPERATORS\)/);
+    // A condition: strict, and its operator one of a fixed list, never free text (`row-filters.ts`).
+    const filters = read("packages/shared-types/src/row-filters.ts");
+    expect(filters).toMatch(/rowFilterSchema = z\s*\.strictObject/);
+    expect(filters).toMatch(/op: z\.enum\(ROW_FILTER_OPERATORS\)/);
+    // Every list in a condition is bounded.
+    expect(filters).toMatch(/values: z\.array\(text\)\.max\(MAX_ROW_FILTER_VALUES\)/);
+    expect(filters).toMatch(/\.max\(MAX_ROW_FILTER_PATH\)/);
   });
 
   it("the service passes both to the adapter untouched: structured data, no text is built from them", () => {
@@ -308,12 +312,26 @@ describe("a sort and conditions never become SQL text", () => {
     const raw = read("packages/postgres-adapter/src/introspection/rows.ts");
     const code = stripComments(raw);
     // Own keys only: a plain object also answers to "toString" and "__proto__".
-    expect(code).toContain("Object.hasOwn(FILTER_SQL");
+    expect(code).toContain("Object.hasOwn(NONE_SQL");
+    expect(code).toContain("Object.hasOwn(ONE_SQL");
     // LIKE would make a % or _ in a value a wildcard; contains and starts with are strpos and starts_with.
     expect(code).not.toMatch(/\b(I?LIKE|SIMILAR TO)\b/i);
-    expect(code).not.toMatch(/~\*?\s/); // no regular-expression operator either
+    // The one regular-expression operator is `matches`, and its pattern is a bound parameter cast to text.
+    const regex = code.match(/~\*?\s/g) ?? [];
+    expect(regex).toHaveLength(1);
+    expect(code).toContain("~* CAST(${p} AS text)");
     // Every value of a condition goes through the parameter function.
-    expect(code).toMatch(/write\(column, param\(filter\.value\)\)/);
+    expect(code).toMatch(/ONE_SQL\[op\]!\(c, param\(filter\.value\)\)/);
+  });
+
+  it("no value, list or path of a condition is ever written into the statement's text", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    // A `${...}` that holds a request value would put it in the text; each must be inside `param(`.
+    for (const match of code.matchAll(
+      /\$\{[^}]*\b(?:filter\.(?:value|values|path)|values\[\d\])[^}]*\}/g,
+    )) {
+      expect(match[0], match[0]).toMatch(/param\(/);
+    }
   });
 
   it("keeps rows out of everything that is saved: workspaces, snapshots and profiles have no place for them", () => {
@@ -342,16 +360,20 @@ describe("rows in the browser live in component state only", () => {
     expect(dataFiles.length).toBeGreaterThan(5);
   });
 
-  it.each([
-    "localStorage",
-    "sessionStorage",
-    "indexedDB",
-    "document.cookie",
-    "caches.",
-    "persist(",
-  ])("the data viewer never touches %s", (api) => {
-    for (const file of dataFiles) expect(code(file), rel(file)).not.toContain(api);
+  it("only saved filter shapes may touch localStorage, and they keep no value", () => {
+    const users = dataFiles.filter((f) => code(f).includes("localStorage")).map(rel);
+    expect(users).toEqual([rel(path.join(web, "features/data/filter-shapes.ts"))]);
+    // A shape is the columns, conditions and groups; the filter's value, list and path are never read.
+    const shapes = code(path.join(web, "features/data/filter-shapes.ts"));
+    expect(shapes).not.toMatch(/\b(?:f|filter)\.(?:value|values|path)\b/);
   });
+
+  it.each(["sessionStorage", "indexedDB", "document.cookie", "caches.", "persist("])(
+    "the data viewer never touches %s",
+    (api) => {
+      for (const file of dataFiles) expect(code(file), rel(file)).not.toContain(api);
+    },
+  );
 
   it("only the rows hook asks for rows, and it holds them in React state", () => {
     const callers = walk(path.join(web, "features"))

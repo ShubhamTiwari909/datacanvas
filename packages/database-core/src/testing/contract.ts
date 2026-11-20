@@ -610,8 +610,8 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
             ],
             ["a value on is_null", [{ column: "email", op: "is_null", value: "x" }]],
             [
-              "more than three conditions",
-              Array(4).fill({ column: "email", op: "neq", value: "z" }),
+              "more than ten conditions",
+              Array(11).fill({ column: "email", op: "neq", value: "z" }),
             ],
           ])("refuses %s, with invalid_request", async (_name, filters) => {
             await expect(

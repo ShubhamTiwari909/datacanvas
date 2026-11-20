@@ -10,7 +10,7 @@
 
 import { memo, useCallback, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock, Pencil, Trash2 } from "lucide-react";
-import type { RowCell, RowColumn, RowPage, RowSort } from "@datacanvas/database-core";
+import type { RowCell, RowColumn, RowFilter, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,7 @@ export function DataGrid({
   onSort,
   busy,
   editing = null,
+  onFilterCell,
 }: {
   page: RowPage;
   caption: string;
@@ -56,6 +57,8 @@ export function DataGrid({
   busy: boolean;
   /** Row actions, while writes are unlocked. */
   editing?: GridEditing | null;
+  /** A condition made from a cell ("Filter by this value"), or absent when no more can be added. */
+  onFilterCell?: (filter: RowFilter) => void;
 }) {
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
   const blurred = useBlurStore((s) => s.blurred);
@@ -131,7 +134,7 @@ export function DataGrid({
           </tbody>
         </table>
       </div>
-      <CellDialog open={openCell} onClose={() => setOpenCell(null)} />
+      <CellDialog open={openCell} onClose={() => setOpenCell(null)} onFilter={onFilterCell} />
     </>
   );
 }

@@ -6,9 +6,17 @@
 "use client";
 
 import { useState } from "react";
-import { ROWS_CELL_CHARS, type RowCell, type RowColumn } from "@datacanvas/database-core";
+import {
+  ROWS_CELL_CHARS,
+  type RowCell,
+  type RowColumn,
+  type RowFilter,
+} from "@datacanvas/database-core";
+import { ListFilter } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { filterForCell } from "./filtering";
 import { BLUR_CLASSES, useBlurStore } from "./blur-store";
 import {
   Dialog,
@@ -23,7 +31,16 @@ export interface OpenCell {
   cell: RowCell;
 }
 
-export function CellDialog({ open, onClose }: { open: OpenCell | null; onClose: () => void }) {
+export function CellDialog({
+  open,
+  onClose,
+  onFilter,
+}: {
+  open: OpenCell | null;
+  onClose: () => void;
+  /** When given, the dialog offers "Filter by this value" (the Data section; not the SQL result). */
+  onFilter?: (filter: RowFilter) => void;
+}) {
   const blurred = useBlurStore((s) => s.blurred);
   const [leaving, setLeaving] = useState<OpenCell | null>(null);
   // Remember what was open, so the closing animation still has something to show.
@@ -65,7 +82,16 @@ export function CellDialog({ open, onClose }: { open: OpenCell | null; onClose: 
                 shown.
               </p>
             ) : null}
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              {onFilter ? (
+                <FilterByValue
+                  open={shown}
+                  onFilter={(filter) => {
+                    onFilter(filter);
+                    onClose();
+                  }}
+                />
+              ) : null}
               <CopyButton
                 text={shown.cell.value ?? ""}
                 label={`Copy the value of ${shown.column.name}`}
@@ -75,5 +101,22 @@ export function CellDialog({ open, onClose }: { open: OpenCell | null; onClose: 
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FilterByValue({
+  open,
+  onFilter,
+}: {
+  open: OpenCell;
+  onFilter: (filter: RowFilter) => void;
+}) {
+  const filter = filterForCell(open.column, open.cell.value, open.cell.truncated);
+  if (!filter) return null;
+  return (
+    <Button type="button" size="sm" variant="ghost" onClick={() => onFilter(filter)}>
+      <ListFilter aria-hidden="true" />
+      Filter by this value
+    </Button>
   );
 }

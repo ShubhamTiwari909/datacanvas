@@ -183,11 +183,11 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getRows with a sort", () =>
         domint: "ordered", // a domain over integer
         span: "ordered", // a range
         at: "ordered",
-        data: "other", // jsonb has a btree order, but it means nothing to a person
+        data: "json", // jsonb has a btree order, but it means nothing to a person: it is searched, not sorted
         raw: "other", // bytea likewise
-        tags: "other", // an array
+        tags: "array", // an array
         loc: "other", // no btree order at all
-        doc: "other", // json has none either
+        doc: "json", // json has none either
         password_hash: "text",
       });
     });

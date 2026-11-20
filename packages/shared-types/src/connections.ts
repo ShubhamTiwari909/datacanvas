@@ -18,6 +18,7 @@ import {
   tableInfoSchema,
 } from "./metadata.js";
 import { profileIdSchema } from "./ids.js";
+import { MAX_ROW_FILTERS, rowFilterSchema } from "./row-filters.js";
 import { postgresConnectionSummarySchema } from "./postgres-connection.js";
 
 /** The server's connection identifiers: unguessable URL-safe tokens. */
@@ -99,53 +100,6 @@ export const rowSortSchema = z.strictObject({
   direction: z.enum(["asc", "desc"]),
 });
 
-/** The conditions a person can put on a column; a type test keeps this list in step with the core's. */
-export const ROW_FILTER_OPERATORS = [
-  "eq",
-  "neq",
-  "gt",
-  "gte",
-  "lt",
-  "lte",
-  "contains",
-  "starts_with",
-  "is_null",
-  "is_not_null",
-] as const;
-
-/** At most 3 conditions per read, a value of at most 200 characters (the same limits as the core's). */
-export const MAX_ROW_FILTERS = 3;
-export const MAX_ROW_FILTER_VALUE_CHARS = 200;
-
-/**
- * One condition: a column, an operator from the fixed list, and a value. The two tests for NULL take no value
- * and every other operator needs one (an empty string is a value). Whether the column allows the operator,
- * and whether it is hidden, is decided later against the table, by the adapter.
- */
-export const rowFilterSchema = z
-  .strictObject({
-    column: identifierSchema,
-    op: z.enum(ROW_FILTER_OPERATORS),
-    value: z.string().max(MAX_ROW_FILTER_VALUE_CHARS).optional(),
-  })
-  .superRefine((filter, context) => {
-    const nullary = filter.op === "is_null" || filter.op === "is_not_null";
-    if (nullary && filter.value !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: "This condition takes no value.",
-      });
-    }
-    if (!nullary && filter.value === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: "This condition needs a value.",
-      });
-    }
-  });
-
 /**
  * `POST /api/connections/:id/rows`: one page of a table's rows. A POST with a JSON
  * body, so table names, paging positions and the values of conditions never appear
@@ -163,7 +117,7 @@ export const rowsRequestSchema = z.strictObject({
   revealColumns: z.array(identifierSchema).max(100).default([]),
   /** Sort by one column; null for the key order. */
   sort: rowSortSchema.nullable().default(null),
-  /** Up to 3 conditions, all required. */
+  /** Up to 10 conditions, all required except those that share a group (any one of them is enough). */
   filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
 });
 /** What a client may send (defaults are optional). */

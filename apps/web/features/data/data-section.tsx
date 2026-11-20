@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Lock } from "lucide-react";
-import type { TableInfo } from "@datacanvas/database-core";
+import { ROWS_MAX_FILTERS, type TableInfo } from "@datacanvas/database-core";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -216,6 +216,8 @@ function Rows({
 
       {/* Always shown once there is a page, even after a failed read: a condition that was refused has to be removable. */}
       <FilterBar
+        schema={schema}
+        table={table}
         columns={page.columns}
         filters={paging.filters}
         onAdd={(filter) => dispatch({ type: "addFilter", filter })}
@@ -254,6 +256,11 @@ function Rows({
           onSort={(column) => dispatch({ type: "sort", sort: nextSort(paging.sort, column) })}
           busy={busy}
           editing={editing.grid}
+          onFilterCell={
+            paging.filters.length < ROWS_MAX_FILTERS
+              ? (filter) => dispatch({ type: "addFilter", filter })
+              : undefined
+          }
         />
       )}
 

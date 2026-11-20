@@ -11,6 +11,10 @@ import {
   ROWS_CELL_CHARS,
   ROWS_MAX_CURSOR_CHARS,
   ROWS_MAX_FILTERS,
+  ROWS_MAX_FILTER_GROUPS,
+  ROWS_MAX_FILTER_PATH,
+  ROWS_MAX_FILTER_PATH_CHARS,
+  ROWS_MAX_FILTER_VALUES,
   ROWS_MAX_FILTER_VALUE_CHARS,
   ROWS_MAX_OFFSET,
   ROWS_MAX_PAGE_SIZE,
@@ -22,6 +26,7 @@ import {
   type RowColumnKind,
   type RowFilter,
   type RowFilterOp,
+  type RowFilterShape,
   type RowOrder,
   type RowPage,
   type RowSecurityState,
@@ -215,44 +220,145 @@ export function normalizeRowsOptions(options: RowsOptions): NormalizedRowsOption
   };
 }
 
+/** How many values each operator takes (the shared-types schema has the same table; a type test keeps them in step). */
+export const FILTER_SHAPE: Record<RowFilterOp, RowFilterShape> = {
+  eq: "one",
+  neq: "one",
+  gt: "one",
+  gte: "one",
+  lt: "one",
+  lte: "one",
+  contains: "one",
+  starts_with: "one",
+  ends_with: "one",
+  not_contains: "one",
+  matches: "one",
+  is_empty: "none",
+  in: "list",
+  not_in: "list",
+  between: "two",
+  today: "none",
+  last_7_days: "none",
+  last_30_days: "none",
+  this_month: "none",
+  has_key: "one",
+  json_contains: "one",
+  json_path_eq: "path",
+  array_contains: "list",
+  array_overlaps: "list",
+  array_is_empty: "none",
+  is_null: "none",
+  is_not_null: "none",
+};
+
+const FILTER_KEYS = ["column", "op", "value", "values", "path", "group"];
+
+/** A text that can be a value: a string of bounded length with no NUL character (PostgreSQL cannot hold one). */
+const isValueText = (v: unknown, max = ROWS_MAX_FILTER_VALUE_CHARS): v is string =>
+  typeof v === "string" && v.length <= max && !v.includes("\u0000");
+
 /** The shape of the conditions (not yet whether the columns allow them: see `checkRowsFilters`). */
 function normalizeFilters(filters: readonly RowFilter[] | undefined): RowFilter[] {
   if (filters === undefined) return [];
   if (!Array.isArray(filters) || filters.length > ROWS_MAX_FILTERS) throw invalid();
   return filters.map((filter) => {
     if (typeof filter !== "object" || filter === null || Array.isArray(filter)) throw invalid();
-    if (Object.keys(filter).some((key) => key !== "column" && key !== "op" && key !== "value")) {
-      throw invalid();
-    }
-    const { column, op, value } = filter;
+    if (Object.keys(filter).some((key) => !FILTER_KEYS.includes(key))) throw invalid();
+    const { column, op, value, values, path, group } = filter;
     if (typeof column !== "string" || column.length === 0 || column.length > 255) throw invalid();
     if (!(ROW_FILTER_OPS as readonly unknown[]).includes(op)) throw invalid();
-    if (op === "is_null" || op === "is_not_null") {
-      if (value !== undefined) throw invalid();
-      return { column, op };
+    if (
+      group !== undefined &&
+      (!Number.isInteger(group) || group < 1 || group > ROWS_MAX_FILTER_GROUPS)
+    ) {
+      throw invalid();
     }
-    if (typeof value !== "string" || value.length > ROWS_MAX_FILTER_VALUE_CHARS) throw invalid();
-    if (value.includes("\u0000")) throw invalid();
-    return { column, op, value };
+    const operator = op as RowFilterOp; // one of the list, checked above
+    const out: RowFilter = { column, op: operator, ...(group !== undefined ? { group } : {}) };
+    const shape = FILTER_SHAPE[operator];
+    // Exactly the fields the operator takes, and no others.
+    const given = {
+      value: value !== undefined,
+      values: values !== undefined,
+      path: path !== undefined,
+    };
+    const wanted = {
+      value: shape === "one" || shape === "path",
+      values: shape === "list" || shape === "two",
+      path: shape === "path",
+    };
+    if (
+      given.value !== wanted.value ||
+      given.values !== wanted.values ||
+      given.path !== wanted.path
+    ) {
+      throw invalid();
+    }
+    if (wanted.value) {
+      if (!isValueText(value)) throw invalid();
+      out.value = value;
+    }
+    if (wanted.values) {
+      if (
+        !Array.isArray(values) ||
+        values.length > ROWS_MAX_FILTER_VALUES ||
+        (shape === "list" ? values.length === 0 : values.length !== 2) ||
+        !values.every((v) => isValueText(v))
+      ) {
+        throw invalid();
+      }
+      out.values = [...values];
+    }
+    if (wanted.path) {
+      if (
+        !Array.isArray(path) ||
+        path.length === 0 ||
+        path.length > ROWS_MAX_FILTER_PATH ||
+        !path.every((v) => isValueText(v, ROWS_MAX_FILTER_PATH_CHARS))
+      ) {
+        throw invalid();
+      }
+      out.path = [...path];
+    }
+    return out;
   });
 }
 
-const ORDERED_OPS: readonly RowFilterOp[] = [
-  "eq",
-  "neq",
-  "gt",
-  "gte",
-  "lt",
-  "lte",
-  "is_null",
-  "is_not_null",
+const COMPARISONS: readonly RowFilterOp[] = ["eq", "neq", "gt", "gte", "lt", "lte"];
+const NULLS: readonly RowFilterOp[] = ["is_null", "is_not_null"];
+const LISTS: readonly RowFilterOp[] = ["in", "not_in", "between"];
+const TEXT_ONLY: readonly RowFilterOp[] = [
+  "contains",
+  "starts_with",
+  "ends_with",
+  "not_contains",
+  "matches",
+  "is_empty",
+];
+const DATE_SHORTCUTS: readonly RowFilterOp[] = [
+  "today",
+  "last_7_days",
+  "last_30_days",
+  "this_month",
 ];
 
-/** The conditions a column of this kind can have. */
-export function filterOpsFor(kind: RowColumnKind): readonly RowFilterOp[] {
-  if (kind === "text") return [...ORDERED_OPS, "contains", "starts_with"];
-  if (kind === "ordered") return ORDERED_OPS;
-  return ["is_null", "is_not_null"];
+/** Is this a date or a timestamp, which the date shortcuts apply to? (From `format_type`, as the catalog prints it.) */
+export const isTemporalType = (dataType: string): boolean => /^(date|timestamp)\b/.test(dataType);
+
+/** The conditions a column of this kind (and type) can have. */
+export function filterOpsFor(kind: RowColumnKind, dataType = ""): readonly RowFilterOp[] {
+  if (kind === "text") return [...COMPARISONS, ...LISTS, ...TEXT_ONLY, ...NULLS];
+  if (kind === "ordered") {
+    return [
+      ...COMPARISONS,
+      ...LISTS,
+      ...(isTemporalType(dataType) ? DATE_SHORTCUTS : []),
+      ...NULLS,
+    ];
+  }
+  if (kind === "json") return ["has_key", "json_contains", "json_path_eq", ...NULLS];
+  if (kind === "array") return ["array_contains", "array_overlaps", "array_is_empty", ...NULLS];
+  return NULLS;
 }
 
 /**
@@ -266,7 +372,8 @@ export function checkRowsFilters(
 ): RowFilter[] {
   for (const filter of filters) {
     const column = columns.find((c) => c.name === filter.column);
-    if (!column || column.masked || !filterOpsFor(column.kind).includes(filter.op)) throw invalid();
+    if (!column || column.masked || !filterOpsFor(column.kind, column.dataType).includes(filter.op))
+      throw invalid();
   }
   return [...filters];
 }
@@ -291,7 +398,9 @@ function normalizeSort(sort: RowSort | null | undefined): RowSort | null {
 export function canSortRows(column: RowColumn, order: RowOrder): boolean {
   // A hidden column is refused: ordering by it (or paging past it) would read it back one comparison at a time.
   // A table without a key has no tie-breaker, so a page boundary could skip or repeat rows.
-  return !column.masked && column.kind !== "other" && order.kind !== "none";
+  return (
+    !column.masked && (column.kind === "text" || column.kind === "ordered") && order.kind !== "none"
+  );
 }
 
 /**

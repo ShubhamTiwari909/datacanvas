@@ -1,6 +1,6 @@
 # Plan: the advanced data workspace
 
-Status: **planned, not started (2026-11-20). Nothing in section 13 is decided yet; each open decision has a recommendation.** This is "Phase 4" of the roadmap: CSV import and export, bulk editing, advanced filters, a JSON editor and data validation. It builds on the data viewer (`docs/data-viewer-plan.md`, 1.2.0), sorting and filtering (`docs/data-sort-filter-plan.md`, 1.3.0), row and table editing (`docs/data-editing-plan.md`, 1.4.0), the SQL tab (`docs/sql-workspace-plan.md`, 1.6.0) and the Migrations tab (`docs/migration-studio-plan.md`, 1.7.0). It is the first work since 1.4.0 that **moves many rows at once**, in both directions, so it is the riskiest of the phases: the plan is organized around what could go wrong.
+Status: **planned, not started. The twelve decisions of section 13 were settled on 2026-11-20: every recommendation was accepted (two releases, 1.8.0 then 1.9.0).** This is "Phase 4" of the roadmap: CSV import and export, bulk editing, advanced filters, a JSON editor and data validation. It builds on the data viewer (`docs/data-viewer-plan.md`, 1.2.0), sorting and filtering (`docs/data-sort-filter-plan.md`, 1.3.0), row and table editing (`docs/data-editing-plan.md`, 1.4.0), the SQL tab (`docs/sql-workspace-plan.md`, 1.6.0) and the Migrations tab (`docs/migration-studio-plan.md`, 1.7.0). It is the first work since 1.4.0 that **moves many rows at once**, in both directions, so it is the riskiest of the phases: the plan is organized around what could go wrong.
 
 ## 1. What we promise
 
@@ -182,7 +182,7 @@ Rough size: D0 2 days, D1 4, D2 3, D3 4, D4 3, D5 4, D6 5, D7 3. About 28 days, 
 
 README (the feature list and the sentence about what DataCanvas never does), `docs/getting-started.md` (a chapter on filters and export, one on import and bulk edit), `SECURITY.md` (a section for export, import and bulk operations, and the new known limits), `docs/threat-model.md` (sections for each, and one for the review), `docs/decisions.md`, `CHANGELOG.md`, the CLI help if a flag or limit appears, and the wording in the unlock dialog ("you can now change many rows at once").
 
-## 13. Open decisions, each with a recommendation
+## 13. Decisions taken (2026-11-20): every recommendation accepted
 
 1. **One release or two?** _Recommend two:_ **1.8.0** = filters, JSON editor, validation, export (nothing in it writes a row), **1.9.0** = bulk editing and import (the write side, with its own review).
 2. **Export limits.** _Recommend_ 100,000 rows and 64 MB by default, with the file saying when it was cut; no setting to raise it in the first version.

@@ -8,12 +8,13 @@
  */
 "use client";
 
-import { memo, useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock, Pencil, Trash2 } from "lucide-react";
 import type { RowCell, RowColumn, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useGridNavigation } from "@/lib/use-grid-navigation";
 import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { CellDialog, type OpenCell } from "./cell-dialog";
 import { describeCell, hasMoreToShow } from "./cell-text";
@@ -56,24 +57,8 @@ export function DataGrid({
   /** Row actions, while writes are unlocked. */
   editing?: GridEditing | null;
 }) {
-  const tableRef = useRef<HTMLTableElement>(null);
-  const [active, setActive] = useState({ row: 0, col: 0 });
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
   const blurred = useBlurStore((s) => s.blurred);
-
-  const lastRow = page.rows.length - 1;
-  const lastCol = page.columns.length - 1;
-
-  const focusCell = (row: number, col: number) => {
-    const next = {
-      row: Math.max(0, Math.min(lastRow, row)),
-      col: Math.max(0, Math.min(lastCol, col)),
-    };
-    setActive(next);
-    tableRef.current
-      ?.querySelector<HTMLElement>(`td[data-row="${next.row}"][data-col="${next.col}"]`)
-      ?.focus();
-  };
 
   const open = useCallback(
     (row: number, col: number) => {
@@ -84,35 +69,18 @@ export function DataGrid({
     },
     [page],
   );
-  const activate = useCallback((row: number, col: number) => setActive({ row, col }), []);
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
-    const target = (event.target as HTMLElement).closest("td");
-    if (!target || target.dataset.row === undefined) return;
-    const row = Number(target.dataset.row);
-    const col = Number(target.dataset.col);
-    const moves: Record<string, [number, number]> = {
-      ArrowDown: [row + 1, col],
-      ArrowUp: [row - 1, col],
-      ArrowRight: [row, col + 1],
-      ArrowLeft: [row, col - 1],
-      Home: [row, 0],
-      End: [row, lastCol],
-      PageDown: [row + 10, col],
-      PageUp: [row - 10, col],
-    };
-    const move = moves[event.key];
-    if (move) {
-      event.preventDefault();
-      focusCell(move[0], move[1]);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      open(row, col);
-    } else if (event.key === "F2" && editing && editing.rowBlock(row) === null) {
-      event.preventDefault();
-      editing.onEdit(row, col);
-    }
-  };
+  const { tableRef, active, activate, onKeyDown } = useGridNavigation({
+    rows: page.rows.length,
+    columns: page.columns.length,
+    onOpen: open,
+    onKey: (event, row, col) => {
+      if (event.key === "F2" && editing && editing.rowBlock(row) === null) {
+        editing.onEdit(row, col);
+        return true;
+      }
+      return false;
+    },
+  });
 
   return (
     <>

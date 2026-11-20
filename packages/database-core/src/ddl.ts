@@ -99,7 +99,11 @@ export function normalizeDdl(ddl: DdlDetail): DdlDetail {
     serverVersion: ddl.serverVersion,
     columns: by(ddl.columns, (c) => `${col(c)}.${c.column}`),
     constraints: by(ddl.constraints, (c) => `${col(c)}.${c.name}`),
-    tables: by(ddl.tables, (t) => `${t.schema}.${t.name}`),
+    // The catalog keeps options in the order they were set; the same options are the same table.
+    tables: by(ddl.tables, (t) => `${t.schema}.${t.name}`).map((t) => ({
+      ...t,
+      options: [...t.options].sort(compareText),
+    })),
     comments: by(ddl.comments, (c) => `${c.target}.${c.schema}.${c.table ?? ""}.${c.name}`),
   };
 }

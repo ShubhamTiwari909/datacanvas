@@ -56,19 +56,63 @@ export interface Scripts {
   down: string;
   /** Ids of destructive steps written commented out. */
   held: string[];
+  /** For each held step: null when it is destructive itself, else the id of the held step it follows. */
+  reasons: Map<string, string | null>;
 }
+
+const objectKey = (s: MigrationStep): string =>
+  [
+    s.object.schema,
+    s.object.table,
+    s.object.of ?? "",
+    s.object.name ?? "",
+    s.object.column ?? "",
+  ].join("\u0001");
+
+/**
+ * The steps written commented out, and why. A destructive step that is not confirmed is held; so is
+ * every later step that needs it (it waits for it) or is about the same object (a view that is
+ * dropped to be made again: made again with nothing dropped, it would fail or double up). A held
+ * step that is not itself destructive names the one it follows.
+ */
+export function heldSteps(
+  included: readonly MigrationStep[],
+  confirmed: ReadonlySet<string>,
+): Map<string, string | null> {
+  const held = new Map<string, string | null>();
+  const keys = new Map<string, string>(); // object key -> id of the held destructive step
+  for (const s of included) {
+    if (isDestructive(s) && !confirmed.has(s.id)) {
+      held.set(s.id, null);
+      keys.set(objectKey(s), s.id);
+      continue;
+    }
+    const waits = s.dependsOn.find((id) => held.has(id));
+    const same = keys.get(objectKey(s));
+    const because = waits !== undefined ? (held.get(waits) ?? waits) : same;
+    if (because !== undefined) held.set(s.id, because);
+  }
+  return held;
+}
+
+/** The line that says why a step is commented out. */
+export const heldNote = (id: string, reasons: Map<string, string | null>): string => {
+  const because = reasons.get(id);
+  return because === null || because === undefined
+    ? "-- NOT CONFIRMED (destroys data): confirm this step to run it."
+    : `-- HELD: it follows ${because}, which is not confirmed. Confirm ${because} to run both.`;
+};
 
 export function buildScripts(plan: MigrationPlan, selection: Selection): Scripts {
   const { included } = resolveSelection(plan, selection.leftOut);
-  const held = included
-    .filter((s) => isDestructive(s) && !selection.confirmed.has(s.id))
-    .map((s) => s.id);
+  const reasons = heldSteps(included, selection.confirmed);
+  const held = [...reasons.keys()];
   const heldSet = new Set(held);
   const up = included
     .map((s) => {
       const header = `-- ${s.id}: ${flattenComment(s.note)}`;
       return heldSet.has(s.id)
-        ? `${header}\n-- NOT CONFIRMED (destroys data): confirm this step to run it.\n${commentOut(s.up)}`
+        ? `${header}\n${heldNote(s.id, reasons)}\n${commentOut(s.up)}`
         : `${header}\n${s.up}`;
     })
     .join("\n\n");
@@ -80,7 +124,7 @@ export function buildScripts(plan: MigrationPlan, selection: Selection): Scripts
       return heldSet.has(s.id) ? `${header}\n${commentOut(s.down)}` : `${header}\n${s.down}`;
     })
     .join("\n\n");
-  return { up, down, held };
+  return { up, down, held, reasons };
 }
 
 export interface Summary {

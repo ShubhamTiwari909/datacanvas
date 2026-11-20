@@ -22,6 +22,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Square,
   X,
 } from "lucide-react";
@@ -57,7 +58,7 @@ import {
   sqlFileName,
   tabNameFromFile,
 } from "./files";
-import { ensureCatalog } from "./completion/catalog-cache";
+import { ensureCatalog, invalidateCatalog } from "./completion/catalog-cache";
 import { csvFile, planText, toCsv, toJson, toTsv } from "./export";
 import { HistoryDialog } from "./history-dialog";
 import { sqlRoleNotice } from "./role-notice";
@@ -272,6 +273,20 @@ function Editor({ connectionId }: { connectionId: string }) {
           </select>
         </label>
         <div className="ml-auto flex items-center gap-1">
+          <Tip label="Read the table and column names again (after a change made elsewhere)">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Refresh names for completion"
+              onClick={() => {
+                invalidateCatalog(connectionId);
+                void ensureCatalog(connectionId);
+              }}
+            >
+              <RefreshCw aria-hidden="true" />
+            </Button>
+          </Tip>
           <Tip label="Statements run on this connection">
             <Button
               type="button"

@@ -102,7 +102,7 @@ The Data section is not exported or saved. If you share your screen, a screensho
 - The SQL tab runs what a role is allowed to run: a function with effects outside the database (through an extension such as `dblink`, or a privileged role) is not stopped by a read-only transaction. A statement can also change its own time limits for the rest of its transaction, which only matters to the few queries we run after it. A pooler such as PgBouncer can make Cancel reach the wrong session; use a direct connection for SQL you may need to cancel.
 - A change can wait up to 3 seconds for a lock; once it has the lock, a long `ALTER TABLE` (a type change rewrites the table) blocks every other query on that table until it finishes. The preview says when a change takes such a lock or rewrites the table.
 - Triggers on a table run when you change a row, and can do anything their code does. The preview names them.
-- A destructive step you leave unconfirmed is written commented out, but the steps after it are not: one that depended on it (a create after a held drop) runs, and fails because the object is still there. Confirm or leave out steps together.
+- A destructive step you leave unconfirmed is written commented out, and so is every later step that needs it or is about the same object, with the reason. Steps that only touch other things still run: confirm or leave out steps together.
 - A migration is as good as the structure it was made from. A structure read while another migration runs can mix before and after, and a migration made from an old snapshot may not fit the database it is run on: read it first, and run it in a test copy when you can.
 - Two DataCanvas processes sharing one data folder are not coordinated.
 

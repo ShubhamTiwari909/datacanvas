@@ -9,11 +9,12 @@
  */
 "use client";
 
-import { memo, useCallback, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useState } from "react";
 import type { RowCell, RowColumn } from "@datacanvas/database-core";
 import { SQL_LIMITS } from "@datacanvas/database-core";
 import type { SqlResult } from "@datacanvas/shared-types";
 import { cn } from "@/lib/utils";
+import { useGridNavigation } from "@/lib/use-grid-navigation";
 import { BLUR_IN_GRID, useBlurStore } from "@/features/data/blur-store";
 import { CellDialog, type OpenCell } from "@/features/data/cell-dialog";
 import { describeCell, hasMoreToShow } from "@/features/data/cell-text";
@@ -39,29 +40,10 @@ const toCell = (value: string | null, anyCut: boolean): RowCell => ({
 });
 
 export function ResultGrid({ result }: { result: SqlResult }) {
-  const tableRef = useRef<HTMLTableElement>(null);
-  const [active, setActive] = useState({ row: 0, col: 0 });
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
   const blurred = useBlurStore((s) => s.blurred);
 
   const columns = result.columns.map(toColumn);
-  const lastRow = result.rows.length - 1;
-  const lastCol = columns.length - 1;
-  // A new result may be smaller than the last: the cell that has the tab stop must exist.
-  const activeRow = Math.min(active.row, Math.max(0, lastRow));
-  const activeCol = Math.min(active.col, Math.max(0, lastCol));
-
-  const focusCell = (row: number, col: number) => {
-    const next = {
-      row: Math.max(0, Math.min(lastRow, row)),
-      col: Math.max(0, Math.min(lastCol, col)),
-    };
-    setActive(next);
-    tableRef.current
-      ?.querySelector<HTMLElement>(`td[data-row="${next.row}"][data-col="${next.col}"]`)
-      ?.focus();
-  };
-
   const open = useCallback(
     (row: number, col: number) => {
       const value = result.rows[row]?.[col];
@@ -71,32 +53,13 @@ export function ResultGrid({ result }: { result: SqlResult }) {
     },
     [result],
   );
-  const activate = useCallback((row: number, col: number) => setActive({ row, col }), []);
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
-    const target = (event.target as HTMLElement).closest("td");
-    if (!target || target.dataset.row === undefined) return;
-    const row = Number(target.dataset.row);
-    const col = Number(target.dataset.col);
-    const moves: Record<string, [number, number]> = {
-      ArrowDown: [row + 1, col],
-      ArrowUp: [row - 1, col],
-      ArrowRight: [row, col + 1],
-      ArrowLeft: [row, col - 1],
-      Home: [row, 0],
-      End: [row, lastCol],
-      PageDown: [row + 10, col],
-      PageUp: [row - 10, col],
-    };
-    const move = moves[event.key];
-    if (move) {
-      event.preventDefault();
-      focusCell(move[0], move[1]);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      open(row, col);
-    }
-  };
+  const { tableRef, active, activate, onKeyDown } = useGridNavigation({
+    rows: result.rows.length,
+    columns: columns.length,
+    onOpen: open,
+  });
+  const activeRow = active.row;
+  const activeCol = active.col;
 
   return (
     <>

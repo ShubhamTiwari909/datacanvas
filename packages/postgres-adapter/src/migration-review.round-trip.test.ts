@@ -141,4 +141,41 @@ describe.skipIf(!testDatabaseUrl())("what the review found", () => {
       "data_lost",
     );
   });
+
+  describe("unlogged tables and storage options", () => {
+    it("makes a table unlogged and with options, and drops it again", async () => {
+      await works({
+        name: "create unlogged",
+        from: base(""),
+        to: base("CREATE UNLOGGED TABLE {s}.t (id int PRIMARY KEY, n int) WITH (fillfactor=70);"),
+      });
+      await works({
+        name: "drop unlogged",
+        from: base("CREATE UNLOGGED TABLE {s}.t (id int PRIMARY KEY, n int) WITH (fillfactor=70);"),
+        to: base(""),
+      });
+    });
+    it("switches logging and changes, adds and removes options", async () => {
+      const plan = await works({
+        name: "logging on",
+        from: base("CREATE TABLE {s}.t (id int PRIMARY KEY, n int);"),
+        to: base("CREATE UNLOGGED TABLE {s}.t (id int PRIMARY KEY, n int);"),
+      });
+      expect(plan.steps.map((s) => s.kind)).toEqual(["set_table_logging"]);
+      await works({
+        name: "logging off",
+        from: base("CREATE UNLOGGED TABLE {s}.t (id int PRIMARY KEY, n int);"),
+        to: base("CREATE TABLE {s}.t (id int PRIMARY KEY, n int);"),
+      });
+      await works({
+        name: "options",
+        from: base(
+          "CREATE TABLE {s}.t (id int PRIMARY KEY) WITH (fillfactor=70, autovacuum_enabled=false);",
+        ),
+        to: base(
+          "CREATE TABLE {s}.t (id int PRIMARY KEY) WITH (fillfactor=90, toast_tuple_target=4096);",
+        ),
+      });
+    });
+  });
 });

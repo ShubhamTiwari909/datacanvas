@@ -17,6 +17,7 @@
  */
 import {
   buildScripts,
+  heldNote,
   flattenComment,
   resolveSelection,
   summarize,
@@ -136,7 +137,7 @@ function section(
     }
     const isHeld = held.has(s.id);
     const body = isHeld
-      ? `${label}\n-- NOT CONFIRMED (destroys data): confirm this step to run it.\n${sql
+      ? `${label}\n${heldNote(s.id, scripts.reasons)}\n${sql
           .split(/\r\n|\r|\n/)
           .map((line) => `-- ${line}`)
           .join("\n")}`

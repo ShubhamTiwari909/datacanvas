@@ -354,6 +354,23 @@ test("suggests tables of the database after FROM, and inserts the one chosen", a
   await expect(page.locator(".monaco-editor .view-lines")).not.toContainText("user_profiles");
 });
 
+test("reads the names again on request, for a table made elsewhere after the view opened", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  // The names were read when the view opened: a table made now by another tool is not in them
+  // until they are read again.
+  await admin(database, "CREATE TABLE public.zz_made_elsewhere (id int PRIMARY KEY, label text)");
+  const reread = page.waitForResponse((r) => /\/structure$/.test(new URL(r.url()).pathname));
+  await page.getByRole("button", { name: "Refresh names for completion" }).click();
+  await reread;
+  await typeSql(page, "SELECT * FROM zz_made");
+  await page.keyboard.press("ControlOrMeta+Space");
+  await expect(suggestions(page).filter({ hasText: "zz_made_elsewhere" }).first()).toBeVisible();
+});
+
 test("suggests the columns of an alias after a dot, with their types", async ({
   page,
   app,

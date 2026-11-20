@@ -44,7 +44,7 @@ export function downScript(plan: MigrationPlan): string {
 
 const NOT_COMPARED = [
   "view options (security barrier, check option, security invoker), comments on triggers and policies, and the position of a sequence",
-  "partitioning, inheritance, unlogged tables and storage options",
+  "partitioning, inheritance and tablespaces",
   "owners, grants and default privileges",
   "event triggers, publications, subscriptions, foreign data wrappers and servers, collations, casts and rules",
   "any row of data: a migration holds structure, not data",
@@ -84,6 +84,17 @@ function side(structure: DatabaseStructure): Side {
   }
   return { tables, ddl: structure.ddl, columnDdl, relationships, comments };
 }
+
+/** A storage option as the catalog prints it (`fillfactor=70`); anything else is not written. */
+const SAFE_OPTION = /^[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.+-]+$/;
+const tableDdlOf = (s: Side, t: { schema: string; name: string }) =>
+  s.ddl?.tables.find((x) => x.schema === t.schema && x.name === t.name);
+const optionsOf = (d: { options: string[] } | undefined): Map<string, string> =>
+  new Map(
+    (d?.options ?? [])
+      .filter((o) => SAFE_OPTION.test(o))
+      .map((o) => [o.slice(0, o.indexOf("=")), o.slice(o.indexOf("=") + 1)]),
+  );
 
 const byName = <T extends { name: string }>(list: readonly T[]): Map<string, T> =>
   new Map(list.map((item) => [item.name, item]));
@@ -329,7 +340,9 @@ export function planMigration(
     const cols = [...t.columns]
       .sort((x, y) => x.ordinalPosition - y.ordinalPosition)
       .map((c) => `  ${columnSql(c, ddl.columnDdl.get(columnKey(t.schema, t.name, c.name)))}`);
-    return `CREATE TABLE ${qualified(t.schema, t.name)} (\n${cols.join(",\n")}\n);`;
+    const d = tableDdlOf(ddl, t);
+    const options = [...optionsOf(d)].map(([k, v]) => `${k}=${v}`);
+    return `CREATE ${d?.unlogged ? "UNLOGGED " : ""}TABLE ${qualified(t.schema, t.name)} (\n${cols.join(",\n")}\n)${options.length > 0 ? ` WITH (${options.join(", ")})` : ""};`;
   };
   /** The statements that bring back a table with everything but its foreign keys. */
   const recreateSql = (t: StructureTable, s: Side): string => {
@@ -634,6 +647,52 @@ export function planMigration(
         needs: [providesColumn(after.schema, after.name, name)],
       });
     }
+    if (a.ddl && b.ddl) {
+      const dWas = tableDdlOf(a, before);
+      const dNow = tableDdlOf(b, after);
+      const was = dWas?.unlogged ?? false;
+      const now = dNow?.unlogged ?? false;
+      if (was !== now) {
+        alterColumns.push({
+          kind: "set_table_logging",
+          object: { schema: after.schema, table: after.name },
+          up: `${alterTable(after)} SET ${now ? "UNLOGGED" : "LOGGED"};`,
+          down: `${alterTable(after)} SET ${was ? "UNLOGGED" : "LOGGED"};`,
+          risk: ["lock", "rewrite", "may_fail"],
+          reversibility: "full",
+          note: `Makes ${after.name} ${now ? "unlogged (faster, but emptied after a crash and not copied to replicas)" : "logged"}. The table is rewritten, and it fails if a foreign key links a logged and an unlogged table.`,
+        });
+      }
+      const ow = optionsOf(dWas);
+      const on = optionsOf(dNow);
+      const up: string[] = [];
+      const down: string[] = [];
+      for (const [k, v] of on) {
+        if (ow.get(k) === v) continue;
+        up.push(`${alterTable(after)} SET (${k}=${v});`);
+        down.push(
+          ow.has(k)
+            ? `${alterTable(after)} SET (${k}=${ow.get(k)});`
+            : `${alterTable(after)} RESET (${k});`,
+        );
+      }
+      for (const [k, v] of ow) {
+        if (on.has(k)) continue;
+        up.push(`${alterTable(after)} RESET (${k});`);
+        down.push(`${alterTable(after)} SET (${k}=${v});`);
+      }
+      if (up.length > 0) {
+        alterColumns.push({
+          kind: "set_table_options",
+          object: { schema: after.schema, table: after.name },
+          up: up.join("\n"),
+          down: down.reverse().join("\n"),
+          risk: ["lock"],
+          reversibility: "full",
+          note: `Changes the storage options of ${after.name}. Rows already stored keep their layout until they are rewritten.`,
+        });
+      }
+    }
     if (before.comment !== after.comment) {
       alterColumns.push({
         kind: "comment_table",
@@ -888,15 +947,13 @@ export function planMigration(
 
   // Differences this plan cannot make: said, not skipped silently.
   if (a.ddl && b.ddl) {
-    const tableDdl = (d: DdlDetail) =>
-      new Map(d.tables.map((t) => [tableKey(t.schema, t.name), JSON.stringify(t)]));
-    const x = tableDdl(a.ddl);
-    const y = tableDdl(b.ddl);
+    const rest = (d: DdlDetail["tables"][number] | undefined) =>
+      JSON.stringify([d?.partitionKey, d?.partitionOf, d?.inherits, d?.tablespace]);
     for (const key of common) {
-      if ((x.get(key) ?? "") !== (y.get(key) ?? "")) {
-        const t = b.tables.get(key)!;
+      const t = b.tables.get(key)!;
+      if (rest(tableDdlOf(a, t)) !== rest(tableDdlOf(b, t))) {
         warnings.push(
-          `${t.name} differs in partitioning, inheritance, being unlogged or its storage options. The plan does not change those yet.`,
+          `${t.name} differs in partitioning, inheritance or tablespace. The plan does not change those.`,
         );
       }
     }
@@ -924,11 +981,10 @@ export function planMigration(
   // A table made or dropped with what this plan cannot say: the rest is planned, and this is said.
   const special = (d: DdlDetail["tables"][number] | undefined): boolean =>
     d !== undefined &&
-    (d.unlogged ||
-      d.partitionKey !== null ||
+    (d.partitionKey !== null ||
       d.partitionOf !== null ||
       d.inherits.length > 0 ||
-      d.options.length > 0 ||
+      d.options.some((o) => !SAFE_OPTION.test(o)) ||
       d.tablespace !== null);
   for (const [keys, ddl, verb] of [
     [created, b.ddl, "made as an ordinary table"],
@@ -943,7 +999,7 @@ export function planMigration(
       const d = ddl?.tables.find((x) => tableKey(x.schema, x.name) === key);
       if (special(d)) {
         warnings.push(
-          `${t.name} is partitioned, a partition, inherits, is unlogged or has storage options, which this plan does not carry: it is ${verb}.`,
+          `${t.name} is partitioned, a partition, inherits, has a tablespace or an option this plan cannot write, which it does not carry: it is ${verb}.`,
         );
       }
     }

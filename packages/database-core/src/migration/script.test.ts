@@ -108,3 +108,37 @@ describe("the summary", () => {
     expect(summarize(plan, { ...none, leftOut: new Set(["s2"]) }).reversibility).toBe("full");
   });
 });
+
+describe("a held step holds what follows it", () => {
+  const drop = step("s1", {
+    kind: "drop_view",
+    object: { schema: "public", table: "", of: "view", name: "v" },
+    up: "DROP VIEW v;",
+    down: "CREATE VIEW v AS SELECT 1;",
+    risk: ["destructive"],
+  });
+  const make = step("s2", {
+    kind: "create_view",
+    object: { schema: "public", table: "", of: "view", name: "v" },
+    up: "CREATE VIEW v AS SELECT 2;",
+    down: "DROP VIEW v;",
+  });
+  const other = step("s3", { object: { schema: "public", table: "x" } });
+  const waits = step("s4", { dependsOn: ["s1"], object: { schema: "public", table: "y" } });
+  const plan = planOf([drop, make, other, waits]);
+
+  it("holds a step about the same object, and a step that depends on a held one", () => {
+    const { up, held, reasons } = buildScripts(plan, none);
+    expect(held).toEqual(["s1", "s2", "s4"]);
+    expect(reasons.get("s2")).toBe("s1");
+    expect(up).toContain("-- CREATE VIEW v AS SELECT 2;");
+    expect(up).not.toMatch(/^CREATE VIEW v AS SELECT 2;/m);
+    expect(up).toContain("HELD: it follows s1");
+    expect(up).toMatch(/^CREATE TABLE s3 \(\);/m);
+  });
+  it("runs them all once the destructive step is confirmed", () => {
+    const { up, held } = buildScripts(plan, { leftOut: new Set(), confirmed: new Set(["s1"]) });
+    expect(held).toEqual([]);
+    expect(up).toMatch(/^CREATE VIEW v AS SELECT 2;/m);
+  });
+});

@@ -4,6 +4,23 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-20
+
+### Added
+
+- **Unlogged tables and storage options in migrations.** A migration now creates a table `UNLOGGED` and with its `WITH (fillfactor=...)` options, switches a table between logged and unlogged (`SET LOGGED` or `SET UNLOGGED`, which rewrites the table), and sets, changes and resets storage options. Partitioning, inheritance and tablespaces are still not carried, and a warning names each table that has them.
+- **A button in the SQL tab that reads the table and column names again** for completion, for a change made by another tool after the tab opened.
+
+### Fixed
+
+- **A step held back (a destructive step you have not confirmed) now holds what follows it.** A view that is dropped to be made again, a function dropped and created, or a step that depends on the held one, used to run while the drop stayed commented out, and failed. They are now written commented out with the reason ("it follows s3, which is not confirmed"). Confirm the destructive step and both run.
+- The options of a table are compared as a set: the catalog keeps them in the order they were set, so the same options in another order no longer look like a difference.
+
+### Tests and internals
+
+- **A property check for the migration planner**: random small databases and random changes (tables, columns, types, defaults, constraints, indexes, foreign keys, views, comments), each planned and run on a real PostgreSQL, up and then down, with the seed and both databases printed on a failure. 400 pairs pass; the default run is 40 (`DATACANVAS_PROPERTY_RUNS`, `DATACANVAS_PROPERTY_SEED`).
+- The two row grids (the Data section and the SQL result) share one keyboard-navigation hook instead of two copies.
+
 ## [1.7.0] - 2026-11-19
 
 ### Added

@@ -29,6 +29,8 @@ export type StepKind =
   | "create_table"
   | "drop_table"
   | "comment_table"
+  | "set_table_logging"
+  | "set_table_options"
   | "add_column"
   | "drop_column"
   | "alter_column_type"

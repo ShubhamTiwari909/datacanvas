@@ -59,7 +59,7 @@ export function ValidationPanel({ validation }: { validation: Validation }) {
   const { outcome } = validation;
   // A region that is always in the page, so a screen reader announces what appears in it.
   return (
-    <div role="status" aria-live="polite" className="text-sm">
+    <div role="status" aria-label="Check of the values" aria-live="polite" className="text-sm">
       {outcome?.status === "loading" ? (
         <p className="text-muted-foreground">Checking the values with the database…</p>
       ) : null}

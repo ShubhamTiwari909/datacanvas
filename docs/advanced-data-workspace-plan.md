@@ -238,3 +238,14 @@ The filters of section 4 are built (core, schema, adapter, panel). Where the bui
 - **Filter by this value** is a button in the dialog of a cell, for text and ordered columns (an equals, or a NULL test for NULL); a value that was cut or is over 200 characters offers none.
 - **Saved shapes** are kept per table in local storage as `{name, conditions: [{column, op, group}]}`, read back as untrusted data, at most 20 per table, and using one opens a form that asks for the values again.
 - **A neighbour found by axe on a phone:** the columns table of the Table details tab scrolled sideways without being reachable by the keyboard; it is a focusable region now.
+
+## 17. What D2 found (2026-11-21)
+
+The JSON editor of section 5 is built. Where the build differs from the plan:
+
+- **A second read, `getCell`, was needed.** The plan said the dialog "reads the whole value when it opens", but there was no way to read more than a cell of a page (2,000 characters, and a cut cell is not editable at all). `getCell` reads one `json` or `jsonb` value by the table's whole key (decision 156), behind the same data-access check and gate as a page, and is pinned by its own rules in `tests/security.test.ts` (only the service calls it; the check comes first; one fixed statement; the key bound; JSON only; a hidden column refused).
+- **Editing stops at 100,000 characters, not 1 MB.** That is what a change can carry today. The editor reads up to 1,000,000 characters (a tree, the colours, Format) and says a longer document is read-only.
+- **Where it opens.** From the cell dialog ("Open as JSON", read only), from the row editor and the add-row form ("Edit as JSON" beside the field), and, in the row editor, as "Read it whole in the JSON editor" for a value a page cut short; using the value there makes the whole text what the change is checked against.
+- **No new comparison for `jsonb`.** `expected` is the text as read and `jsonb` prints canonically, so a re-formatted document is not a conflict; the plan's `IS NOT DISTINCT FROM CAST(... AS jsonb)` is not needed.
+- **Colours had to be chosen.** Monaco's stock token colours failed axe contrast on the app's dark background; the theme now sets its own for the JSON tokens.
+- **Typing over a selection wraps it** in the bracket typed (a Monaco surrounding pair); the e2e helper deletes the selection first. Auto-indent also changes the column of an error in a multi-line text typed by a script.

@@ -255,6 +255,7 @@ function Rows({
           sort={paging.sort}
           onSort={(column) => dispatch({ type: "sort", sort: nextSort(paging.sort, column) })}
           busy={busy}
+          source={{ connectionId, table: { schema, name: table } }}
           editing={editing.grid}
           onFilterCell={
             paging.filters.length < ROWS_MAX_FILTERS

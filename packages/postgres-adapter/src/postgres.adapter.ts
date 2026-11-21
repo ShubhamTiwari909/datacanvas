@@ -43,6 +43,8 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type RowPage,
+  type CellRead,
+  type CellRequest,
   type RowsOptions,
   type RoleInfo,
   type RelationshipInfo,
@@ -73,7 +75,7 @@ import { listIndexes } from "./introspection/indexes.js";
 import { listIndexUsage } from "./introspection/index-usage.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
-import { readRows } from "./introspection/rows.js";
+import { readCell, readRows } from "./introspection/rows.js";
 import { listRelationships } from "./introspection/relationships.js";
 import { readRoleInfo } from "./introspection/role-info.js";
 import { listSchemas } from "./introspection/schemas.js";
@@ -212,6 +214,10 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
       }
       throw error;
     }
+  }
+
+  getCell(table: TableRef, request: CellRequest): Promise<CellRead> {
+    return this.read((db) => readCell(db, table, request));
   }
 
   getIndexUsage(): Promise<IndexUsageReport> {

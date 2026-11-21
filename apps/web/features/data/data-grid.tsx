@@ -16,7 +16,8 @@ import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useGridNavigation } from "@/lib/use-grid-navigation";
 import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
-import { CellDialog, type OpenCell } from "./cell-dialog";
+import { wholeCellKey } from "@/features/json/cell-key";
+import { CellDialog, type CellSource, type OpenCell } from "./cell-dialog";
 import { describeCell, hasMoreToShow } from "./cell-text";
 import { sortActionLabel, sortStateOf, whyNotSortable, type SortState } from "./sorting";
 
@@ -43,6 +44,7 @@ export function DataGrid({
   busy,
   editing = null,
   onFilterCell,
+  source,
 }: {
   page: RowPage;
   caption: string;
@@ -59,6 +61,8 @@ export function DataGrid({
   editing?: GridEditing | null;
   /** A condition made from a cell ("Filter by this value"), or absent when no more can be added. */
   onFilterCell?: (filter: RowFilter) => void;
+  /** The table the page is from, so a cut JSON value can be read whole. */
+  source?: CellSource;
 }) {
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
   const blurred = useBlurStore((s) => s.blurred);
@@ -68,7 +72,7 @@ export function DataGrid({
       const column = page.columns[col];
       const cell = page.rows[row]?.[col];
       if (!column || !cell || column.masked || cell.value === null) return;
-      setOpenCell({ column, cell });
+      setOpenCell({ column, cell, key: wholeCellKey(page, row) });
     },
     [page],
   );
@@ -134,7 +138,12 @@ export function DataGrid({
           </tbody>
         </table>
       </div>
-      <CellDialog open={openCell} onClose={() => setOpenCell(null)} onFilter={onFilterCell} />
+      <CellDialog
+        open={openCell}
+        onClose={() => setOpenCell(null)}
+        onFilter={onFilterCell}
+        source={source}
+      />
     </>
   );
 }

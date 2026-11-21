@@ -20,6 +20,7 @@ import {
   type IndexUsageReport,
   type RelationshipInfo,
   type RoleInfo,
+  type CellRead,
   type RowPage,
   type SchemaInfo,
   type SearchHit,
@@ -35,6 +36,7 @@ import {
   resolvePostgresConnection,
   summarizePostgresConnection,
   type ConnectionSummary,
+  type ParsedCellRequest,
   type ParsedRowsRequest,
   type SnapshotSource,
   type PostgresConnectionInput,
@@ -208,6 +210,38 @@ export class ConnectionService {
             sort: request.sort,
             filters: request.filters,
           },
+        ),
+      ),
+    );
+  }
+
+  /**
+   * ONE `json` or `jsonb` value of one row, whole, for the JSON editor. Table data, so the same rule as
+   * `getRows`: refused unless viewing table data is switched on, and that check comes first.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `not_found`, `not_supported`, `invalid_request`, `permission_denied`, ...
+   */
+  getCell(id: string, request: ParsedCellRequest): Promise<CellRead> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) =>
+        adapter.getCell(
+          { schema: request.schema, name: request.table },
+          { column: request.column, key: request.key, revealColumns: request.revealColumns },
         ),
       ),
     );

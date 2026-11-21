@@ -6,12 +6,14 @@
  * callers keep a page in component state and drop it when they unmount.
  */
 import {
+  cellResponseSchema,
   connectionResponseSchema,
   rowsResponseSchema,
+  type CellRequestBody,
   type ConnectionSummary,
   type RowsRequest,
 } from "@datacanvas/shared-types";
-import type { RowPage } from "@datacanvas/database-core";
+import type { CellRead, RowPage } from "@datacanvas/database-core";
 import { apiRequest, type ApiResult } from "@/lib/api-client";
 
 /** One page of a table's rows. Refused with `data_access_disabled` while data access is off. */
@@ -25,6 +27,19 @@ export async function getRows(
     { method: "POST", body: request },
   );
   return result.ok ? { ok: true, data: result.data.page } : result;
+}
+
+/** One `json` or `jsonb` value of one row, whole (for the JSON editor). Refused with `data_access_disabled` while data access is off. */
+export async function getCell(
+  connectionId: string,
+  request: CellRequestBody,
+): Promise<ApiResult<CellRead>> {
+  const result = await apiRequest(
+    `/api/connections/${encodeURIComponent(connectionId)}/rows/cell`,
+    cellResponseSchema,
+    { method: "POST", body: request },
+  );
+  return result.ok ? { ok: true, data: result.data.cell } : result;
 }
 
 /** Switch viewing table data on or off for a connection. Answers with its updated summary. */

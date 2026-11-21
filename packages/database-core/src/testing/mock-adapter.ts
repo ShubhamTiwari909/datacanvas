@@ -20,6 +20,8 @@ import type {
 import { emptyDdl, type DdlDetail } from "../ddl.js";
 import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
+  CellRead,
+  CellRequest,
   ColumnInfo,
   ConstraintInfo,
   DatabaseObjects,
@@ -270,6 +272,16 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
   async getObjects(): Promise<DatabaseObjects> {
     this.requireConnection();
     return normalizeObjects(copy(this.data.objects));
+  }
+
+  /** The sample data has no `json` column to read whole: a table that exists is `invalid_request`, one that does not is `not_found`. */
+  async getCell(ref: TableRef, request: CellRequest): Promise<CellRead> {
+    this.requireConnection();
+    const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
+    if (!table) throw new DatabaseError("not_found");
+    if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+    void request;
+    throw new DatabaseError("invalid_request");
   }
 
   async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {

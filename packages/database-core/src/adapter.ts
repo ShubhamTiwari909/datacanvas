@@ -31,6 +31,8 @@ import type {
   RelationshipInfo,
   RowPage,
   RowsOptions,
+  CellRequest,
+  CellRead,
   SchemaInfo,
   SearchHit,
   TableDetailsEntry,
@@ -186,6 +188,22 @@ export interface DatabaseAdapter {
    *   The error text never contains a value from the table.
    */
   getRows(table: TableRef, options: RowsOptions): Promise<RowPage>;
+
+  /**
+   * ONE `json` or `jsonb` value of ONE row, read whole up to `CELL_EDIT_MAX_CHARS`, for the JSON editor
+   * (a page of rows cuts every cell at `ROWS_CELL_CHARS`). Like `getRows` it returns table data, and the
+   * service calls it only behind the same data-access check.
+   *
+   * - The row is found by the table's row key (the primary key, else a usable unique index); every key
+   *   column is named once, and every value is a bound parameter. A table without a key has no cell to name.
+   * - Any other column type, or a column that does not exist, is `invalid_request`; a column whose name
+   *   looks sensitive and was not revealed is `invalid_request` too (it would be an oracle).
+   * - A value over the limit is not sent: `tooLarge` is true and `value` is null.
+   *
+   * @throws DatabaseError `not_found` (no such table or no such row), `not_supported` (a foreign table),
+   *   `invalid_request`, `permission_denied`. The error text never contains a value from the table.
+   */
+  getCell(table: TableRef, request: CellRequest): Promise<CellRead>;
 
   /**
    * What the connected role can do (superuser, role and database creation,

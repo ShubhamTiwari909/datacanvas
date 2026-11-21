@@ -278,6 +278,96 @@ describe("table rows are read only behind the data-access check", () => {
   });
 });
 
+describe("one cell is read whole only behind the same data-access check", () => {
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const cellRoute = path.join(root, "apps/web/app/api/connections/[id]/rows/cell/route.ts");
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("calls getCell on an adapter only in the connection service, and the route asks the service", () => {
+    const callers = appCode.filter((f) => /\badapter\.getCell\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const route = readFileSync(cellRoute, "utf8");
+    expect(route).toMatch(/connections\.getCell\(/);
+    expect(route).not.toMatch(/adapter/i);
+  });
+
+  it("refuses when data access is off before it uses the adapter", () => {
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("getCell(id: string");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    const use = body.indexOf("this.connections.use(");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(use).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    // It waits its turn with the other reads of the connection.
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body, never cached", () => {
+    const code = readFileSync(cellRoute, "utf8");
+    expect(code).toMatch(/export function POST\b/);
+    expect(code).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(code).toContain("jsonResponse");
+    expect(code).toContain("cellRequestSchema");
+    expect(read("packages/shared-types/src/connections.ts")).toMatch(
+      /cellRequestSchema = z\s*\.strictObject/,
+    );
+  });
+
+  it("names the row by the table's whole key from the catalog, binds every value, reads only JSON, and never reads a hidden column", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    const start = code.indexOf("export async function readCell");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start);
+    // Only a json or jsonb column.
+    expect(body).toMatch(/kinds\.get\(column\.name\) !== "json"/);
+    // A column that looks sensitive is read only when it was revealed (as a page does).
+    expect(body).toMatch(
+      /isSensitiveColumnName\(column\.name\) && !request\.revealColumns\.includes/,
+    );
+    // The key must be the whole key, each column once, and a name of the catalog.
+    expect(body).toMatch(/request\.key\.length !== order\.columns\.length/);
+    expect(body).toMatch(
+      /given\.has\(part\.column\) \|\| !order\.columns\.includes\(part\.column\)/,
+    );
+    // The statement is built from catalog names, quoted; the values are bound parameters.
+    expect(body).toMatch(/quoteIdentifier\(column\.name\)/);
+    expect(body).toMatch(/values\.push\(given\.get\(name\)\)/);
+    expect(body).not.toMatch(/\$\{(request|part|given)\b/);
+  });
+
+  it("has no code in the cell path that writes to the console", () => {
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/cell/route.ts",
+      "apps/web/features/json/json-editor-dialog.tsx",
+      "apps/web/features/json/json-code-editor.tsx",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("never reaches the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    expect(places.length).toBeGreaterThan(5);
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /\bgetCell\b|cellResponseSchema|cellRequestSchema|features\/json\//,
+      );
+    }
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

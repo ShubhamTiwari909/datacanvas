@@ -1,4 +1,5 @@
 import {
+  CELL_EDIT_MAX_CHARS,
   DatabaseError,
   ROWS_CELL_CHARS,
   ROWS_MAX_COLUMNS,
@@ -11,6 +12,8 @@ import {
   normalizeRowsOptions,
   quoteIdentifier,
   quoteQualified,
+  type CellRead,
+  type CellRequest,
   type RawRow,
   type RowColumn,
   type RowColumnKind,
@@ -570,4 +573,69 @@ export async function readRows(
     sort,
     filters,
   });
+}
+
+// ---------------------------------------------------------------- one cell ---
+
+/**
+ * One `json` or `jsonb` value of one row, whole, for the JSON editor. The statement is one fixed shape:
+ *
+ *   SELECT char_length(CAST("c" AS text)) AS n,
+ *          CASE WHEN char_length(CAST("c" AS text)) <= $1 THEN CAST("c" AS text) END AS v
+ *   FROM "s"."t" WHERE "k0" = $2 AND "k1" = $3 LIMIT 2
+ *
+ * The column and the key columns are catalog names (the request's names are only compared with them),
+ * every value is bound, a value over the limit is measured in the database and never sent, and a
+ * request that names anything but the table's whole row key is refused.
+ */
+export async function readCell(
+  db: Queryable,
+  ref: TableRef,
+  request: CellRequest,
+): Promise<CellRead> {
+  const bad = () => new DatabaseError("invalid_request");
+  const [table] = await listTablesByRef(db, [ref]);
+  if (!table) throw new DatabaseError("not_found");
+  if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+
+  const columns = await listColumns(db, ref.schema, ref.name);
+  const column = columns.find((c) => c.name === request.column);
+  if (!column) throw bad();
+  const kinds = await findColumnKinds(db, ref);
+  if (kinds.get(column.name) !== "json") throw bad();
+  // A hidden column would be an oracle: it is read only when it was revealed, as a page of rows does.
+  if (isSensitiveColumnName(column.name) && !request.revealColumns.includes(column.name)) {
+    throw bad();
+  }
+
+  const order = await findRowKey(db, ref);
+  if (order.kind === "none" || request.key.length !== order.columns.length) throw bad();
+  const given = new Map<string, string>();
+  for (const part of request.key) {
+    if (given.has(part.column) || !order.columns.includes(part.column)) throw bad();
+    given.set(part.column, part.value);
+  }
+
+  const values: unknown[] = [CELL_EDIT_MAX_CHARS];
+  const text = `CAST(${quoteIdentifier(column.name)} AS text)`;
+  const where = order.columns.map((name) => {
+    values.push(given.get(name));
+    return `${quoteIdentifier(name)} = $${values.length}`;
+  });
+  const statement =
+    `SELECT char_length(${text}) AS n, CASE WHEN char_length(${text}) <= $1 THEN ${text} END AS v ` +
+    `FROM ${quoteQualified(ref.schema, ref.name)} WHERE ${where.join(" AND ")} LIMIT 2`;
+
+  let result: { rows: Array<{ n: string | number | null; v: string | null }> };
+  try {
+    result = await db.query(statement, values);
+  } catch (error) {
+    // A key value that does not fit the key's type: a fixed message, never the database's (it holds the value).
+    if (isDataException(error)) throw new DatabaseError("invalid_request", { cause: error });
+    throw error;
+  }
+  const row = result.rows[0];
+  if (!row || result.rows.length > 1) throw new DatabaseError("not_found");
+  if (row.n === null) return { value: null, tooLarge: false };
+  return row.v === null ? { value: null, tooLarge: true } : { value: row.v, tooLarge: false };
 }

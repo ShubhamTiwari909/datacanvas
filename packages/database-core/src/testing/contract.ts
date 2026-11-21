@@ -39,6 +39,14 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
         { pageSize: 10, cursor: null, revealColumns: [] },
       ),
   ],
+  [
+    "getCell",
+    (a) =>
+      a.getCell(
+        { schema: "public", name: "users" },
+        { column: "id", key: [{ column: "id", value: "1" }], revealColumns: [] },
+      ),
+  ],
 ];
 
 /** Assert a promise rejects with a DatabaseError carrying exactly this code. */

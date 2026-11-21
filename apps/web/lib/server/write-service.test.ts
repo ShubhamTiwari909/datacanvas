@@ -190,6 +190,7 @@ describe("WriteService: the switches", () => {
       getDdlDetail: (t, s) => readOnly.getDdlDetail(t, s),
       getIndexUsage: () => readOnly.getIndexUsage(),
       getRows: (t, o) => readOnly.getRows(t, o),
+      getCell: (t, r) => readOnly.getCell(t, r),
       getRoleInfo: () => readOnly.getRoleInfo(),
       disconnect: () => readOnly.disconnect(),
     });

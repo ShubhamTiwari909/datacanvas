@@ -145,6 +145,7 @@ export function useRowEditing({
       {info ? (
         <>
           <RowEditorDialog
+            connectionId={connectionId}
             table={table}
             info={info}
             row={editRow}

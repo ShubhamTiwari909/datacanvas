@@ -360,6 +360,8 @@ export const ROWS_MAX_PAGE_SIZE = 200;
 export const ROWS_MAX_COLUMNS = 100;
 /** Characters of one cell kept. Longer values are cut IN THE DATABASE and flagged. */
 export const ROWS_CELL_CHARS = 2000;
+/** The most characters of one `json` or `jsonb` value read whole, for the JSON editor (1 MB); a larger one is not sent. */
+export const CELL_EDIT_MAX_CHARS = 1_000_000;
 /** About 2 MB of cell text in one response; a page that would exceed it is cut. */
 export const ROWS_MAX_RESPONSE_CHARS = 2_000_000;
 /** A table without a usable key can only be read this deep (OFFSET gets slower with depth). */
@@ -449,6 +451,24 @@ export interface RowFilter {
 export interface RowSort {
   column: string;
   direction: RowSortDirection;
+}
+
+/**
+ * One cell of one row, read WHOLE (`getCell`, for the JSON editor): the row is found by the table's own key,
+ * the column must be `json` or `jsonb`, and a column whose name looks sensitive is read only when named in
+ * `revealColumns`, as for a page of rows.
+ */
+export interface CellRequest {
+  column: string;
+  /** One entry per column of the table's row key (`getRows` says which), in any order. */
+  key: Array<{ column: string; value: string }>;
+  revealColumns: string[];
+}
+
+/** What `getCell` read: the text, or null for SQL NULL, or `tooLarge` (then the text is null and nothing was sent). */
+export interface CellRead {
+  value: string | null;
+  tooLarge: boolean;
 }
 
 export interface RowsOptions {

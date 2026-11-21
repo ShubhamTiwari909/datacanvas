@@ -33,6 +33,30 @@ function variable(name: string): string | null {
   return value ? toHex(value) : null;
 }
 
+/**
+ * Colours for the tokens of the JSON editor (`features/json/json-language.ts`). Monaco's own palettes
+ * are not accessible on the app's backgrounds (axe found text under 4.5:1), so each colour here is
+ * chosen to be at least 4.5:1 on the page background of its theme.
+ */
+const JSON_TOKEN_COLORS = {
+  light: {
+    "string.key.json": "0b4f8a",
+    "string.value.json": "a31515",
+    "number.json": "0b6b37",
+    "keyword.json": "6b21a8",
+    "string.invalid": "b00020",
+    invalid: "b00020",
+  },
+  dark: {
+    "string.key.json": "7cc4ff",
+    "string.value.json": "f0a38a",
+    "number.json": "b5e0a0",
+    "keyword.json": "d0a8ff",
+    "string.invalid": "ff8a8a",
+    invalid: "ff8a8a",
+  },
+} as const;
+
 export function applyAppTheme(monaco: MonacoApi, dark: boolean): void {
   const read = (name: string) => variable(name) ?? undefined;
   const colors: Record<string, string> = {};
@@ -75,7 +99,12 @@ export function applyAppTheme(monaco: MonacoApi, dark: boolean): void {
   monaco.editor.defineTheme(THEME, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
-    rules: [],
+    rules: Object.entries(JSON_TOKEN_COLORS[dark ? "dark" : "light"]).map(
+      ([token, foreground]) => ({
+        token,
+        foreground,
+      }),
+    ),
     colors,
   });
   monaco.editor.setTheme(THEME);

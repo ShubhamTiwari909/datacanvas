@@ -62,6 +62,12 @@ What you get, for the table you have open:
 
 Limits and rules: only tables, partitioned tables, views and materialized views (a foreign table lives on another server and is not read), at most 2 MB per page (a shortened page says so), and a time limit on every read. Rows are held in memory while the Data section is open and are gone when you open another table, switch data viewing off, or disconnect; they are never saved to a file, logged, or put in a snapshot or a workspace. The sort, the filters and the values you typed in them are held the same way: they last for the view you have open, another table starts with neither, and nothing about them is stored.
 
+### Export, the JSON editor and Validate
+
+- **Export.** The **Export** button in the Data section writes the rows you are looking at, with the filter and sort on screen, to a file on your computer: **CSV** (with a byte order mark, so a spreadsheet opens it as UTF-8; comma or semicolon), **TSV**, **JSON** (an object with `rows` and `_meta`) or **NDJSON** (one object per line). Up to 100,000 rows and 64 MB: a longer table ends the file with a line that says it was cut, and **Cancel** stops the read. Columns whose names look sensitive are left out unless you showed them, and the notes at the end of the file name them. NULL is an empty field in CSV and TSV unless you give it a word. A value a spreadsheet would run as a formula starts with an apostrophe.
+- **JSON editor.** A `json` or `jsonb` cell has **Open as JSON** in its dialog, and the edit and add-row forms have **Edit as JSON** beside the field. It colours the text, shows the line and column where it stops being JSON, **Format** and **Minify** keep every number and string exactly as written, a **Tree** shows a large document with the path of any part (copyable), and **Changes** compares with the loaded value. A value the grid cut short is read whole (up to 1 million characters). A document over 100,000 characters can be read but not edited here.
+- **Validate.** In the edit and add-row forms, **Validate** asks the database whether it would accept the values and writes nothing. It names the rule (NOT NULL, a CHECK, a value that does not fit the type, a unique key already taken, a missing parent), and what it did not check (triggers, row-level security).
+
 ## 5. Change rows and tables (optional)
 
 DataCanvas does not change your database unless you ask for it three times:
@@ -108,6 +114,8 @@ Open the **Migrations** tab, or take a comparison in **Snapshots** and press **G
 - **Export** writes plain SQL (for `psql -v ON_ERROR_STOP=1 -f`), one file for **dbmate** or **goose**, a **Flyway** pair, or `up.sql` and `down.sql`. A step that cannot be in a transaction is written outside it, in its place. Each file begins with what it compares and a reminder to read it: it contains view and function definitions read from the databases. A format is refused when a name in the migration would be read by that runner as one of its own commands.
 
 Read the script before you run it anywhere. DataCanvas writes the text and never runs it. Some things cannot be undone (a dropped table's rows, a new enum label), and the rollback says which.
+
+To find out whether a migration will work on your data, choose a **live database as From** and press **Check against the data**: each step that can fail says how many rows would make it fail (NULLs before `SET NOT NULL`, shared values before a unique key, rows with no parent before a foreign key, rows at all before a required column with no default). A check constraint and a type conversion are not tried: it says so, and you can try them in the SQL tab. It needs **Allow viewing table data** and reads only counts.
 
 ## 8. Keep and share
 

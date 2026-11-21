@@ -43,7 +43,9 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type RowPage,
+  type ExportSignal,
   type CellRead,
+  type ExportRowsOptions,
   type PreflightCheck,
   type PreflightResult,
   type CellRequest,
@@ -80,6 +82,7 @@ import { listIndexUsage } from "./introspection/index-usage.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
 import { readCell, readRows } from "./introspection/rows.js";
+import { exportRows, type ExportSink } from "./introspection/export-rows.js";
 import { runPreflight } from "./introspection/preflight.js";
 import { validateRows } from "./validation/validate-rows.js";
 import { listRelationships } from "./introspection/relationships.js";
@@ -224,6 +227,15 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
 
   getCell(table: TableRef, request: CellRequest): Promise<CellRead> {
     return this.read((db) => readCell(db, table, request));
+  }
+
+  exportRows(
+    table: TableRef,
+    options: ExportRowsOptions,
+    sink: ExportSink,
+    signal?: ExportSignal,
+  ): Promise<void> {
+    return this.read((db) => exportRows(db, table, options, sink, signal));
   }
 
   preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {

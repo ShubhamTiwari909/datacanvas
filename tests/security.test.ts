@@ -598,6 +598,126 @@ describe("the pre-flight of a migration reads only counts, from names it checked
   });
 });
 
+describe("an export of rows is table data behind the data-access check, bounded, and leaves hidden columns out", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/export/route.ts");
+
+  it("is asked of an adapter only by the connection service, behind the data-access check, one at a time", () => {
+    const callers = appCode.filter((f) => /\badapter\.exportRows\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.exportRows\(/);
+    expect(routeCode).not.toMatch(/adapter/i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("async exportRows(");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    // The adapter is reached through the registry (a call that prettier may put on two lines).
+    const use = body.search(/this\.connections\s*\.use\(/);
+    expect(use).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    // The export is registered only after the check, and before the adapter is reached.
+    expect(body.indexOf("this.exporting.add(id)")).toBeGreaterThan(refusal);
+    expect(body.indexOf("this.exporting.add(id)")).toBeLessThan(use);
+    // One export at a time per connection, freed when it ends.
+    expect(body).toMatch(/this\.exporting\.has\(id\)/);
+    expect(body).toMatch(/this\.exporting\.delete\(id\)/);
+    // The file stops at its size limit.
+    expect(body).toContain("EXPORT_MAX_BYTES");
+  });
+
+  it("is a JSON POST with a strict body, answers with a file that is never cached or sniffed, and never writes to the console", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("exportRequestSchema");
+    expect(routeCode).toContain('"Cache-Control": "no-store"');
+    expect(routeCode).toContain('"X-Content-Type-Options": "nosniff"');
+    expect(routeCode).toContain('"Content-Disposition": "attachment"');
+    const schema = read("packages/shared-types/src/connections.ts");
+    expect(schema).toMatch(/exportRequestSchema = z\.strictObject/);
+    // The format is one of a fixed list, never free text; the limits are not in the request.
+    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson"\]\)/);
+    const body = schema.slice(
+      schema.indexOf("exportRequestSchema"),
+      schema.indexOf("ParsedExportRequest"),
+    );
+    expect(body).not.toMatch(/\b(limit|maxRows|maxBytes|sql|where|orderBy)\b/);
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/export/route.ts",
+      "packages/postgres-adapter/src/introspection/export-rows.ts",
+      "packages/database-core/src/rows-export.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("reads through the page reader's own statement and checks, in the read-only transaction, and leaves a hidden column out", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/export-rows.ts"));
+    // The same statement builder, the same check that a hidden column is neither sorted nor filtered.
+    expect(code).toMatch(/buildRowsQuery\(/);
+    expect(code).toMatch(/checkRowsSort\(requestedSort, columns, order\)/);
+    expect(code).toMatch(/checkRowsFilters\(requestedFilters, columns\)/);
+    // A column whose name looks sensitive is not read unless it was revealed, and is named as left out.
+    expect(code).toMatch(/masked: isSensitiveColumnName\(c\.name\) && !reveal\.has\(c\.name\)/);
+    expect(code).toMatch(
+      /const shown = columns\.flatMap\(\(c, position\) => \(c\.masked \? \[\] :/,
+    );
+    expect(code).toMatch(/const leftOut = columns\.filter\(\(c\) => c\.masked\)/);
+    // A cursor, fetched in batches; nothing that changes data; the row limit is the core's constant.
+    expect(code).toMatch(/DECLARE dc_export NO SCROLL CURSOR FOR/);
+    expect(code).toMatch(/FETCH \$\{EXPORT_BATCH_ROWS\} FROM dc_export/);
+    expect(code).toContain("limit: EXPORT_MAX_ROWS + 1");
+    const texts = code.match(/`[^`]*`/g) ?? [];
+    for (const t of texts) {
+      expect(t.replace(/\$\{[^}]*\}/g, ""), t).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/,
+      );
+    }
+    expect(code).not.toMatch(/\.message\b/);
+    // The page reader accepts the longer cell only through its plan, not from a request.
+    expect(read("packages/postgres-adapter/src/introspection/rows.ts")).toMatch(
+      /plan\.cellChars \?\? ROWS_CELL_CHARS/,
+    );
+  });
+
+  it("makes every value of a spreadsheet format safe to open, and puts nothing about a value in the notes", () => {
+    const code = stripComments(read("packages/database-core/src/rows-export.ts"));
+    expect(code).toMatch(/defuse\(text\)/);
+    // The notes name the table, the time, a count, column NAMES and conditions without values.
+    const notes = code.slice(
+      code.indexOf("function notes("),
+      code.indexOf("function delimitedFormatter"),
+    );
+    expect(notes).not.toMatch(/\.value\b|\.values\b|\brows\[/);
+    const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
+    expect(service).toMatch(
+      /filters: request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
+    );
+  });
+
+  it("is not kept anywhere: not in the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /exportRows|exportRequestSchema|ExportEvent|rows-export/,
+      );
+    }
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -619,7 +739,8 @@ describe("a sort and conditions never become SQL text", () => {
   it("the service passes both to the adapter untouched: structured data, no text is built from them", () => {
     const code = stripComments(read("apps/web/lib/server/connection-service.ts"));
     const start = code.indexOf("getRows(id: string");
-    const end = code.indexOf("unlinkProfile(", start);
+    // Up to the next method (one cell, a validation, a pre-flight and an export follow, each with its own rules).
+    const end = code.indexOf("getCell(id: string", start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const body = code.slice(start, end);

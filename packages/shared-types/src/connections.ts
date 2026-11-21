@@ -246,6 +246,29 @@ export const preflightResponseSchema = z.object({
   ),
 });
 
+/**
+ * `POST /api/connections/:id/rows/export`: the rows of a table as a file, as filtered and sorted on screen
+ * (section 8 of the plan; decision 158). The answer is the FILE, streamed, not JSON. Strict and bounded; a
+ * condition is a structure, a hidden column is left out unless revealed.
+ */
+export const exportRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  revealColumns: z.array(identifierSchema).max(100).default([]),
+  sort: rowSortSchema.nullable().default(null),
+  filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
+  format: z.enum(["csv", "tsv", "json", "ndjson"]),
+  /** For CSV: a comma or a semicolon (a tab is TSV). */
+  delimiter: z.enum([",", ";"]).default(","),
+  header: z.boolean().default(true),
+  /** What NULL is written as in CSV and TSV; empty by default (an empty string stays empty too). */
+  nullText: z.string().max(50).default(""),
+  /** Notes about the file even when it was not cut. */
+  meta: z.boolean().default(false),
+});
+export type ExportRequestBody = z.input<typeof exportRequestSchema>;
+export type ParsedExportRequest = z.output<typeof exportRequestSchema>;
+
 export const cellResponseSchema = z.object({
   cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),
 });

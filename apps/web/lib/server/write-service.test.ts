@@ -193,6 +193,7 @@ describe("WriteService: the switches", () => {
       getCell: (t, r) => readOnly.getCell(t, r),
       validateRows: (r) => readOnly.validateRows(r),
       preflight: (c) => readOnly.preflight(c),
+      exportRows: (t, o, s, g) => readOnly.exportRows(t, o, s, g),
       getRoleInfo: () => readOnly.getRoleInfo(),
       disconnect: () => readOnly.disconnect(),
     });

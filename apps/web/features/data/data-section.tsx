@@ -8,7 +8,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, Lock } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
 import { ROWS_MAX_FILTERS, type TableInfo } from "@datacanvas/database-core";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
@@ -20,6 +20,7 @@ import { useBlurStore } from "./blur-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { describeRowEstimate } from "./cell-text";
 import { DataGrid } from "./data-grid";
+import { ExportDialog } from "./export-dialog";
 import { FilterBar } from "./filter-bar";
 import { pageNotes } from "./page-notes";
 import { PAGE_SIZES, canGoBack, pageNumber } from "./paging";
@@ -128,6 +129,7 @@ function Rows({
   const ref = useMemo(() => ({ schema, name: table }), [schema, table]);
   // With writes unlocked (1.4.0): row actions, "Add row" and the preview step. Inert otherwise.
   const editing = useRowEditing({ connectionId, table: ref, page, reload: view.reload });
+  const [exporting, setExporting] = useState(false);
 
   if (!page) {
     // The first read failed (or is still running): there is no page yet to build a filter panel from.
@@ -183,11 +185,13 @@ function Rows({
             {filtered ? " · filtered" : estimate ? ` · ${estimate}` : ""}
           </span>
         </div>
-        {editing.toolbar ? (
-          <div role="group" aria-label="Actions" className="flex items-center gap-2">
-            {editing.toolbar}
-          </div>
-        ) : null}
+        <div role="group" aria-label="Actions" className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => setExporting(true)}>
+            <Download aria-hidden="true" />
+            Export
+          </Button>
+          {editing.toolbar}
+        </div>
         <div role="group" aria-label="View" className="ml-auto flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={blurred} onCheckedChange={setBlurred} />
@@ -266,6 +270,17 @@ function Rows({
       )}
 
       {editing.dialogs}
+
+      <ExportDialog
+        open={exporting}
+        onClose={() => setExporting(false)}
+        connectionId={connectionId}
+        schema={schema}
+        table={table}
+        reveal={paging.reveal}
+        sort={paging.sort}
+        filters={paging.filters}
+      />
 
       {failed ? null : (
         <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">

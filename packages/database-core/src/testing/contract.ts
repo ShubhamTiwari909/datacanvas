@@ -48,6 +48,11 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
       ),
   ],
   [
+    "exportRows",
+    (a) =>
+      a.exportRows({ schema: "public", name: "users" }, { revealColumns: [] }, () => undefined),
+  ],
+  [
     "preflight",
     (a) => a.preflight([{ kind: "nulls", schema: "public", table: "users", column: "email" }]),
   ],

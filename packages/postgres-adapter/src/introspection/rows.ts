@@ -212,6 +212,8 @@ export interface RowsQueryPlan {
   offset: number;
   /** How many rows to fetch: the page size plus one, to learn whether there is more. */
   limit: number;
+  /** The characters of a cell kept (a page keeps `ROWS_CELL_CHARS`; an export keeps more). */
+  cellChars?: number;
 }
 
 /**
@@ -387,7 +389,7 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   // The cell limit is a parameter only when some column uses it: PostgreSQL refuses a
   // statement with a parameter that is never referenced (42P18), which is what a table
   // whose every column is masked would otherwise be.
-  const cut = plan.shown.length > 0 ? param(ROWS_CELL_CHARS + 1) : null;
+  const cut = plan.shown.length > 0 ? param((plan.cellChars ?? ROWS_CELL_CHARS) + 1) : null;
   for (const column of plan.shown) {
     select.push(
       `left(CAST(${quoteIdentifier(column.name)} AS text), ${cut}) AS c${column.position}`,

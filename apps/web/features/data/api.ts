@@ -12,6 +12,7 @@ import {
   preflightResponseSchema,
   validateResponseSchema,
   type CellRequestBody,
+  type ExportRequestBody,
   type ConnectionSummary,
   type PreflightRequestBody,
   type RowsRequest,
@@ -23,7 +24,7 @@ import type {
   RowPage,
   ValidationReport,
 } from "@datacanvas/database-core";
-import { apiRequest, type ApiResult } from "@/lib/api-client";
+import { apiDownload, apiRequest, type ApiResult } from "@/lib/api-client";
 
 /** One page of a table's rows. Refused with `data_access_disabled` while data access is off. */
 export async function getRows(
@@ -94,4 +95,19 @@ export async function setDataAccess(
     { method: "PUT", body: { enabled } },
   );
   return result.ok ? { ok: true, data: result.data.connection } : result;
+}
+
+/**
+ * The rows of a table as a file (CSV, TSV, JSON or NDJSON), as filtered and sorted on screen. Streamed; a
+ * cancel stops the read in the database. Refused with `data_access_disabled` while data access is off.
+ */
+export function exportRowsFile(
+  connectionId: string,
+  request: ExportRequestBody,
+  options: { signal?: AbortSignal; onProgress?: (bytes: number) => void } = {},
+): Promise<ApiResult<{ blob: Blob; bytes: number }>> {
+  return apiDownload(`/api/connections/${encodeURIComponent(connectionId)}/rows/export`, {
+    body: request,
+    ...options,
+  });
 }

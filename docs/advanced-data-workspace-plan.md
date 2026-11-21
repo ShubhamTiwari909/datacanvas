@@ -249,3 +249,21 @@ The JSON editor of section 5 is built. Where the build differs from the plan:
 - **No new comparison for `jsonb`.** `expected` is the text as read and `jsonb` prints canonically, so a re-formatted document is not a conflict; the plan's `IS NOT DISTINCT FROM CAST(... AS jsonb)` is not needed.
 - **Colours had to be chosen.** Monaco's stock token colours failed axe contrast on the app's dark background; the theme now sets its own for the JSON tokens.
 - **Typing over a selection wraps it** in the bracket typed (a Monaco surrounding pair); the e2e helper deletes the selection first. Auto-indent also changes the column of an error in a multi-line text typed by a script.
+
+## 18. What D3 and D4 found (2026-11-21)
+
+**D3, validation.** Built as section 6.2 says, with these differences (decision 157):
+
+- The transaction **starts read-write and switches itself to read-only** before any value goes in: PostgreSQL refuses `CREATE TEMP TABLE` in a read-only transaction (measured), but after the copy exists a temporary table can still be written and nothing else can. A CHECK function that writes a real table fails with SQLSTATE 25006 and is reported as "no effects". The plan said "read-write, always rolled back"; the read-only switch is added.
+- **It needs data viewing on** (a uniqueness answer says whether a value exists), not writes unlocked.
+- **A row that fails in the database is not asked the later questions** (uniqueness, foreign keys): those run on the rows that got into the copy. The report says which rule each row broke first.
+- The limits are 1,000 rows and 50 columns for now; the import raises them in 1.9.0.
+- **The pre-flight** answers NULLs before `SET NOT NULL`, shared values before a unique or primary key, rows with no parent before a foreign key, and rows at all before a required column with no default. It runs on the **From** side (where the migration meets its data), not To as the plan said. **CHECK constraints and narrowing type changes are not tried**: their text can come from a snapshot file.
+
+**D4, export.** Built as section 8 says, with these differences (decision 158):
+
+- **A cut is said at the end of the file**, and a JSON file is always `{"rows": [...], "_meta": {...}}`.
+- Notes are a choice for CSV, TSV and NDJSON; the cut is always said.
+- The conditions in the notes are words with no value (`status equals`).
+- There is no per-export setting for the limits.
+- The cell limit of an export is 1,000,000 characters, and the file counts the values it had to cut.

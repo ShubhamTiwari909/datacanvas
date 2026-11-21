@@ -21,6 +21,9 @@ import {
   type RelationshipInfo,
   type RoleInfo,
   type CellRead,
+  EXPORT_MAX_BYTES,
+  createFormatter,
+  EXPORT_MEDIA,
   type PreflightResult,
   type ValidationReport,
   type RowPage,
@@ -39,6 +42,7 @@ import {
   summarizePostgresConnection,
   type ConnectionSummary,
   type ParsedCellRequest,
+  type ParsedExportRequest,
   type ParsedPreflightRequest,
   type ParsedValidateRequest,
   type ParsedRowsRequest,
@@ -91,6 +95,8 @@ export class ConnectionService {
   private readonly profiles: ProfileService;
   /** Row reads, one page at a time per connection. */
   private readonly rowsGate = new RowsGate();
+  /** Connections with an export running: one at a time each. */
+  private readonly exporting = new Set<string>();
 
   constructor(dependencies: ConnectionServiceDependencies) {
     this.adapters = dependencies.adapters;
@@ -314,6 +320,110 @@ export class ConnectionService {
     return this.rowsGate.run(id, () =>
       this.connections.use(id, (adapter) => adapter.preflight(request.checks)),
     );
+  }
+
+  /**
+   * The rows of a table as a file, streamed (decision 158). Table data, so the same rule as `getRows`: refused
+   * unless viewing table data is switched on, and that check comes first. One export at a time per connection.
+   * The answer is a stream of text: the file is built a batch at a time and let go, up to `EXPORT_MAX_ROWS` rows
+   * and `EXPORT_MAX_BYTES`, after which it ends with a line that says it was cut. A client that goes away (or
+   * `signal` aborting) ends the read and rolls its transaction back. Errors about the request come before the
+   * first byte, so the route can still answer them; one after that ends the stream.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `export_busy`;
+   *   DatabaseError `invalid_request`, `not_found`, `permission_denied`, ...
+   */
+  async exportRows(
+    id: string,
+    request: ParsedExportRequest,
+    signal?: AbortSignal,
+  ): Promise<{ stream: ReadableStream<Uint8Array>; contentType: string }> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    if (!summary.dataAccess) {
+      throw new ServiceError(
+        "data_access_disabled",
+        "Viewing table data is switched off for this connection. Switch it on to see rows.",
+      );
+    }
+    if (this.exporting.has(id)) {
+      throw new ServiceError("export_busy", "An export is already running on this connection.");
+    }
+    this.exporting.add(id);
+    const table = { schema: request.schema, name: request.table };
+    const formatter = createFormatter(
+      {
+        format: request.format,
+        delimiter: request.delimiter,
+        header: request.header,
+        nullText: request.nullText,
+        meta: request.meta,
+      },
+      {
+        table,
+        at: new Date(),
+        // The conditions in words that name no value.
+        filters: request.filters.map((f) => `${f.column} ${f.op.replace(/_/g, " ")}`),
+      },
+    );
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    let bytes = 0;
+    let leftOut: string[] = [];
+    /** Write a piece; false when the file has reached its size limit. */
+    const write = async (text: string): Promise<boolean> => {
+      if (text === "") return true;
+      const chunk = encoder.encode(text);
+      bytes += chunk.byteLength;
+      await writer.write(chunk);
+      return bytes < EXPORT_MAX_BYTES;
+    };
+    let began!: () => void;
+    let failedFirst!: (error: unknown) => void;
+    const first = new Promise<void>((resolve, reject) => {
+      began = resolve;
+      failedFirst = reject;
+    });
+    let started = false;
+    void this.connections
+      .use(id, (adapter) =>
+        adapter.exportRows(
+          table,
+          { revealColumns: request.revealColumns, sort: request.sort, filters: request.filters },
+          async (event) => {
+            if (event.kind === "start") {
+              started = true;
+              leftOut = event.leftOut;
+              // Answer before the first write: a write waits for the reader of the stream.
+              began();
+              // Spreadsheets guess the encoding of a CSV file from a byte order mark.
+              await write(
+                (request.format === "csv" ? "\uFEFF" : "") +
+                  formatter.start(event.columns, leftOut),
+              );
+              return undefined;
+            }
+            if (event.kind === "rows") return write(formatter.rows(event.rows));
+            await write(formatter.end({ ...event, leftOut }));
+            return undefined;
+          },
+          signal,
+        ),
+      )
+      .then(
+        () => writer.close(),
+        (error: unknown) => {
+          if (!started) failedFirst(error);
+          return writer.abort(error);
+        },
+      )
+      .catch(() => undefined)
+      .finally(() => {
+        this.exporting.delete(id);
+      });
+    await first;
+    return { stream: readable, contentType: EXPORT_MEDIA[request.format].type };
   }
 
   /** Called when a saved profile is forgotten, so no live connection keeps pointing at it. */

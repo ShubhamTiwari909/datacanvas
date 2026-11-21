@@ -21,6 +21,7 @@
  * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
 import type { DdlDetail } from "./ddl.js";
+import type { ExportEvent, ExportRowsOptions, ExportSignal } from "./rows-export.js";
 import type { PreflightCheck, PreflightResult } from "./migration/preflight.js";
 import type { ValidateRequest, ValidationReport } from "./validation.js";
 import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
@@ -234,6 +235,25 @@ export interface DatabaseAdapter {
    * @throws DatabaseError `invalid_request` (too many checks, or a shape that does not fit), `permission_denied`.
    */
   preflight(checks: PreflightCheck[]): Promise<PreflightResult[]>;
+
+  /**
+   * The rows of a table, view or materialized view as filtered and sorted on screen, handed to `sink` a batch
+   * at a time (`docs/advanced-data-workspace-plan.md`, section 8; decision 158): a `start` with the columns
+   * (those whose names look sensitive are LEFT OUT unless revealed, and named), batches of `rows` read
+   * through a cursor in one read-only transaction, and an `end` that says whether the file was cut at
+   * `EXPORT_MAX_ROWS`. Nothing is held: each batch is let go once the sink has it. A sink that answers `false`
+   * ends the export (its own byte limit); an aborted `signal` ends it without an `end`. Like `getRows` it
+   * returns table data, and the service calls it only behind the same data-access check.
+   *
+   * @throws DatabaseError `invalid_request`, `not_found`, `not_supported` (a foreign table),
+   *   `permission_denied`, `timeout`. The error text never contains a value.
+   */
+  exportRows(
+    table: TableRef,
+    options: ExportRowsOptions,
+    sink: (event: ExportEvent) => void | boolean | Promise<void | boolean>,
+    signal?: ExportSignal,
+  ): Promise<void>;
 
   /**
    * What the connected role can do (superuser, role and database creation,

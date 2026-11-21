@@ -40,6 +40,7 @@ import type {
   TableRef,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
+import type { ExportEvent, ExportRowsOptions, ExportSignal } from "../rows-export.js";
 import type { PreflightCheck, PreflightResult } from "../migration/preflight.js";
 import type { ValidateRequest, ValidationReport } from "../validation.js";
 import {
@@ -284,6 +285,21 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
     if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
     void request;
     throw new DatabaseError("invalid_request");
+  }
+
+  /** The mock has no rows to write to a file. */
+  async exportRows(
+    ref: TableRef,
+    options: ExportRowsOptions,
+    sink: (event: ExportEvent) => void | boolean | Promise<void | boolean>,
+    signal?: ExportSignal,
+  ): Promise<void> {
+    void signal;
+    this.requireConnection();
+    void ref;
+    void options;
+    void sink;
+    throw new DatabaseError("not_supported");
   }
 
   /** The mock has no rows to check a migration against. */

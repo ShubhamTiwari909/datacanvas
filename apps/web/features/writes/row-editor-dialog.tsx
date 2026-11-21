@@ -40,6 +40,8 @@ import {
   updateBeforeAfter,
   type FieldEdit,
 } from "./row-edit";
+import { useValidation, ValidationPanel } from "./validation-panel";
+import { validateRequestFor } from "./validation";
 import { ValueField, type ValueState } from "./value-field";
 
 /** A row as it was on screen when the editor opened. */
@@ -136,6 +138,7 @@ function RowForm({
     });
   const change = buildUpdate(table, row.key, edits);
   const changedNames = new Set(changedFields(edits).map((f) => f.column));
+  const validation = useValidation(connectionId, change ? validateRequestFor(change) : null);
   const focus = focusTarget(
     row.focus,
     editable.map((e) => ({
@@ -278,9 +281,19 @@ function RowForm({
         />
       ) : null}
 
+      <ValidationPanel validation={validation} />
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={change === null || validation.busy}
+          onClick={validation.run}
+        >
+          Validate
         </Button>
         <Button type="submit" disabled={change === null}>
           Preview

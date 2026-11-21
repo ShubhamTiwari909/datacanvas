@@ -21,6 +21,8 @@
  * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
 import type { DdlDetail } from "./ddl.js";
+import type { PreflightCheck, PreflightResult } from "./migration/preflight.js";
+import type { ValidateRequest, ValidationReport } from "./validation.js";
 import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
 import type {
   ColumnInfo,
@@ -204,6 +206,34 @@ export interface DatabaseAdapter {
    *   `invalid_request`, `permission_denied`. The error text never contains a value from the table.
    */
   getCell(table: TableRef, request: CellRequest): Promise<CellRead>;
+
+  /**
+   * Would the database accept these values? Answered WITHOUT writing a row (`docs/advanced-data-workspace-plan.md`,
+   * section 6.2; decision 157): the values go into a temporary copy of the table (no triggers, no foreign keys,
+   * no defaults, no indexes) inside a transaction that is read-only before the first value goes in and is always
+   * rolled back; uniqueness and foreign keys are asked by read-only queries on the real tables.
+   *
+   * - `insert`: up to `VALIDATE_MAX_ROWS` rows; `update`: one row, found by the table's row key.
+   * - The report holds rules, names of columns and constraints, counts and row numbers. NEVER a value.
+   * - It needs the right to create temporary tables; triggers, row-level security and rules the check cannot
+   *   see are named in `notChecked`.
+   *
+   * @throws DatabaseError `invalid_request` (a request that does not fit the table), `not_found`,
+   *   `not_supported` (a view, a foreign table, a server that is read-only), `permission_denied`, `timeout`.
+   *   The error text never contains a value.
+   */
+  validateRows(request: ValidateRequest): Promise<ValidationReport>;
+
+  /**
+   * How many rows would make steps of a migration fail (`docs/advanced-data-workspace-plan.md`, section 6.3):
+   * NULLs before `SET NOT NULL`, shared values before a unique key, rows with no parent before a foreign key,
+   * rows at all before a column that cannot be NULL. Four fixed read-only queries, built from names that are
+   * looked up in this database's catalog; a table or column that is not there is `missing`. Only counts come
+   * back. At most `PREFLIGHT_MAX_CHECKS` checks.
+   *
+   * @throws DatabaseError `invalid_request` (too many checks, or a shape that does not fit), `permission_denied`.
+   */
+  preflight(checks: PreflightCheck[]): Promise<PreflightResult[]>;
 
   /**
    * What the connected role can do (superuser, role and database creation,

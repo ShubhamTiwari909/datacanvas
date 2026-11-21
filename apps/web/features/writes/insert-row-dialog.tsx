@@ -29,15 +29,19 @@ import {
   type InsertField,
   type InsertMode,
 } from "./row-edit";
+import { useValidation, ValidationPanel } from "./validation-panel";
+import { validateRequestFor } from "./validation";
 import { ValueField, type ValueState } from "./value-field";
 
 export function InsertRowDialog({
+  connectionId,
   table,
   info,
   open,
   onClose,
   onPreview,
 }: {
+  connectionId: string;
   table: TableRef;
   info: TableEditInfo;
   open: boolean;
@@ -48,7 +52,13 @@ export function InsertRowDialog({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent size="form">
         {open ? (
-          <InsertForm table={table} info={info} onClose={onClose} onPreview={onPreview} />
+          <InsertForm
+            connectionId={connectionId}
+            table={table}
+            info={info}
+            onClose={onClose}
+            onPreview={onPreview}
+          />
         ) : null}
       </DialogContent>
     </Dialog>
@@ -63,11 +73,13 @@ function defaultText(column: TableEditInfo["columns"][number]): string {
 }
 
 function InsertForm({
+  connectionId,
   table,
   info,
   onClose,
   onPreview,
 }: {
+  connectionId: string;
   table: TableRef;
   info: TableEditInfo;
   onClose: () => void;
@@ -86,6 +98,8 @@ function InsertForm({
     setFields((current) =>
       current.map((f) => (f.column === name ? { ...f, mode: next.mode, value: next.text } : f)),
     );
+
+  const validation = useValidation(connectionId, validateRequestFor(buildInsert(table, fields)));
 
   const count = (mode: InsertMode) => fields.filter((f) => f.mode === mode).length;
   const filled = fields.filter((f) => f.mode === "value" && f.value !== "").length;
@@ -172,9 +186,14 @@ function InsertForm({
         })}
       </FormStack>
 
+      <ValidationPanel validation={validation} />
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
+        </Button>
+        <Button type="button" variant="outline" disabled={validation.busy} onClick={validation.run}>
+          Validate
         </Button>
         <Button type="submit">Preview</Button>
         <p

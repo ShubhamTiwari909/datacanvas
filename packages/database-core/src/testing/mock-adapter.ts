@@ -40,6 +40,8 @@ import type {
   TableRef,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
+import type { PreflightCheck, PreflightResult } from "../migration/preflight.js";
+import type { ValidateRequest, ValidationReport } from "../validation.js";
 import {
   checkStatementText,
   SqlStatementError,
@@ -282,6 +284,19 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
     if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
     void request;
     throw new DatabaseError("invalid_request");
+  }
+
+  /** The mock has no rows to check a migration against. */
+  async preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {
+    this.requireConnection();
+    return checks.map(() => ({ status: "missing" as const, count: 0 }));
+  }
+
+  /** The mock has no database to check values against. */
+  async validateRows(request: ValidateRequest): Promise<ValidationReport> {
+    this.requireConnection();
+    void request;
+    throw new DatabaseError("not_supported");
   }
 
   async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {

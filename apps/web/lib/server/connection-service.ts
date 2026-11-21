@@ -21,6 +21,8 @@ import {
   type RelationshipInfo,
   type RoleInfo,
   type CellRead,
+  type PreflightResult,
+  type ValidationReport,
   type RowPage,
   type SchemaInfo,
   type SearchHit,
@@ -37,6 +39,8 @@ import {
   summarizePostgresConnection,
   type ConnectionSummary,
   type ParsedCellRequest,
+  type ParsedPreflightRequest,
+  type ParsedValidateRequest,
   type ParsedRowsRequest,
   type SnapshotSource,
   type PostgresConnectionInput,
@@ -244,6 +248,71 @@ export class ConnectionService {
           { column: request.column, key: request.key, revealColumns: request.revealColumns },
         ),
       ),
+    );
+  }
+
+  /**
+   * Would the database accept these values? Answered without writing a row (decision 157). It asks the
+   * database whether values of a table collide with its rows, so it is table data like a page of rows: the
+   * same rule, refused unless viewing table data is switched on, and that check comes first. It does not
+   * need writes to be unlocked: it changes nothing.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `invalid_request`, `not_found`, `not_supported`, `permission_denied`, `timeout`, ...
+   */
+  validateRows(id: string, request: ParsedValidateRequest): Promise<ValidationReport> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) =>
+        adapter.validateRows({
+          table: { schema: request.schema, name: request.table },
+          mode: request.mode,
+          columns: request.columns,
+          rows: request.rows,
+          ...(request.key ? { key: request.key } : {}),
+        }),
+      ),
+    );
+  }
+
+  /**
+   * How many rows would make steps of a migration fail, in the database of this connection (the pre-flight of
+   * the Migrations tab; decision 157). Only counts come back, but a count says how the data is, so it is table
+   * data like a page of rows: the same rule, the data-access check first, the same gate.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `invalid_request`, `permission_denied`, ...
+   */
+  preflight(id: string, request: ParsedPreflightRequest): Promise<PreflightResult[]> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) => adapter.preflight(request.checks)),
     );
   }
 

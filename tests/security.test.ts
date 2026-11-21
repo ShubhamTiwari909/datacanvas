@@ -368,6 +368,236 @@ describe("one cell is read whole only behind the same data-access check", () => 
   });
 });
 
+describe("a validation never changes a row", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/validate/route.ts");
+
+  it("runs in a transaction that is read-only before any value goes in, and is never committed", () => {
+    const code = stripComments(
+      read("packages/postgres-adapter/src/connection/checking-transaction.ts"),
+    );
+    const readOnly = code.indexOf('"SET TRANSACTION READ ONLY"');
+    const prepare = code.indexOf("await prepare(db)");
+    const work = code.indexOf("await work(db)");
+    expect(prepare).toBeGreaterThan(-1);
+    expect(readOnly).toBeGreaterThan(prepare);
+    expect(work).toBeGreaterThan(readOnly);
+    // Rolled back in `finally`, whatever happened; there is no COMMIT anywhere.
+    expect(code).toMatch(/finally \{[\s\S]*"ROLLBACK"/);
+    expect(code).not.toMatch(/COMMIT/);
+    // The timeouts are local to the transaction.
+    expect(code).toMatch(/set_config\('statement_timeout', \$1, true\)/);
+  });
+
+  it("writes only into its own temporary copy: no other table is named in a statement that changes data", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/validation/validate-rows.ts"));
+    // The text of every statement is a template literal, where the words of SQL are.
+    const texts = code.match(/`[^`]*`/g) ?? [];
+    // Its words, without the `${...}` parts (the name of the copy is a constant called COPY there).
+    const words = (t: string) => t.replace(/\$\{[^}]*\}/g, "");
+    const changing = texts.filter((t) =>
+      /\b(INSERT INTO|CREATE TEMP TABLE|ALTER TABLE|UPDATE|DELETE FROM|TRUNCATE|DROP|COPY)\b/.test(
+        words(t),
+      ),
+    );
+    expect(changing.length).toBeGreaterThan(3);
+    // Every statement that changes anything is CREATE TEMP TABLE, ALTER of the copy, or INSERT into the copy.
+    for (const statement of changing) {
+      expect(statement, statement).toMatch(
+        /^`(INSERT INTO|ALTER TABLE|CREATE TEMP TABLE) \$\{quoteIdentifier\(COPY\)\}/,
+      );
+    }
+    for (const text of texts) {
+      expect(words(text), text).not.toMatch(/\b(UPDATE|DELETE FROM|TRUNCATE|DROP|COPY|CASCADE)\b/);
+    }
+    // The copy has no defaults (a copied default can advance a real sequence), no indexes, no identity, no triggers.
+    expect(code).not.toMatch(
+      /INCLUDING (DEFAULTS|INDEXES|IDENTITY|ALL|STORAGE|COMMENTS|STATISTICS)/,
+    );
+    expect(code).toContain("INCLUDING CONSTRAINTS INCLUDING GENERATED");
+    expect(code).not.toMatch(/nextval|setval|CREATE (TRIGGER|INDEX|SEQUENCE)/i);
+  });
+
+  it("holds no value in a statement's text: values are bound, names come from the catalog", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/validation/validate-rows.ts"));
+    // A value of the request never appears inside a template literal.
+    expect(code).not.toMatch(/\$\{[^}]*\b(row|rows|value|values|slice|arrays)\b[^}]*\}/);
+    // The values travel in these arrays and nowhere else.
+    expect(code).toMatch(/await db\.query\(insert, arrays\)/);
+    expect(code).not.toMatch(/\$\{request\.(rows|key)/);
+    // The one request name that reaches a statement is checked against the catalog first (a column, the key).
+    expect(code).toMatch(/byName\.get\(name\)/);
+    expect(code).toMatch(/order\.columns\.includes\(part\.column\)/);
+    // It never reads a message of the database (it can hold a value).
+    expect(code).not.toMatch(/\.message\b/);
+  });
+
+  it("never reaches the write capability or the write connection", () => {
+    for (const file of [
+      "packages/postgres-adapter/src/validation/validate-rows.ts",
+      "packages/postgres-adapter/src/connection/checking-transaction.ts",
+    ]) {
+      const code = stripComments(read(file));
+      expect(code, file).not.toMatch(
+        /WritableAdapter|connection\/write|WriteClient|applyChange|\.\.\/writes\/(rows|sql|structure|guard)/,
+      );
+    }
+    // Only the catalog of the write path (read-only queries) is borrowed.
+    expect(read("packages/postgres-adapter/src/validation/validate-rows.ts")).toMatch(
+      /from "\.\.\/writes\/catalog\.js"/,
+    );
+  });
+
+  it("is asked of an adapter only by the connection service, behind the data-access check", () => {
+    const callers = appCode.filter((f) =>
+      /\badapter\.validateRows\(/.test(readFileSync(f, "utf8")),
+    );
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.validateRows\(/);
+    expect(routeCode).not.toMatch(/adapter|writes\./i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("validateRows(id: string");
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    expect(start).toBeGreaterThan(-1);
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(body.indexOf("this.connections.use(")).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body and no cache, and never writes to the console", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("jsonResponse");
+    expect(routeCode).toContain("validateRequestSchema");
+    expect(read("packages/shared-types/src/connections.ts")).toMatch(
+      /validateRequestSchema = z\s*\.strictObject/,
+    );
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/validate/route.ts",
+      "packages/postgres-adapter/src/validation/validate-rows.ts",
+      "packages/postgres-adapter/src/connection/checking-transaction.ts",
+      "packages/database-core/src/validation.ts",
+      "apps/web/features/writes/validation-panel.tsx",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("is not kept anywhere: not in the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /validateRows|ValidationReport|validateRequestSchema|validationReportSchema/,
+      );
+    }
+  });
+});
+
+describe("the pre-flight of a migration reads only counts, from names it checked", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/preflight/route.ts");
+
+  it("is asked of an adapter only by the connection service, behind the data-access check", () => {
+    const callers = appCode.filter((f) => /\badapter\.preflight\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.preflight\(/);
+    expect(routeCode).not.toMatch(/adapter/i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("preflight(id: string");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(body.indexOf("this.connections.use(")).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body in which a check is a structure and never text that becomes SQL", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("preflightRequestSchema");
+    const schema = read("packages/shared-types/src/connections.ts");
+    expect(schema).toMatch(/preflightRequestSchema = z\.strictObject/);
+    expect(schema).toMatch(/preflightCheckSchema = z\.discriminatedUnion\("kind"/);
+    // Every kind is a strict object of names; there is no `sql`, `where` or `definition` in it.
+    const checks = schema.slice(
+      schema.indexOf("preflightCheckSchema"),
+      schema.indexOf("preflightRequestSchema"),
+    );
+    expect(checks).not.toMatch(/\b(sql|where|definition|expression|text)\b/);
+    expect((checks.match(/z\.strictObject/g) ?? []).length).toBe(4);
+  });
+
+  it("builds four fixed statements from catalog names, quoted, and returns only a count", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/preflight.ts"));
+    const texts = (code.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    const statements = texts.filter((t) => /\bSELECT\b/.test(t));
+    expect(statements.length).toBe(5); // nulls, duplicates (two parts), orphans (two parts), rows
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/);
+    }
+    // Every statement answers with a count (or a yes or no), never a column.
+    expect(code).toMatch(/count\(\*\)::text AS n/);
+    // The names are looked up in the catalog before any statement is built from them.
+    expect(code).toMatch(/listTablesByRef\(db, \[\{ schema, name \}\]\)/);
+    expect(code).toMatch(/ownNames\.every\(\(c\) => own\.has\(c\)\)/);
+    expect(code).toMatch(/check\.refColumns\.every\(\(c\) => ref\.has\(c\)\)/);
+    expect(code).not.toMatch(/\.message\b/);
+  });
+
+  it("makes its checks from the plan's steps and the structure, and never from the text of a constraint", () => {
+    const code = stripComments(read("packages/database-core/src/migration/preflight.ts"));
+    // The definition of a constraint (an expression) is never read here.
+    expect(code).not.toMatch(/\.definition\b/);
+    expect(code).not.toMatch(/\.up\b|\.down\b/);
+  });
+
+  it("never writes to the console and is not kept anywhere", () => {
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/preflight/route.ts",
+      "packages/postgres-adapter/src/introspection/preflight.ts",
+      "packages/database-core/src/migration/preflight.ts",
+      "apps/web/features/migrations/preflight-panel.tsx",
+      "apps/web/features/migrations/preflight-findings.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /preflight|PreflightResult|preflightRequestSchema/,
+      );
+    }
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

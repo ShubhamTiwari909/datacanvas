@@ -44,7 +44,11 @@ import {
   type IndexUsageReport,
   type RowPage,
   type CellRead,
+  type PreflightCheck,
+  type PreflightResult,
   type CellRequest,
+  type ValidateRequest,
+  type ValidationReport,
   type RowsOptions,
   type RoleInfo,
   type RelationshipInfo,
@@ -76,6 +80,8 @@ import { listIndexUsage } from "./introspection/index-usage.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
 import { readCell, readRows } from "./introspection/rows.js";
+import { runPreflight } from "./introspection/preflight.js";
+import { validateRows } from "./validation/validate-rows.js";
 import { listRelationships } from "./introspection/relationships.js";
 import { readRoleInfo } from "./introspection/role-info.js";
 import { listSchemas } from "./introspection/schemas.js";
@@ -218,6 +224,26 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
 
   getCell(table: TableRef, request: CellRequest): Promise<CellRead> {
     return this.read((db) => readCell(db, table, request));
+  }
+
+  preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {
+    // A short time limit for each check, as for a read with a sort or a filter.
+    const limit = Math.min(ROWS_SORT_FILTER_TIMEOUT_MS, this.options.statementTimeoutMs);
+    return this.read((db) => runPreflight(db, checks), limit);
+  }
+
+  async validateRows(request: ValidateRequest): Promise<ValidationReport> {
+    const pool = this.pool;
+    if (!pool) throw new DatabaseError("not_connected");
+    try {
+      return await validateRows(pool, this.options.statementTimeoutMs, request);
+    } catch (error) {
+      // A server that is a standby (or set read-only) cannot make the temporary copy.
+      if ((error as { code?: unknown } | null)?.code === "25006") {
+        throw new DatabaseError("not_supported", { cause: error });
+      }
+      throw mapPgError(error);
+    }
   }
 
   getIndexUsage(): Promise<IndexUsageReport> {

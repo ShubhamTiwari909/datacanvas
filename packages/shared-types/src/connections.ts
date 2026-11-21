@@ -145,6 +145,107 @@ export const cellRequestSchema = z.strictObject({
 export type CellRequestBody = z.input<typeof cellRequestSchema>;
 export type ParsedCellRequest = z.output<typeof cellRequestSchema>;
 
+/** The largest body of a validation (it carries the values to be checked): 1 MB, as a change does. */
+export const VALIDATE_MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * `POST /api/connections/:id/rows/validate`: would the database accept these values? Answered without
+ * writing a row (decision 157). `insert` checks up to 1,000 rows; `update` checks one row, found by its key.
+ * Strict, and bounded in every list. The values are values: never logged, saved or echoed.
+ */
+export const validateRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  mode: z.enum(["insert", "update"]),
+  columns: z.array(identifierSchema).max(50),
+  rows: z
+    .array(z.array(z.string().max(100_000).nullable()).max(50))
+    .min(1)
+    .max(1000),
+  key: z
+    .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+    .min(1)
+    .max(32)
+    .optional(),
+});
+export type ValidateRequestBody = z.input<typeof validateRequestSchema>;
+export type ParsedValidateRequest = z.output<typeof validateRequestSchema>;
+
+const validationIssueSchema = z.object({
+  rule: z.enum([
+    "not_null",
+    "check",
+    "type",
+    "unique_in_request",
+    "unique_existing",
+    "foreign_key",
+    "no_effects",
+    "rejected",
+  ]),
+  column: z.string().nullable(),
+  constraint: z.string().nullable(),
+  count: z.number().int(),
+  rows: z.array(z.number().int()),
+});
+export const validationReportSchema = z.object({
+  rows: z.number().int(),
+  passed: z.number().int(),
+  issues: z.array(validationIssueSchema),
+  notChecked: z.array(
+    z.enum([
+      "triggers",
+      "row_level_security",
+      "other_unique_indexes",
+      "foreign_key_unreadable",
+      "stopped_early",
+    ]),
+  ),
+});
+export const validateResponseSchema = z.object({ report: validationReportSchema });
+
+/**
+ * `POST /api/connections/:id/rows/preflight`: how many rows would make steps of a migration fail
+ * (section 6.3 of the plan). Up to 50 checks, each a structure (names, never SQL), strict, bounded.
+ */
+const preflightColumns = z.array(identifierSchema).min(1).max(32);
+export const preflightCheckSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("nulls"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    column: identifierSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("duplicates"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    columns: preflightColumns,
+  }),
+  z.strictObject({
+    kind: z.literal("orphans"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    columns: preflightColumns,
+    refSchema: identifierSchema,
+    refTable: identifierSchema,
+    refColumns: preflightColumns,
+  }),
+  z.strictObject({ kind: z.literal("rows"), schema: identifierSchema, table: identifierSchema }),
+]);
+export const preflightRequestSchema = z.strictObject({
+  checks: z.array(preflightCheckSchema).min(1).max(50),
+});
+export type PreflightRequestBody = z.input<typeof preflightRequestSchema>;
+export type ParsedPreflightRequest = z.output<typeof preflightRequestSchema>;
+export const preflightResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      status: z.enum(["ok", "fails", "missing", "too_slow"]),
+      count: z.number().int(),
+    }),
+  ),
+});
+
 export const cellResponseSchema = z.object({
   cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),
 });

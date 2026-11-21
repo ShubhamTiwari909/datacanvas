@@ -47,6 +47,20 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
         { column: "id", key: [{ column: "id", value: "1" }], revealColumns: [] },
       ),
   ],
+  [
+    "preflight",
+    (a) => a.preflight([{ kind: "nulls", schema: "public", table: "users", column: "email" }]),
+  ],
+  [
+    "validateRows",
+    (a) =>
+      a.validateRows({
+        table: { schema: "public", name: "users" },
+        mode: "insert",
+        columns: ["email"],
+        rows: [["a@x.test"]],
+      }),
+  ],
 ];
 
 /** Assert a promise rejects with a DatabaseError carrying exactly this code. */

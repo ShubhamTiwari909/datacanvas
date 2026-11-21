@@ -156,6 +156,7 @@ export function useRowEditing({
             }}
           />
           <InsertRowDialog
+            connectionId={connectionId}
             table={table}
             info={info}
             open={inserting}

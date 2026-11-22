@@ -30,6 +30,16 @@ export interface GridEditing {
   onDelete: (row: number) => void;
 }
 
+/** What the grid needs to let rows be chosen for a bulk change (only passed while writes are unlocked and the table is editable). */
+export interface GridSelection {
+  isSelected: (row: number) => boolean;
+  /** Choose or let go of a row; `extend` (shift) does the same for every row from the last one clicked. */
+  onToggle: (row: number, extend: boolean) => void;
+  /** Whether the rows of this page are none, some or all chosen. */
+  pageState: "none" | "some" | "all";
+  onTogglePage: () => void;
+}
+
 const CELL_BASE =
   "max-w-xs truncate px-3 py-1.5 align-top font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -43,6 +53,7 @@ export function DataGrid({
   onSort,
   busy,
   editing = null,
+  selection = null,
   onFilterCell,
   source,
 }: {
@@ -59,6 +70,8 @@ export function DataGrid({
   busy: boolean;
   /** Row actions, while writes are unlocked. */
   editing?: GridEditing | null;
+  /** Choosing rows for a bulk change, while writes are unlocked. */
+  selection?: GridSelection | null;
   /** A condition made from a cell ("Filter by this value"), or absent when no more can be added. */
   onFilterCell?: (filter: RowFilter) => void;
   /** The table the page is from, so a cut JSON value can be read whole. */
@@ -103,6 +116,11 @@ export function DataGrid({
           <caption className="sr-only">{caption}</caption>
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
+              {selection ? (
+                <th scope="col" className="w-0 px-2 py-2">
+                  <PageCheckbox state={selection.pageState} onToggle={selection.onTogglePage} />
+                </th>
+              ) : null}
               {editing ? (
                 <th scope="col" className="w-0 px-2 py-2">
                   <span className="sr-only">Row actions</span>
@@ -133,6 +151,8 @@ export function DataGrid({
                 onActivate={activate}
                 onOpen={open}
                 editing={editing}
+                selection={selection}
+                selected={selection ? selection.isSelected(r) : false}
               />
             ))}
           </tbody>
@@ -160,6 +180,8 @@ const GridRow = memo(function GridRow({
   onActivate,
   onOpen,
   editing,
+  selection,
+  selected,
 }: {
   row: RowCell[];
   r: number;
@@ -169,10 +191,27 @@ const GridRow = memo(function GridRow({
   onActivate: (row: number, col: number) => void;
   onOpen: (row: number, col: number) => void;
   editing: GridEditing | null;
+  selection: GridSelection | null;
+  /** Whether this row is chosen (a prop, so that a memoised row re-renders when it changes). */
+  selected: boolean;
 }) {
   const block = editing ? editing.rowBlock(r) : null;
   return (
-    <tr className="border-t hover:bg-muted/40">
+    <tr className={cn("border-t hover:bg-muted/40", selected && "bg-muted/60")}>
+      {selection ? (
+        <td className="px-2 py-0 align-middle">
+          <input
+            type="checkbox"
+            className="size-4 align-middle accent-primary"
+            aria-label={`Select row ${r + 1}`}
+            title={block ?? undefined}
+            checked={selected}
+            disabled={block !== null}
+            onChange={() => undefined}
+            onClick={(event) => selection.onToggle(r, event.shiftKey)}
+          />
+        </td>
+      ) : null}
       {editing ? (
         <td className="px-1 py-0 align-middle whitespace-nowrap">
           <RowActionButton
@@ -238,6 +277,28 @@ const GridRow = memo(function GridRow({
     </tr>
   );
 });
+
+/** The checkbox of the header: chooses the rows of the page, or lets go of them; "some" is shown as mixed. */
+function PageCheckbox({
+  state,
+  onToggle,
+}: {
+  state: "none" | "some" | "all";
+  onToggle: () => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      className="size-4 align-middle accent-primary"
+      aria-label="Select all rows of this page"
+      checked={state === "all"}
+      ref={(el) => {
+        if (el) el.indeterminate = state === "some";
+      }}
+      onChange={onToggle}
+    />
+  );
+}
 
 function SortIcon({ state }: { state: SortState }) {
   const Icon = state === "ascending" ? ArrowUp : state === "descending" ? ArrowDown : ArrowUpDown;

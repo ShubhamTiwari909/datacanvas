@@ -20,8 +20,11 @@ import {
   quoteIdentifier,
   quoteQualified,
   type ChangeWarning,
+  MAX_BULK_ROWS,
   type ColumnValue,
   type DeleteRowChange,
+  type DeleteRowsChange,
+  type UpdateRowsChange,
   type IncomingForeignKey,
   type InsertRowChange,
   type KeyValue,
@@ -99,6 +102,29 @@ export function buildInsertRow(table: TableRef, values: readonly TypedValue[]): 
   return {
     text: `INSERT INTO ${target} (${columns}) VALUES (${casts}) RETURNING 1`,
     values: values.map((v) => v.value),
+  };
+}
+
+/**
+ * Does a row still hold what the person saw? One fixed shape, used by a bulk change to find the rows that changed
+ * since they were loaded (at preview, in the read-only transaction, before anything is written):
+ *
+ *   SELECT 1 FROM "s"."t" WHERE "k" = CAST($1 AS <type of k>)
+ *     AND CAST("a" AS text) IS NOT DISTINCT FROM CAST($2 AS text) LIMIT 1
+ */
+export function buildRowStillHolds(
+  table: TableRef,
+  key: readonly TypedValue[],
+  expected: ReadonlyArray<{ column: string; value: string | null }>,
+): PlannedStatement {
+  const values: (string | null)[] = key.map((k) => k.value);
+  const checks = expected.map((e) => {
+    values.push(e.value);
+    return `CAST(${quoteIdentifier(e.column)} AS text) IS NOT DISTINCT FROM CAST($${values.length} AS text)`;
+  });
+  return {
+    text: `SELECT 1 FROM ${quoteQualified(table.schema, table.name)} WHERE ${[keyCondition(key, 1), ...checks].join(" AND ")} LIMIT 1`,
+    values,
   };
 }
 
@@ -436,8 +462,162 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
   };
 }
 
+// ------------------------------------------------------------------- bulk ---
+
+/** A bulk change refuses a row named twice, by its key as the table knows it (the order of the columns does not matter). */
+function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
+  const seen = new Set(keys.map((k) => JSON.stringify(k.map((v) => [v.column, v.value]))));
+  if (seen.size !== keys.length) throw invalidChange("A row is listed twice.");
+}
+
+/**
+ * The rows of a bulk change that still hold what the person saw (and still exist), and the positions of those that
+ * do not. All the questions run in one savepoint: a key value that does not fit its type ends them with a fixed
+ * message that names no value.
+ */
+async function splitByCurrent(
+  db: Queryable,
+  table: TableRef,
+  rows: ReadonlyArray<{
+    key: readonly TypedValue[];
+    expected: ReadonlyArray<{ column: string; value: string | null }>;
+  }>,
+): Promise<{ kept: number[]; skipped: number[] }> {
+  const kept: number[] = [];
+  const skipped: number[] = [];
+  await db.query("SAVEPOINT dc_bulk_check");
+  try {
+    for (let i = 0; i < rows.length; i++) {
+      const statement = buildRowStillHolds(table, rows[i]!.key, rows[i]!.expected);
+      const { rows: found } = await db.query(statement.text, statement.values);
+      (found.length > 0 ? kept : skipped).push(i);
+    }
+    await db.query("RELEASE SAVEPOINT dc_bulk_check");
+  } catch (error) {
+    await db.query("ROLLBACK TO SAVEPOINT dc_bulk_check");
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+    if (typeof code === "string" && code.startsWith("22")) {
+      throw new DatabaseError("invalid_value", {
+        message: "A value that finds a row is not valid for the type of its key column.",
+        cause: error,
+      });
+    }
+    throw error;
+  }
+  return { kept, skipped };
+}
+
+/** The warnings of a row change, for several rows: a trigger runs for each of them. */
+async function bulkWarnings(
+  db: Queryable,
+  ref: TableRef,
+  table: CatalogTable,
+  event: number,
+  rows: number,
+): Promise<ChangeWarning[]> {
+  const warnings = await rowWarnings(db, ref, table, event);
+  return warnings.map((w) =>
+    w.code === "triggers"
+      ? { ...w, message: `${w.message} They run for each of the ${rows} rows.` }
+      : w,
+  );
+}
+
+const leftOutWords = (skipped: number, total: number): string =>
+  skipped === 0
+    ? ""
+    : ` ${skipped} of the ${total} rows changed since you loaded them (or are gone), so ${skipped === 1 ? "it is" : "they are"} left out.`;
+
+async function planUpdateRows(db: Queryable, change: UpdateRowsChange): Promise<PlannedChange> {
+  const { table, key } = await requireEditable(db, change.table);
+  const set = change.set.map((s): TypedValue => {
+    const column = findColumn(table, s.column);
+    requireWritable(column);
+    return { column: column.name, castType: column.castType, value: s.value };
+  });
+  if (set.length === 0 || change.rows.length === 0) throw invalidChange("Nothing to change.");
+  if (change.rows.length > MAX_BULK_ROWS) throw invalidChange("Too many rows for one change.");
+  await checkValues(db, set, (name) => findColumn(table, name).dataType);
+  const keys = change.rows.map((r) => typedKey(table, key, r.key));
+  distinctRows(keys);
+  const names = set.map((s) => s.column);
+  const { kept, skipped } = await splitByCurrent(
+    db,
+    change.table,
+    change.rows.map((r, i) => ({ key: keys[i]!, expected: r.expected })),
+  );
+  if (kept.length === 0) throw new DatabaseError("row_changed");
+  const warnings = await bulkWarnings(db, change.table, table, TRIGGER_EVENT.update, kept.length);
+  const referenced = referencedWarning(
+    await listIncomingForeignKeys(db, table.oid),
+    "update",
+    names,
+  );
+  if (referenced) warnings.push(referenced);
+  return {
+    change,
+    statements: kept.map((i) =>
+      buildUpdateRow(change.table, keys[i]!, set, change.rows[i]!.expected),
+    ),
+    expect: "one_row",
+    category: "row",
+    effect: `Sets ${listWords(names)} on ${kept.length} ${kept.length === 1 ? "row" : "rows"} of ${displayName(change.table.schema, change.table.name)}, each found by its key, if it still holds the value${names.length === 1 ? "" : "s"} you saw. All of them are changed or none is.${leftOutWords(skipped.length, change.rows.length)}`,
+    warnings,
+    destructive: false,
+    guard: { relations: [guardRelation(table, [...key, ...names], "row_exclusive")] },
+    skipped,
+  };
+}
+
+async function planDeleteRows(db: Queryable, change: DeleteRowsChange): Promise<PlannedChange> {
+  const { table, key } = await requireEditable(db, change.table);
+  if (change.rows.length === 0) throw invalidChange("Nothing to remove.");
+  if (change.rows.length > MAX_BULK_ROWS) throw invalidChange("Too many rows for one change.");
+  const keys = change.rows.map((r) => typedKey(table, key, r.key));
+  distinctRows(keys);
+  const { kept, skipped } = await splitByCurrent(
+    db,
+    change.table,
+    keys.map((k) => ({ key: k, expected: [] })),
+  );
+  if (kept.length === 0) throw new DatabaseError("row_changed");
+  const warnings = await bulkWarnings(db, change.table, table, TRIGGER_EVENT.delete, kept.length);
+  const referenced = referencedWarning(
+    await listIncomingForeignKeys(db, table.oid),
+    "delete",
+    null,
+  );
+  const chain = await listCascadeChain(db, table.oid);
+  if (referenced && chain.length > 0) {
+    referenced.message += ` The cascade goes further down: rows of ${listWords(chain)} can be deleted too.`;
+  } else if (chain.length > 0) {
+    warnings.push({
+      code: "referenced",
+      message: `The cascade goes further down: rows of ${listWords(chain)} can be deleted too.`,
+    });
+  }
+  if (referenced) warnings.push(referenced);
+  warnings.push({ code: "destructive", message: "Deleted rows cannot be brought back." });
+  return {
+    change,
+    statements: kept.map((i) => buildDeleteRow(change.table, keys[i]!)),
+    expect: "one_row",
+    category: "row",
+    effect: `Deletes ${kept.length} ${kept.length === 1 ? "row" : "rows"} of ${displayName(change.table.schema, change.table.name)}, each found by its key. All of them are deleted or none is.${leftOutWords(skipped.length, change.rows.length)}`,
+    warnings,
+    destructive: true,
+    guard: { relations: [guardRelation(table, key, "row_exclusive")] },
+    skipped,
+  };
+}
+
 export function planRowChange(db: Queryable, change: RowChange): Promise<PlannedChange> {
   switch (change.kind) {
+    case "update_rows":
+      return planUpdateRows(db, change);
+    case "delete_rows":
+      return planDeleteRows(db, change);
     case "update_row":
       return planUpdate(db, change);
     case "insert_row":

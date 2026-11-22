@@ -261,6 +261,7 @@ function Rows({
           busy={busy}
           source={{ connectionId, table: { schema, name: table } }}
           editing={editing.grid}
+          selection={editing.selection}
           onFilterCell={
             paging.filters.length < ROWS_MAX_FILTERS
               ? (filter) => dispatch({ type: "addFilter", filter })

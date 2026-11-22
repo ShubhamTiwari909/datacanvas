@@ -9,13 +9,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Plus } from "lucide-react";
+import { CheckCircle2, ListChecks, Plus, Trash2, X } from "lucide-react";
 import type { RowPage, TableEditInfo, TableRef } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
-import type { GridEditing } from "@/features/data/data-grid";
+import type { GridEditing, GridSelection } from "@/features/data/data-grid";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useConnectionWrites, writesReady } from "@/stores/writes-store";
 import { getEditInfo } from "./api";
+import { BulkSetDialog } from "./bulk-dialogs";
+import {
+  EMPTY_SELECTION,
+  buildDeleteRows,
+  bulkDeleteBeforeAfter,
+  pageSelectable,
+  pageState,
+  toggleRow,
+  togglePage,
+  type Selection,
+} from "./bulk-select";
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
 import { InsertRowDialog } from "./insert-row-dialog";
 import { RowEditorDialog, type RowSnapshot } from "./row-editor-dialog";
@@ -25,6 +36,8 @@ import { NOT_LOCAL_TEXT } from "./writes-control";
 export interface RowEditing {
   /** Row actions for the grid, or null when rows cannot be edited now. */
   grid: GridEditing | null;
+  /** Choosing rows for a bulk change, or null when rows cannot be changed now. */
+  selection: GridSelection | null;
   /** "Add row" for the toolbar, or nothing. */
   toolbar: React.ReactNode;
   /** One line on how editing is switched on, or why this table cannot be edited; null when nothing to say. */
@@ -59,6 +72,19 @@ export function useRowEditing({
   const [inserting, setInserting] = useState(false);
   const [request, setRequest] = useState<ChangeRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The rows chosen for a bulk change: by key, in memory, kept across pages and filters, and let go of when the
+  // table changes (the choice belongs to the table it was made in).
+  const tableKey = `${table.schema}.${table.name}`;
+  const [chosen, setChosen] = useState<{
+    table: string;
+    rows: Selection;
+    anchor: number | null;
+    limited: boolean;
+  }>({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
+  const selected = chosen.table === tableKey ? chosen.rows : EMPTY_SELECTION;
+  const [setting, setSetting] = useState(false);
+  const clearSelection = () =>
+    setChosen({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
 
   // When writing stops being possible (locked, the connection gone, table data switched off) the
   // server drops its previews, so an open editor or preview would offer an Apply that cannot run.
@@ -70,6 +96,8 @@ export function useRowEditing({
       setEditRow(null);
       setInserting(false);
       setRequest(null);
+      setSetting(false);
+      clearSelection();
     }
   }
 
@@ -110,6 +138,36 @@ export function useRowEditing({
     };
   }, [page, info, table]);
 
+  const selectable = useMemo(
+    () => (page && info?.editable ? pageSelectable(page, info) : []),
+    [page, info],
+  );
+  const selection = useMemo<GridSelection | null>(() => {
+    if (!page || !info?.editable) return null;
+    const apply = (next: { rows: Selection; anchor: number | null; limited: boolean }) =>
+      setChosen({ table: tableKey, ...next });
+    return {
+      isSelected: (r) => {
+        const row = selectable[r];
+        return (
+          row !== null &&
+          row !== undefined &&
+          selected.has(JSON.stringify(row.key.map((k) => [k.column, k.value])))
+        );
+      },
+      onToggle: (r, extend) => {
+        const next = toggleRow(selected, selectable, r, extend, chosen.anchor);
+        apply({ rows: next.selection, anchor: next.anchor, limited: next.limited });
+      },
+      pageState: pageState(selected, selectable),
+      onTogglePage: () => {
+        const next = togglePage(selected, selectable);
+        apply({ rows: next.selection, anchor: next.anchor, limited: next.limited });
+      },
+    };
+  }, [page, info, selectable, selected, chosen.anchor, tableKey]);
+  const chosenRows = [...selected.values()];
+
   let hint: string | null = null;
   if (!status.enabled) {
     hint =
@@ -125,10 +183,43 @@ export function useRowEditing({
   }
 
   const toolbar = info?.editable ? (
-    <Button type="button" size="sm" variant="outline" onClick={() => setInserting(true)}>
-      <Plus aria-hidden="true" />
-      Add row
-    </Button>
+    <>
+      <Button type="button" size="sm" variant="outline" onClick={() => setInserting(true)}>
+        <Plus aria-hidden="true" />
+        Add row
+      </Button>
+      {chosenRows.length > 0 ? (
+        <span role="group" aria-label="Chosen rows" className="flex items-center gap-2">
+          <span role="status" className="text-sm">
+            {chosenRows.length} {chosenRows.length === 1 ? "row" : "rows"} chosen
+            {chosen.limited ? " (the most for one change)" : ""}
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={() => setSetting(true)}>
+            <ListChecks aria-hidden="true" />
+            Set a value
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setRequest({
+                change: buildDeleteRows(table, chosenRows),
+                title: `Delete ${chosenRows.length} ${chosenRows.length === 1 ? "row" : "rows"} of ${table.schema}.${table.name}`,
+                beforeAfter: bulkDeleteBeforeAfter(chosenRows),
+              })
+            }
+          >
+            <Trash2 aria-hidden="true" />
+            Delete {chosenRows.length} {chosenRows.length === 1 ? "row" : "rows"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
+            <X aria-hidden="true" />
+            Clear
+          </Button>
+        </span>
+      ) : null}
+    </>
   ) : null;
 
   const dialogs = (
@@ -155,6 +246,17 @@ export function useRowEditing({
               setRequest(next);
             }}
           />
+          <BulkSetDialog
+            open={setting}
+            onClose={() => setSetting(false)}
+            table={table}
+            info={info}
+            rows={chosenRows}
+            onPreview={(next) => {
+              setSetting(false);
+              setRequest(next);
+            }}
+          />
           <InsertRowDialog
             connectionId={connectionId}
             table={table}
@@ -172,15 +274,22 @@ export function useRowEditing({
         connectionId={connectionId}
         request={request}
         onClose={() => setRequest(null)}
-        onApplied={(_result, change) => {
+        onApplied={(result, change) => {
           setRequest(null);
+          const many = (n: number) => `${n} ${n === 1 ? "row was" : "rows were"}`;
           setNotice(
             change.kind === "insert_row"
               ? "The row was added."
               : change.kind === "delete_row"
                 ? "The row was deleted."
-                : "The row was changed.",
+                : change.kind === "update_rows"
+                  ? `${many(result.rowCount)} changed.`
+                  : change.kind === "delete_rows"
+                    ? `${many(result.rowCount)} deleted.`
+                    : "The row was changed.",
           );
+          // The rows that were changed or removed are not the rows that were chosen any more.
+          if (change.kind === "update_rows" || change.kind === "delete_rows") clearSelection();
           reload();
         }}
         onRowChanged={() => {
@@ -193,6 +302,7 @@ export function useRowEditing({
 
   return {
     grid,
+    selection,
     toolbar,
     hint: hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null,
     dialogs,

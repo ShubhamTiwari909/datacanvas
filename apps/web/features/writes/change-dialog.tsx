@@ -157,6 +157,32 @@ export function ChangeDialog({
           <div className="flex flex-col gap-4">
             <p className="text-sm">{preview.effect}</p>
 
+            {preview.skipped.length > 0 ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm"
+              >
+                <AlertTriangle
+                  className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+                  aria-hidden="true"
+                />
+                <div className="flex flex-col items-start gap-1.5">
+                  <p>
+                    {preview.skipped.length} {preview.skipped.length === 1 ? "row" : "rows"} changed
+                    since you loaded {preview.skipped.length === 1 ? "it" : "them"} (or{" "}
+                    {preview.skipped.length === 1 ? "is" : "are"} gone) and{" "}
+                    {preview.skipped.length === 1 ? "is" : "are"} left out. Apply changes the other
+                    rows only, or cancel and reload to see the new values.
+                  </p>
+                  {onRowChanged ? (
+                    <Button type="button" size="sm" variant="outline" onClick={onRowChanged}>
+                      Reload the rows
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             {request?.beforeAfter && request.beforeAfter.length > 0 ? (
               <div className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-left text-sm">
@@ -215,7 +241,9 @@ export function ChangeDialog({
               </pre>
               {request?.change.kind === "update_row" ||
               request?.change.kind === "insert_row" ||
-              request?.change.kind === "delete_row" ? (
+              request?.change.kind === "delete_row" ||
+              request?.change.kind === "update_rows" ||
+              request?.change.kind === "delete_rows" ? (
                 <p className="text-xs text-muted-foreground">
                   Values are sent separately as $1, $2 and so on, never as part of the statement.
                 </p>

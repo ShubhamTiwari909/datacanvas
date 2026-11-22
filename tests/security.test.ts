@@ -729,6 +729,91 @@ describe("an export of rows is table data behind the data-access check, bounded,
   });
 });
 
+describe("bulk row changes are many single-row changes in one transaction, never a new statement", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const rows = stripComments(read("packages/postgres-adapter/src/writes/rows.ts"));
+  const bulk = rows.slice(
+    rows.indexOf("// ----- bulk") > -1
+      ? rows.indexOf("// ----- bulk")
+      : rows.indexOf("function distinctRows"),
+  );
+
+  it("builds every statement with the builders of one row, and asks about the rows with one fixed read", () => {
+    const updatePlan = bulk.slice(
+      bulk.indexOf("async function planUpdateRows"),
+      bulk.indexOf("async function planDeleteRows"),
+    );
+    const deletePlan = bulk.slice(
+      bulk.indexOf("async function planDeleteRows"),
+      bulk.indexOf("export function planRowChange"),
+    );
+    expect(updatePlan).toMatch(
+      /buildUpdateRow\(change\.table, keys\[i\]!, set, change\.rows\[i\]!\.expected\)/,
+    );
+    expect(deletePlan).toMatch(/buildDeleteRow\(change\.table, keys\[i\]!\)/);
+    // No text of SQL is written in the bulk code except through the builders: no template literal holds a statement.
+    const texts = (bulk.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM)\b/);
+    // The one question about a row is a SELECT built in one place, from a typed key and the values that were seen.
+    const holds = rows.slice(
+      rows.indexOf("export function buildRowStillHolds"),
+      rows.indexOf("export function buildDeleteRow"),
+    );
+    expect(holds).toContain("SELECT 1 FROM");
+    expect(holds).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
+  });
+
+  it("requires every row to be changed exactly once or none: one_row per statement, in one transaction, a plan guard", () => {
+    expect((bulk.match(/expect: "one_row"/g) ?? []).length).toBe(2);
+    expect((bulk.match(/guard: \{ relations: \[guardRelation\(/g) ?? []).length).toBe(2);
+    // Apply runs the plan's statements in order and rolls everything back on the first that is not exactly one row.
+    const apply = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(apply).toMatch(/if \(count === 0\) throw new DatabaseError\("row_changed"\)/);
+    expect(apply).toMatch(/if \(count !== 1\) throw new DatabaseError\("unexpected"\)/);
+  });
+
+  it("leaves out only rows that no longer hold what was seen, reports them before writing, and refuses when none is left", () => {
+    expect(bulk).toMatch(/const \{ kept, skipped \} = await splitByCurrent\(/);
+    expect(
+      (bulk.match(/if \(kept\.length === 0\) throw new DatabaseError\("row_changed"\)/g) ?? [])
+        .length,
+    ).toBe(2);
+    // The skipped positions are in the plan, and nothing else about them: no key, no value.
+    expect((bulk.match(/\n\s+skipped,\n/g) ?? []).length).toBe(2);
+    const service = stripComments(read("apps/web/lib/server/write-service.ts"));
+    expect(service).toMatch(/skipped: plan\.skipped \?\? \[\]/);
+  });
+
+  it("refuses a row named twice and a request of more rows than the limit, in the schema and again in the planner", () => {
+    const schema = stripComments(read("packages/shared-types/src/writes.ts"));
+    expect(schema).toMatch(/WRITE_MAX_BULK_ROWS = 500/);
+    expect(schema).toMatch(/\.max\(WRITE_MAX_BULK_ROWS\)/);
+    expect(schema).toMatch(/distinctKeys\(c\.rows\)/);
+    expect(bulk).toMatch(/if \(change\.rows\.length > MAX_BULK_ROWS\) throw invalidChange/);
+    expect(bulk).toContain("distinctRows(keys)");
+    // The strictness of the other operations: strict objects, no field that holds SQL.
+    const bulkSchemas = schema.slice(
+      schema.indexOf("const bulkRowSchema"),
+      schema.indexOf("// ---- column definitions") > -1
+        ? schema.indexOf("// ---- column definitions")
+        : undefined,
+    );
+    expect(bulkSchemas).not.toMatch(/\b(sql|where|expression|using|returning)\b/);
+    expect((bulkSchemas.match(/z\s*\.strictObject/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("is reached only through the write service, as every other row change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) => /\.previewChange\(|\.applyChange\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

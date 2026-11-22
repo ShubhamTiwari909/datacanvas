@@ -267,3 +267,13 @@ The JSON editor of section 5 is built. Where the build differs from the plan:
 - The conditions in the notes are words with no value (`status equals`).
 - There is no per-export setting for the limits.
 - The cell limit of an export is 1,000,000 characters, and the file counts the values it had to cut.
+
+## 19. What D5 found (2026-11-22)
+
+Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 159). Where it differs from the plan:
+
+- **No new statement.** A bulk change is one single-row statement per row, in one transaction; the plan's `affected = previewed` is the existing one-row check of each statement.
+- **`edit_cells` and the editing grid are not in 1.9.0.** The choosing of rows, "Set a value" and "Delete N rows" are. Spreadsheet-style editing and its review of differences would be a third operation and a second way to write; they come later.
+- **No Validate for a bulk change.** Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
+- **The conflicts come at preview.** The rows that changed since they were loaded are left out and counted there; a row that changes after is a rollback.
+- A key column is not offered in "Set a value" (the same key on several rows would be refused).

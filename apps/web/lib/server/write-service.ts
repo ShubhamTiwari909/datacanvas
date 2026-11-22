@@ -174,6 +174,8 @@ export class WriteService {
       destructive: plan.destructive,
       category: plan.category,
       expiresAt: new Date(expiresAt).toISOString(),
+      // A bulk change leaves out the rows that no longer hold what the person saw: their positions, no values.
+      skipped: plan.skipped ?? [],
     };
   }
 

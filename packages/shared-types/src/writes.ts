@@ -17,6 +17,8 @@ export const WRITE_MAX_CHANGE_COLUMNS = 100;
 export const WRITE_MAX_CHANGE_VALUE_CHARS = 100_000;
 export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
+/** Rows in one bulk change. */
+export const WRITE_MAX_BULK_ROWS = 500;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
 /** The largest preview request body: a row change can carry long values. */
@@ -93,6 +95,52 @@ export const deleteRowChangeSchema = z
     key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
   })
   .refine((c) => uniqueColumns(c.key, (k) => k.column), "A key column is listed twice.");
+
+/** Each row of a bulk change is named once: the same key twice would change one row twice. */
+function distinctKeys(rows: ReadonlyArray<{ key: Array<{ value: string }> }>): boolean {
+  return new Set(rows.map((r) => JSON.stringify(r.key.map((k) => [k.value])))).size === rows.length;
+}
+
+const bulkRowSchema = z
+  .strictObject({
+    key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
+    expected: z.array(columnValueSchema).max(WRITE_MAX_CHANGE_COLUMNS),
+  })
+  .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice.");
+
+export const updateRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("update_rows"),
+    table: tableSchema,
+    set: z.array(columnValueSchema).min(1).max(WRITE_MAX_CHANGE_COLUMNS),
+    rows: z.array(bulkRowSchema).min(1).max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => uniqueColumns(c.set, (v) => v.column), "A column is changed twice.")
+  .refine(
+    (c) =>
+      c.rows.every(
+        (r) =>
+          r.expected.length === c.set.length &&
+          c.set.every((v) => r.expected.some((e) => e.column === v.column)),
+      ),
+    "Every row needs the value that was seen in each changed column.",
+  )
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
+
+export const deleteRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("delete_rows"),
+    table: tableSchema,
+    rows: z
+      .array(
+        z
+          .strictObject({ key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS) })
+          .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice."),
+      )
+      .min(1)
+      .max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
 
 // ------------------------------------------------------- column definitions ---
 
@@ -296,6 +344,8 @@ export const changeSchema = z.discriminatedUnion("kind", [
   updateRowChangeSchema,
   insertRowChangeSchema,
   deleteRowChangeSchema,
+  updateRowsChangeSchema,
+  deleteRowsChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,
@@ -383,6 +433,11 @@ export const changePreviewSchema = z.object({
   category: z.enum(["row", "structure"]),
   /** ISO time after which the preview can no longer be applied. */
   expiresAt: z.string(),
+  /**
+   * For a bulk change: the positions (0-based, in the request) of the rows that no longer hold what the person
+   * saw, or are gone. They are left out of the change, which does the other rows only.
+   */
+  skipped: z.array(z.number().int()).default([]),
 });
 export type ChangePreview = z.infer<typeof changePreviewSchema>;
 export const previewChangeResponseSchema = z.object({ preview: changePreviewSchema });

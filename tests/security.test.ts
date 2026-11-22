@@ -734,10 +734,10 @@ describe("bulk row changes are many single-row changes in one transaction, never
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const rows = stripComments(read("packages/postgres-adapter/src/writes/rows.ts"));
+  // The bulk planners (the import, the next section of the file, has its own rules below).
   const bulk = rows.slice(
-    rows.indexOf("// ----- bulk") > -1
-      ? rows.indexOf("// ----- bulk")
-      : rows.indexOf("function distinctRows"),
+    rows.indexOf("function distinctRows"),
+    rows.indexOf("export function buildInsertBatch"),
   );
 
   it("builds every statement with the builders of one row, and asks about the rows with one fixed read", () => {
@@ -811,6 +811,95 @@ describe("bulk row changes are many single-row changes in one transaction, never
       )
       .filter((f) => /\.previewChange\(|\.applyChange\(/.test(readFileSync(f, "utf8")));
     expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+  });
+});
+
+describe("an import is batches of one fixed statement with every value bound, and the file never names anything", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const rows = stripComments(read("packages/postgres-adapter/src/writes/rows.ts"));
+  const insert = rows.slice(
+    rows.indexOf("export function buildInsertBatch"),
+    rows.indexOf("export function planRowChange"),
+  );
+
+  it("the statement is built in one place, from catalog names and one array parameter per column", () => {
+    // The single row's two forms (with values, and DEFAULT VALUES), and the batch's, which is the only one in the import.
+    expect((rows.match(/INSERT INTO/g) ?? []).length).toBe(3);
+    expect((insert.match(/INSERT INTO/g) ?? []).length).toBe(1);
+    const builder = insert.slice(0, insert.indexOf("async function planInsertRows"));
+    expect(builder).toContain("quoteQualified(table.schema, table.name)");
+    expect(builder).toContain("quoteIdentifier(c.column)");
+    expect(builder).toContain("$${i + 1}::text[]");
+    expect(builder).toContain("unnest(");
+    // A value is never part of the text: only names, casts and the numbers of parameters are.
+    const text = builder.slice(builder.indexOf("text:"), builder.indexOf("values:"));
+    expect(text).not.toMatch(/\brows\b|\br\[/);
+    expect(builder).toContain("expectRows: rows.length");
+  });
+
+  it("the columns and their types come from the catalog, and only a column that can be written", () => {
+    const plan = insert.slice(insert.indexOf("async function planInsertRows"));
+    expect(plan).toContain("requireEditable(db, change.table)");
+    expect(plan).toContain("findColumn(table, name)");
+    expect(plan).toContain("requireWritable(column)");
+    expect(plan).toContain("castType: column.castType");
+    expect(plan).toMatch(/change\.rows\.length > IMPORT_MAX_ROWS/);
+    expect(plan).toMatch(/new Set\(change\.columns\)\.size !== change\.columns\.length/);
+  });
+
+  it("applying checks the rows each batch added and honours a cancel between batches", () => {
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(index).toMatch(/signal\?\.aborted/);
+    expect(index).toMatch(/statement\.expectRows !== undefined && count !== statement\.expectRows/);
+  });
+
+  it("the schema is strict and bounded, with the limits of the core", () => {
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("export const insertRowsChangeSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(part).toMatch(/z\s*\.strictObject/);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning)\b/);
+    expect(part).toContain("WRITE_MAX_IMPORT_ROWS");
+    expect(part).toContain("WRITE_MAX_IMPORT_COLUMNS");
+    expect(part).toContain("WRITE_MAX_IMPORT_CELL_CHARS");
+  });
+
+  it("the file is read in the browser: no server code parses it, and a name in it builds nothing", () => {
+    const server = [
+      ...walk(path.join(root, "apps/web/app")),
+      ...walk(path.join(root, "apps/web/lib/server")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of server) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /csv-parse|parseCsv|features\/import/,
+      );
+    }
+    // The names of the file are compared with the table's to suggest a choice; the change is built from the choice.
+    const plan = stripComments(read("apps/web/features/import/import-plan.ts"));
+    const built = plan.slice(
+      plan.indexOf("export function buildImport"),
+      plan.indexOf("export function previewRows"),
+    );
+    expect(built).not.toMatch(/header\b/);
+    expect(built).toContain("columns.push(column)");
+    expect(stripComments(read("apps/web/features/import/import-dialog.tsx"))).toContain(
+      "buildImport(",
+    );
+  });
+
+  it("is kept nowhere: not in the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /features\/import|insert_rows|csv-parse/,
+      );
+    }
   });
 });
 
@@ -1166,7 +1255,7 @@ describe("writes: only the write service reaches the write capability", () => {
   it("takes the preview out of the store before it runs, so it can be used once", () => {
     const source = codeOf(writeService);
     const take = source.indexOf("this.previews.take(");
-    const run = source.indexOf("applyChange(plan)");
+    const run = source.indexOf("applyChange(plan, signal)");
     expect(take).toBeGreaterThan(-1);
     expect(run).toBeGreaterThan(take);
   });

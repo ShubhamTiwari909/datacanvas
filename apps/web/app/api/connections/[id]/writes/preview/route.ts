@@ -13,7 +13,7 @@
  * values themselves are never sent back, logged or echoed in an error.
  * Needs all four switches (see `GET .../writes`).
  */
-import { previewChangeRequestSchema, WRITE_MAX_BODY_BYTES } from "@datacanvas/shared-types";
+import { previewChangeRequestSchema, IMPORT_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import { getServerContext } from "@/lib/server/context";
 import { handleRoute } from "@/lib/server/error-response";
 import { parseJsonBody } from "@/lib/server/parse-request";
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 export function POST(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
   return handleRoute(request, async () => {
     const { id } = await params;
-    const parsed = await parseJsonBody(request, previewChangeRequestSchema, WRITE_MAX_BODY_BYTES);
+    const parsed = await parseJsonBody(request, previewChangeRequestSchema, IMPORT_MAX_BODY_BYTES);
     if (!parsed.ok) return parsed.response;
     const preview = await getServerContext().writes.preview(id, parsed.data.change);
     return jsonResponse({ preview });

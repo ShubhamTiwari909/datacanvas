@@ -19,6 +19,12 @@ export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
 /** Rows in one bulk change. */
 export const WRITE_MAX_BULK_ROWS = 500;
+/** Limits of an import (mirrored from the core): rows, columns, characters in a cell, rows in one statement. */
+export const WRITE_MAX_IMPORT_ROWS = 100_000;
+export const WRITE_MAX_IMPORT_COLUMNS = 50;
+export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
+/** The largest body of a preview or a validation: an import carries its rows (a file of up to 20 MB). */
+export const IMPORT_MAX_BODY_BYTES = 24 * 1024 * 1024;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
 /** The largest preview request body: a row change can carry long values. */
@@ -141,6 +147,26 @@ export const deleteRowsChangeSchema = z
       .max(WRITE_MAX_BULK_ROWS),
   })
   .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
+
+export const insertRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("insert_rows"),
+    table: tableSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: z
+      .array(
+        z
+          .array(z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).nullable())
+          .max(WRITE_MAX_IMPORT_COLUMNS),
+      )
+      .min(1)
+      .max(WRITE_MAX_IMPORT_ROWS),
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  );
 
 // ------------------------------------------------------- column definitions ---
 
@@ -346,6 +372,7 @@ export const changeSchema = z.discriminatedUnion("kind", [
   deleteRowChangeSchema,
   updateRowsChangeSchema,
   deleteRowsChangeSchema,
+  insertRowsChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,

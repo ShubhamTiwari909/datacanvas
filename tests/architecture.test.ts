@@ -107,7 +107,8 @@ describe("writes are a separate capability (1.4.0)", () => {
   it("WritableAdapter takes a structured Change or a plan: no SQL text in any signature", () => {
     const writable = inBody(adapterSource, "export interface WritableAdapter");
     expect(writable).toMatch(/previewChange\(change: Change\)/);
-    expect(writable).toMatch(/applyChange\(plan: PlannedChange\)/);
+    // The plan, and a signal that only says whether the person cancelled (no SQL anywhere in the signature).
+    expect(writable).toMatch(/applyChange\(plan: PlannedChange(, signal\?: CancelSignal)?\)/);
     expect(writable).not.toMatch(/\b(sql|statement|query|text)\s*:\s*string/i);
   });
 

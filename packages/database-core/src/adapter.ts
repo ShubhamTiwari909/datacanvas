@@ -24,7 +24,14 @@ import type { DdlDetail } from "./ddl.js";
 import type { ExportEvent, ExportRowsOptions, ExportSignal } from "./rows-export.js";
 import type { PreflightCheck, PreflightResult } from "./migration/preflight.js";
 import type { ValidateRequest, ValidationReport } from "./validation.js";
-import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
+import type {
+  AppliedChange,
+  CancelSignal,
+  Change,
+  PlannedChange,
+  RoleInfo,
+  TableEditInfo,
+} from "./changes.js";
 import type {
   ColumnInfo,
   ConstraintInfo,
@@ -314,7 +321,7 @@ export interface WritableAdapter {
    *   `invalid_value`, `locked`, `retry`, `write_denied`, `has_dependents`,
    *   `already_exists`, `timeout`. Never the database's own message.
    */
-  applyChange(plan: PlannedChange): Promise<AppliedChange>;
+  applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange>;
 }
 
 /** Does this adapter also implement the write capability? */

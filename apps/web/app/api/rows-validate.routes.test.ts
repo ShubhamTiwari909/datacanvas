@@ -81,7 +81,7 @@ describe("POST /connections/:id/rows/validate", () => {
 
   it.each([
     ["no rows", { ...ask, rows: [] }],
-    ["more than 1,000 rows", { ...ask, rows: Array(1001).fill(["x"]) }],
+    ["more than 100,000 rows", { ...ask, rows: Array(100_001).fill(["x"]) }],
     ["more than 50 values in a row", { ...ask, rows: [Array(51).fill("x")] }],
     ["a mode that does not exist", { ...ask, mode: "delete" }],
     ["a where clause", { ...ask, where: "id > 0" }],
@@ -99,7 +99,7 @@ describe("POST /connections/:id/rows/validate", () => {
 
   it("refuses a body that is too large with 413", async () => {
     const id = await connect({ dataAccess: true });
-    const big = { ...ask, rows: Array(30).fill(["x".repeat(50_000)]) };
+    const big = { ...ask, rows: Array(260).fill(["x".repeat(100_000)]) };
     expect((await check(id, big)).status).toBe(413);
   });
 

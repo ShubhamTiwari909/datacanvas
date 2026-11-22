@@ -455,6 +455,7 @@ export const CHANGE_LABEL: Record<Change["kind"], string> = {
   delete_row: "Delete row",
   update_rows: "Edit rows",
   delete_rows: "Delete rows",
+  insert_rows: "Import rows",
   create_table: "Create table",
   add_column: "Add column",
   rename_column: "Rename column",

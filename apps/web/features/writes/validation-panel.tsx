@@ -30,8 +30,10 @@ export interface Validation {
 export function useValidation(
   connectionId: string,
   request: ValidateRequestBody | null,
+  /** What the request is made of, as a short text, for a request too large to compare as text on every render. */
+  key?: string,
 ): Validation {
-  const signature = request ? JSON.stringify(request) : null;
+  const signature = request ? (key ?? JSON.stringify(request)) : null;
   const [last, setLast] = useState<{ signature: string; outcome: Outcome } | null>(null);
   const latest = useRef(0);
   const run = () => {
@@ -52,10 +54,18 @@ export function useValidation(
   return { run, outcome, busy: outcome?.status === "loading" };
 }
 
-const listRows = (rows: readonly number[], count: number) =>
-  `Row${rows.length === 1 ? "" : "s"} ${rows.join(", ")}${count > rows.length ? ` and ${count - rows.length} more` : ""}`;
+/** The row numbers, moved by `offset` (an import counts the header of the file as row 1). */
+const listRows = (rows: readonly number[], count: number, offset: number) =>
+  `Row${rows.length === 1 ? "" : "s"} ${rows.map((r) => r + offset).join(", ")}${count > rows.length ? ` and ${count - rows.length} more` : ""}`;
 
-export function ValidationPanel({ validation }: { validation: Validation }) {
+export function ValidationPanel({
+  validation,
+  rowOffset = 0,
+}: {
+  validation: Validation;
+  /** Added to the row numbers of the report: 1 for a file whose first row is its header. */
+  rowOffset?: number;
+}) {
   const { outcome } = validation;
   // A region that is always in the page, so a screen reader announces what appears in it.
   return (
@@ -66,14 +76,15 @@ export function ValidationPanel({ validation }: { validation: Validation }) {
       {outcome?.status === "error" ? (
         <p className="text-destructive">The values could not be checked. {outcome.message}</p>
       ) : null}
-      {outcome?.status === "done" ? <Report report={outcome.report} /> : null}
+      {outcome?.status === "done" ? <Report report={outcome.report} rowOffset={rowOffset} /> : null}
     </div>
   );
 }
 
-function Report({ report }: { report: ValidationReport }) {
+function Report({ report, rowOffset }: { report: ValidationReport; rowOffset: number }) {
   const clean = report.issues.length === 0;
   const many = report.rows > 1;
+  const n = (count: number) => count.toLocaleString("en-US");
   // A rule that counts more rows than it lists: the number of rows that pass is then a lower bound.
   const overflow = report.issues.some((i) => i.count > i.rows.length);
   return (
@@ -85,7 +96,7 @@ function Report({ report }: { report: ValidationReport }) {
             aria-hidden="true"
           />
           <span>
-            No problems found{many ? ` in ${report.rows} rows` : ""}. The database would accept
+            No problems found{many ? ` in ${n(report.rows)} rows` : ""}. The database would accept
             {many ? " them" : " this"}.
           </span>
         </p>
@@ -95,7 +106,7 @@ function Report({ report }: { report: ValidationReport }) {
             <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
             <span>
               {many
-                ? `${overflow ? "At least " : ""}${report.passed} of ${report.rows} rows pass. Problems found:`
+                ? `${overflow ? "At least " : ""}${n(report.passed)} of ${n(report.rows)} rows pass. Problems found:`
                 : "The database would refuse this. Problems found:"}
             </span>
           </p>
@@ -103,7 +114,7 @@ function Report({ report }: { report: ValidationReport }) {
             {report.issues.map((issue, i) => (
               <li key={i}>
                 {describeIssue(issue)}
-                {many ? ` ${listRows(issue.rows, issue.count)}.` : ""}
+                {many ? ` ${listRows(issue.rows, issue.count, rowOffset)}.` : ""}
               </li>
             ))}
           </ul>

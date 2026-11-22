@@ -33,6 +33,7 @@ import {
   isDatabaseError,
   isWritableAdapter,
   statementText,
+  type CancelSignal,
   type Change,
   type DatabaseAdapter,
   type PlannedChange,
@@ -185,7 +186,11 @@ export class WriteService {
    * @throws ServiceError `preview_expired`, `write_busy` and the switch errors;
    *   DatabaseError from the adapter (fixed messages only).
    */
-  async apply(id: string, previewId: string): Promise<{ rowCount: number; entry: HistoryEntry }> {
+  async apply(
+    id: string,
+    previewId: string,
+    signal?: CancelSignal,
+  ): Promise<{ rowCount: number; entry: HistoryEntry }> {
     this.requireUnlocked(id);
     // Checked BEFORE taking the preview, so a busy connection does not use it up.
     if (this.busy.has(id)) throw new ServiceError("write_busy", WRITE_MESSAGES.busy);
@@ -197,7 +202,7 @@ export class WriteService {
       const applied = await this.connections.use(id, (adapter) => {
         // `use` may have waited to reconnect: writes can have been locked meanwhile.
         this.requireUnlocked(id);
-        return writable(adapter).applyChange(plan);
+        return writable(adapter).applyChange(plan, signal);
       });
       return { rowCount: applied.rowCount, entry: this.record(id, plan, null) };
     } catch (error) {

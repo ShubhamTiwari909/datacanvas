@@ -277,3 +277,14 @@ Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 1
 - **No Validate for a bulk change.** Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
 - **The conflicts come at preview.** The rows that changed since they were loaded are left out and counted there; a row that changes after is a rollback.
 - A key column is not offered in "Set a value" (the same key on several rows would be refused).
+
+## 20. What D6 found (2026-11-22)
+
+CSV import (section 9) is built as `insert_rows` (decision 160). Where it differs from the plan:
+
+- **No "skip the failing rows" choice and no rejects file.** The validation lists at most 20 failing rows and counts 100, so it cannot name every row a file would lose. An import is all or nothing; the report names the first rows so the file can be fixed.
+- **Batched `INSERT`, not `COPY`.** Measured: 100,000 rows in about 0.73 s against about 0.2 s (3.6 times), under the line of five times.
+- **Validation was raised** to 100,000 rows and a 24 MB body for the whole file, so a file is checked whole before any row is written.
+- **A spinner and "Cancel and roll back", not a progress bar.** The server answers once, at the end; closing the dialog stops the import between batches and rolls back.
+- **The notice counts use thousands separators** ("100,000 rows were added."); the 100,000-row end-to-end test found the bulk notices printed `100000`.
+- Limits: 100,000 rows, 50 columns, 10,000 characters a cell, 20 MB a file. UTF-8 only, with or without a byte order mark.

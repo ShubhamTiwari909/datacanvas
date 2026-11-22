@@ -44,6 +44,7 @@ import {
   type IndexUsageReport,
   type RowPage,
   type ExportSignal,
+  type CancelSignal,
   type CellRead,
   type ExportRowsOptions,
   type PreflightCheck,
@@ -280,7 +281,7 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
   }
 
   /** Run exactly the planned statements in one read-write transaction (decisions 127 and 128). */
-  async applyChange(plan: PlannedChange): Promise<AppliedChange> {
+  async applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange> {
     const pool = this.pool;
     if (!pool) throw new DatabaseError("not_connected");
     const statementTimeoutMs =
@@ -289,7 +290,7 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
       return await withWriteTransaction(
         pool,
         { lockTimeoutMs: WRITE_LOCK_TIMEOUT_MS, statementTimeoutMs },
-        (db) => runPlan(db, plan),
+        (db) => runPlan(db, plan, signal),
       );
     } catch (error) {
       throw mapWriteError(error);

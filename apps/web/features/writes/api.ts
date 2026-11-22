@@ -95,10 +95,13 @@ export async function requestPreview(
 export async function requestApply(
   connectionId: string,
   previewId: string,
+  /** Aborting it cancels an import between its batches, and everything is rolled back. */
+  signal?: AbortSignal,
 ): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {
   const result = await apiRequest(`${base(connectionId)}/writes/apply`, applyChangeResponseSchema, {
     method: "POST",
     body: { previewId },
+    ...(signal ? { signal } : {}),
   });
   return unwrap(result, (d) => d.result);
 }

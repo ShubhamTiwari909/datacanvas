@@ -9,10 +9,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ListChecks, Plus, Trash2, X } from "lucide-react";
+import { CheckCircle2, FileUp, ListChecks, Plus, Trash2, X } from "lucide-react";
 import type { RowPage, TableEditInfo, TableRef } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import type { GridEditing, GridSelection } from "@/features/data/data-grid";
+import { ImportDialog } from "@/features/import/import-dialog";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useConnectionWrites, writesReady } from "@/stores/writes-store";
 import { getEditInfo } from "./api";
@@ -83,6 +84,7 @@ export function useRowEditing({
   }>({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
   const selected = chosen.table === tableKey ? chosen.rows : EMPTY_SELECTION;
   const [setting, setSetting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const clearSelection = () =>
     setChosen({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
 
@@ -97,6 +99,7 @@ export function useRowEditing({
       setInserting(false);
       setRequest(null);
       setSetting(false);
+      setImporting(false);
       clearSelection();
     }
   }
@@ -188,6 +191,10 @@ export function useRowEditing({
         <Plus aria-hidden="true" />
         Add row
       </Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setImporting(true)}>
+        <FileUp aria-hidden="true" />
+        Import CSV
+      </Button>
       {chosenRows.length > 0 ? (
         <span role="group" aria-label="Chosen rows" className="flex items-center gap-2">
           <span role="status" className="text-sm">
@@ -246,6 +253,17 @@ export function useRowEditing({
               setRequest(next);
             }}
           />
+          <ImportDialog
+            open={importing}
+            onClose={() => setImporting(false)}
+            connectionId={connectionId}
+            table={table}
+            info={info}
+            onPreview={(next) => {
+              setImporting(false);
+              setRequest(next);
+            }}
+          />
           <BulkSetDialog
             open={setting}
             onClose={() => setSetting(false)}
@@ -276,7 +294,8 @@ export function useRowEditing({
         onClose={() => setRequest(null)}
         onApplied={(result, change) => {
           setRequest(null);
-          const many = (n: number) => `${n} ${n === 1 ? "row was" : "rows were"}`;
+          const many = (n: number) =>
+            `${n.toLocaleString("en-US")} ${n === 1 ? "row was" : "rows were"}`;
           setNotice(
             change.kind === "insert_row"
               ? "The row was added."
@@ -286,7 +305,9 @@ export function useRowEditing({
                   ? `${many(result.rowCount)} changed.`
                   : change.kind === "delete_rows"
                     ? `${many(result.rowCount)} deleted.`
-                    : "The row was changed.",
+                    : change.kind === "insert_rows"
+                      ? `${many(result.rowCount)} added.`
+                      : "The row was changed.",
           );
           // The rows that were changed or removed are not the rows that were chosen any more.
           if (change.kind === "update_rows" || change.kind === "delete_rows") clearSelection();

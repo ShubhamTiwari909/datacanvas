@@ -25,7 +25,7 @@ export function POST(request: Request, { params }: RouteParams<{ id: string }>):
     const { id } = await params;
     const parsed = await parseJsonBody(request, applyChangeRequestSchema);
     if (!parsed.ok) return parsed.response;
-    const result = await getServerContext().writes.apply(id, parsed.data.previewId);
+    const result = await getServerContext().writes.apply(id, parsed.data.previewId, request.signal);
     return jsonResponse({ result });
   });
 }

@@ -124,9 +124,13 @@ function renderColumn(column: ColumnDefinition): string {
 const columnList = (names: readonly string[]): string => names.map(quoteIdentifier).join(", ");
 
 /** The sample database changes one row at a time: a bulk change is refused (the real adapter does it). */
-type SingleRowChange = Exclude<RowChange, { kind: "update_rows" | "delete_rows" }>;
+type SingleRowChange = Exclude<RowChange, { kind: "update_rows" | "delete_rows" | "insert_rows" }>;
 function oneRow(change: RowChange): SingleRowChange {
-  if (change.kind === "update_rows" || change.kind === "delete_rows") {
+  if (
+    change.kind === "update_rows" ||
+    change.kind === "delete_rows" ||
+    change.kind === "insert_rows"
+  ) {
     throw invalidChange("The sample database changes one row at a time.");
   }
   return change;

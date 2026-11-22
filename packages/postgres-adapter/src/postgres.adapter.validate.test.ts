@@ -320,12 +320,10 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
 
     it("finds every failing row of a large request by halving it, and says which", async () => {
       const bad = new Set([77, 500, 501, 999]);
-      const rows = Array.from({ length: VALIDATE_MAX_ROWS }, (_, i) => [
-        `n${i}`,
-        bad.has(i) ? "-1" : "1.00",
-      ]);
+      const total = 1000;
+      const rows = Array.from({ length: total }, (_, i) => [`n${i}`, bad.has(i) ? "-1" : "1.00"]);
       const report = await adapter.validateRows(insert("target", ["name", "price"], rows));
-      expect(report.passed).toBe(VALIDATE_MAX_ROWS - bad.size);
+      expect(report.passed).toBe(total - bad.size);
       expect(report.issues).toEqual([
         {
           rule: "check",

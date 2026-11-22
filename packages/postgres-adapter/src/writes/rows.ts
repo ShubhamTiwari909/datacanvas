@@ -20,10 +20,14 @@ import {
   quoteIdentifier,
   quoteQualified,
   type ChangeWarning,
+  IMPORT_BATCH_ROWS,
+  IMPORT_MAX_COLUMNS,
+  IMPORT_MAX_ROWS,
   MAX_BULK_ROWS,
   type ColumnValue,
   type DeleteRowChange,
   type DeleteRowsChange,
+  type InsertRowsChange,
   type UpdateRowsChange,
   type IncomingForeignKey,
   type InsertRowChange,
@@ -41,6 +45,7 @@ import type { Queryable } from "../introspection/types.js";
 import {
   TRIGGER_EVENT,
   listCascadeChain,
+  listConstraints,
   listIncomingForeignKeys,
   listTriggers,
   loadTable,
@@ -612,8 +617,91 @@ async function planDeleteRows(db: Queryable, change: DeleteRowsChange): Promise<
   };
 }
 
+// ------------------------------------------------------------------ import ---
+
+/**
+ * One batch of an import, in one statement:
+ *
+ *   INSERT INTO "s"."t" ("a", "b")
+ *   SELECT CAST(x.c0 AS <type of a, without modifier>), CAST(x.c1 AS <type of b>)
+ *   FROM unnest($1::text[], $2::text[]) AS x(c0, c1)
+ *
+ * The values of a column travel as ONE bound array; the names are quoted catalog names and the types come from
+ * the catalog. The value is cast to the type WITHOUT its modifier, so that the assignment to the column (not the
+ * cast) enforces a length or a domain's rule and refuses instead of cutting, as for one row.
+ */
+export function buildInsertBatch(
+  table: TableRef,
+  columns: ReadonlyArray<{ column: string; castType: string }>,
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): PlannedStatement {
+  const names = columns.map((c) => quoteIdentifier(c.column)).join(", ");
+  const casts = columns.map((c, i) => `CAST(x.c${i} AS ${c.castType})`).join(", ");
+  const arrays = columns.map((_, i) => `$${i + 1}::text[]`).join(", ");
+  const aliases = columns.map((_, i) => `c${i}`).join(", ");
+  return {
+    text:
+      `INSERT INTO ${quoteQualified(table.schema, table.name)} (${names}) ` +
+      `SELECT ${casts} FROM unnest(${arrays}) AS x(${aliases})`,
+    values: columns.map((_, i) => rows.map((r) => r[i] ?? null)),
+    expectRows: rows.length,
+  };
+}
+
+async function planInsertRows(db: Queryable, change: InsertRowsChange): Promise<PlannedChange> {
+  const { table } = await requireEditable(db, change.table);
+  if (change.columns.length === 0 || change.rows.length === 0)
+    throw invalidChange("Nothing to add.");
+  if (change.columns.length > IMPORT_MAX_COLUMNS || change.rows.length > IMPORT_MAX_ROWS) {
+    throw invalidChange("Too many rows or columns for one import.");
+  }
+  if (new Set(change.columns).size !== change.columns.length) {
+    throw invalidChange("A column is listed twice.");
+  }
+  if (change.rows.some((r) => r.length !== change.columns.length)) {
+    throw invalidChange("Every row needs one value for each column.");
+  }
+  const columns = change.columns.map((name) => {
+    const column = findColumn(table, name);
+    requireWritable(column);
+    return { column: column.name, castType: column.castType };
+  });
+  const statements: PlannedStatement[] = [];
+  for (let at = 0; at < change.rows.length; at += IMPORT_BATCH_ROWS) {
+    statements.push(
+      buildInsertBatch(change.table, columns, change.rows.slice(at, at + IMPORT_BATCH_ROWS)),
+    );
+  }
+  const total = change.rows.length;
+  const warnings = await bulkWarnings(db, change.table, table, TRIGGER_EVENT.insert, total);
+  const checked = (await listConstraints(db, table.oid)).filter((c) => c.type === "f").length;
+  if (checked > 0) {
+    warnings.push({
+      code: "scan",
+      message: `${checked === 1 ? "A foreign key" : `${checked} foreign keys`} of this table will be checked for each of the ${total.toLocaleString("en-US")} rows.`,
+    });
+  }
+  return {
+    change,
+    statements,
+    expect: "any",
+    category: "row",
+    effect: `Adds ${total.toLocaleString("en-US")} ${total === 1 ? "row" : "rows"} to ${displayName(change.table.schema, change.table.name)} in ${statements.length} ${statements.length === 1 ? "batch" : "batches"}, all in one transaction: every row is added or none is.${omittedWords(
+      table,
+      columns.map((c) => ({ ...c, value: null })),
+    )}`,
+    warnings,
+    destructive: false,
+    guard: {
+      relations: [guardRelation(table, change.columns, "row_exclusive")],
+    },
+  };
+}
+
 export function planRowChange(db: Queryable, change: RowChange): Promise<PlannedChange> {
   switch (change.kind) {
+    case "insert_rows":
+      return planInsertRows(db, change);
     case "update_rows":
       return planUpdateRows(db, change);
     case "delete_rows":

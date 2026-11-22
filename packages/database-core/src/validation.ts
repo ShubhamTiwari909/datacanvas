@@ -15,8 +15,8 @@ import { DatabaseError } from "./errors.js";
 import type { KeyValue } from "./changes.js";
 import type { TableRef } from "./models.js";
 
-/** The most rows in one validation. (1.9.0's import raises it, with its own review.) */
-export const VALIDATE_MAX_ROWS = 1000;
+/** The most rows in one validation: the most an import can carry (a form checks one). */
+export const VALIDATE_MAX_ROWS = 100_000;
 /** The most columns in one validation (a function takes at most 100 arguments, and each column is one array). */
 export const VALIDATE_MAX_COLUMNS = 50;
 /** The most characters of one value. */

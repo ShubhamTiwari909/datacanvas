@@ -10,7 +10,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import type { Change } from "@datacanvas/database-core";
 import type { ChangePreview, HistoryEntry } from "@datacanvas/shared-types";
@@ -80,6 +80,14 @@ export function ChangeDialog({
   const setStep = (next: Step) =>
     setStored((s) => (request ? { request, attempt, step: next, read: s?.read ?? false } : s));
   const setRead = (next: boolean) => setStored((s) => (s ? { ...s, read: next } : s));
+  // Closing the dialog while the change is being applied cancels it: an import stops between its batches and
+  // everything is rolled back; a single row is applied in one statement, too fast to stop.
+  const applying = useRef<AbortController | null>(null);
+  const close = () => {
+    applying.current?.abort();
+    applying.current = null;
+    onClose();
+  };
   const recordChange = useWritesStore((s) => s.recordChange);
   const loadHistory = useWritesStore((s) => s.loadHistory);
   const blurred = useBlurStore((s) => s.blurred);
@@ -112,7 +120,12 @@ export function ChangeDialog({
   async function apply(current: ChangePreview) {
     if (!request) return;
     setStep({ kind: "applying", preview: current });
-    const result = await requestApply(connectionId, current.previewId);
+    const abort = new AbortController();
+    applying.current = abort;
+    const result = await requestApply(connectionId, current.previewId, abort.signal);
+    if (applying.current === abort) applying.current = null;
+    // Cancelled by closing the dialog: nothing was kept, and there is nothing to say to a closed dialog.
+    if (!result.ok && result.error.code === "aborted") return;
     if (!result.ok) {
       setStep({ kind: "failed", preview: current, error: result.error });
       // A failed change is in the session history too.
@@ -126,7 +139,7 @@ export function ChangeDialog({
   const canApply = step.kind === "ready" && (!step.preview.destructive || read);
 
   return (
-    <Dialog open={request !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={request !== null} onOpenChange={(open) => !open && close()}>
       <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>{request?.title ?? "Preview the change"}</DialogTitle>
@@ -243,7 +256,8 @@ export function ChangeDialog({
               request?.change.kind === "insert_row" ||
               request?.change.kind === "delete_row" ||
               request?.change.kind === "update_rows" ||
-              request?.change.kind === "delete_rows" ? (
+              request?.change.kind === "delete_rows" ||
+              request?.change.kind === "insert_rows" ? (
                 <p className="text-xs text-muted-foreground">
                   Values are sent separately as $1, $2 and so on, never as part of the statement.
                 </p>
@@ -309,8 +323,12 @@ export function ChangeDialog({
         ) : null}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
-            {step.kind === "failed" || step.kind === "refused" ? "Close" : "Cancel"}
+          <Button type="button" variant="outline" onClick={close}>
+            {step.kind === "failed" || step.kind === "refused"
+              ? "Close"
+              : step.kind === "applying" && request?.change.kind === "insert_rows"
+                ? "Cancel and roll back"
+                : "Cancel"}
           </Button>
           {step.kind !== "failed" && step.kind !== "refused" ? (
             <Button

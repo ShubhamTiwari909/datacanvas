@@ -6,6 +6,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [1.8.0] - 2026-11-21
 
+### Security
+
+The new read paths (validation, the pre-flight, export and the one-cell read) were read by a second reviewer before this release (docs/threat-model.md, section 10b). It found no way to change data and no value in a report or an error, and reproduced thirteen findings, none high, all fixed:
+
+- An export that failed after its first byte could put the database's own message (which can hold a row value) in the server's log; the stream now ends with a fixed sentence.
+- Export batches are sized by what they hold (a table of huge values is no longer read 1,000 rows at a time), and an export of a table with more than 100 columns no longer leaves the extra columns out silently.
+- A validation now says what it could not check: a rule across columns that depends on a default, an exclusion constraint, partition bounds, an event trigger, and a key on a hidden column (which would have answered "does this value exist?"). `passed` is a lower bound when a rule fails more rows than it lists.
+- A hidden column can no longer be used as the key of the one-cell read or counted by the pre-flight.
+- A reader that stops receiving no longer holds an export's connection and slot.
+- Ordering by a key column named like an output alias (`c0`, `r`, `s0`) was wrong in a page and an export; the key is now qualified by the table.
+- Smaller fixes: names in an export's notes cut to one line, "cut" only when the table has more, a one-column CSV with empty values, a column called `_meta` in NDJSON.
+
 ### Added
 
 - **Export the rows of a table as a file.** The **Export** button in the Data section writes the rows you are looking at, with the filter and the sort on screen, as **CSV**, **TSV**, **JSON** or **NDJSON**: up to 100,000 rows and 64 MB, streamed a batch at a time, with a line at the end that says when the file was cut. Columns whose names look sensitive are left out unless you showed them, and the file names them. A value a spreadsheet would run as a formula gets a leading apostrophe. Cancel stops the read in the database. Decision 158.

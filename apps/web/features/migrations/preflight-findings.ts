@@ -37,6 +37,8 @@ export function inRequests(checks: readonly PreflightCheck[]): PreflightCheck[][
 export function findingsFor(
   planned: readonly PlannedChecks[],
   results: readonly PreflightResult[],
+  /** The plan renames something: a name of the structure it goes to may not be the name in this database yet. */
+  hasRenames = false,
 ): Map<string, StepFinding> {
   const out = new Map<string, StepFinding>();
   let at = 0;
@@ -55,7 +57,11 @@ export function findingsFor(
     at += step.checks.length;
     out.set(step.stepId, {
       verdict: preflightVerdict(mine.map((m) => m.result)),
-      lines: mine.map((m) => describePreflight(m.check, m.result)),
+      lines: mine.map((m) =>
+        hasRenames && m.result.status === "missing"
+          ? "Not found under this name in this database. The migration renames something, so it may be there under its old name: not checked."
+          : describePreflight(m.check, m.result),
+      ),
     });
   }
   return out;

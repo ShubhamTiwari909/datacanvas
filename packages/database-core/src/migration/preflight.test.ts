@@ -160,6 +160,7 @@ describe("describePreflight and preflightVerdict", () => {
     expect(describePreflight(nulls, { status: "ok", count: 0 })).toBe("No row has NULL in c.");
     expect(describePreflight(nulls, { status: "missing", count: 0 })).toMatch(/nothing to check/);
     expect(describePreflight(nulls, { status: "too_slow", count: 0 })).toMatch(/too long/);
+    expect(describePreflight(nulls, { status: "hidden", count: 0 })).toMatch(/looks sensitive/);
   });
 
   it("takes the worst of several checks as the verdict of a step", () => {
@@ -170,5 +171,6 @@ describe("describePreflight and preflightVerdict", () => {
     expect(preflightVerdict([ok, ok])).toBe("ok");
     expect(preflightVerdict([ok, fails])).toBe("fails");
     expect(preflightVerdict([ok, missing])).toBe("partly");
+    expect(preflightVerdict([ok, { status: "hidden", count: 0 }])).toBe("partly");
   });
 });

@@ -27,6 +27,7 @@ import {
   VALIDATE_ROWS_LISTED,
   buildReport,
   checkValidateRequest,
+  isSensitiveColumnName,
   quoteIdentifier,
   quoteQualified,
   type ValidateRequest,
@@ -242,6 +243,17 @@ const FOREIGN_KEYS_SQL = `
   ORDER BY con.conname
 `;
 
+/** What the copy cannot carry or see, from the catalog: one row of three yes-or-no answers. */
+const LIMITS_SQL = `
+  SELECT
+    EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conrelid = $1::oid AND contype = 'x') AS exclusion,
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_constraint
+      WHERE conrelid = $1::oid AND contype = 'c' AND COALESCE(array_length(conkey, 1), 0) <> 1
+    ) AS wide_check,
+    EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtenabled <> 'D') AS event_triggers
+`;
+
 interface Prepared {
   table: CatalogTable;
   /** The columns the request gives, in its order. */
@@ -333,6 +345,23 @@ async function prepare(db: Queryable, request: ValidateRequest): Promise<Prepare
   const events = request.mode === "insert" ? TRIGGER_EVENT.insert : TRIGGER_EVENT.update;
   if ((await listTriggers(db, table.oid, events)).length > 0) notes.push("triggers");
   if ((await findRowSecurity(db, request.table)) === "applies") notes.push("row_level_security");
+  const limits = (
+    await db.query<{ exclusion: boolean; wide_check: boolean; event_triggers: boolean }>(
+      LIMITS_SQL,
+      [table.oid],
+    )
+  ).rows[0];
+  if (limits?.exclusion) notes.push("exclusion_constraints");
+  if (limits?.event_triggers) notes.push("event_triggers");
+  if (table.relkind === "p" || table.isPartition) notes.push("partition_bounds");
+  // The copy has no defaults: a CHECK across several columns meets NULL in a column that was not given.
+  const unfilled = table.columns.some(
+    (c) =>
+      !c.generated &&
+      (c.hasDefault || c.identity !== null) &&
+      !(request.mode === "update" || givenNames.has(c.name)),
+  );
+  if (limits?.wide_check && unfilled) notes.push("defaults_not_applied");
 
   return {
     table,
@@ -520,6 +549,11 @@ async function run(
     }
     // A key column the row does not give is filled by the database (or NULL): nothing to compare.
     if (unique.columns.length === 0 || !unique.columns.every((c) => given.has(c))) continue;
+    // "Does a row with this value exist?" asked of a hidden column is a way to read it one guess at a time.
+    if (unique.columns.some(isSensitiveColumnName)) {
+      notes.push("hidden_columns");
+      continue;
+    }
     tooLate();
     if (request.mode === "insert" && request.rows.length > 1) {
       const inside = await counted(db, buildDuplicatesQuery(rowColumn, unique.columns));
@@ -537,6 +571,10 @@ async function run(
   // ---- 3. foreign keys, by read-only queries on the referenced tables.
   for (const fk of prepared.foreignKeys) {
     if (!fk.columns.every((c) => given.has(c))) continue;
+    if (fk.columns.some(isSensitiveColumnName) || fk.refColumns.some(isSensitiveColumnName)) {
+      notes.push("hidden_columns");
+      continue;
+    }
     tooLate();
     await db.query("SAVEPOINT dc_fk");
     try {

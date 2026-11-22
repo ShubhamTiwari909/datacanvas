@@ -37,6 +37,12 @@ const SQL = `
   INSERT INTO just_secrets VALUES ('${SECRET}');
   CREATE TABLE wide_empty (id int PRIMARY KEY);
   CREATE VIEW people_view AS SELECT id, name FROM people;
+  CREATE TABLE two_rows (id int PRIMARY KEY);
+  INSERT INTO two_rows VALUES (1), (2);
+  CREATE TABLE aliases (a text, c0 int PRIMARY KEY, k0 int, r int, s0 int);
+  INSERT INTO aliases VALUES ('z', 1, 3, 3, 3), ('a', 2, 2, 2, 2), ('m', 3, 1, 1, 1);
+  CREATE TABLE heavy (id int PRIMARY KEY, a text, b text);
+  INSERT INTO heavy SELECT i, repeat('a', 1000000), repeat('b', 1000000) FROM generate_series(1, 150) i;
 `;
 
 describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
@@ -64,6 +70,7 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
     leftOut: string[];
     rows: Array<Array<string | null>>;
     batches: number;
+    biggestBatch: number;
     end: Extract<ExportEvent, { kind: "end" }> | null;
     order: string[];
   }
@@ -73,7 +80,15 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
     stopAfter?: number,
     signal?: { aborted: boolean },
   ): Promise<Got> => {
-    const got: Got = { columns: [], leftOut: [], rows: [], batches: 0, end: null, order: [] };
+    const got: Got = {
+      columns: [],
+      leftOut: [],
+      rows: [],
+      batches: 0,
+      biggestBatch: 0,
+      end: null,
+      order: [],
+    };
     await adapter.exportRows(
       { schema: "public", name: table },
       { revealColumns: [], ...options },
@@ -84,6 +99,7 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
           got.leftOut = event.leftOut;
         } else if (event.kind === "rows") {
           got.batches += 1;
+          got.biggestBatch = Math.max(got.biggestBatch, event.rows.length);
           got.rows.push(...event.rows);
           if (stopAfter !== undefined && got.rows.length >= stopAfter) return false;
         } else {
@@ -186,14 +202,18 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
     const got = await read("big");
     expect(got.rows).toHaveLength(EXPORT_MAX_ROWS);
     expect(got.end).toMatchObject({ rows: EXPORT_MAX_ROWS, cut: "rows" });
-    expect(got.batches).toBe(Math.ceil(EXPORT_MAX_ROWS / EXPORT_BATCH_ROWS));
+    // Batches are sized by what they hold (the first is small), and never exceed the most rows of a fetch.
+    expect(got.batches).toBeGreaterThanOrEqual(Math.ceil(EXPORT_MAX_ROWS / EXPORT_BATCH_ROWS));
+    expect(got.biggestBatch).toBeLessThanOrEqual(EXPORT_BATCH_ROWS);
     expect(got.rows[EXPORT_MAX_ROWS - 1]![0]).toBe(String(EXPORT_MAX_ROWS));
   }, 120_000);
 
   it("stops when the consumer says enough, and says it was cut by size", async () => {
     const got = await read("big", {}, 2500);
-    expect(got.rows.length).toBe(3000);
-    expect(got.end).toMatchObject({ rows: 3000, cut: "bytes" });
+    // It stops at the end of the batch that filled it (batches are sized by what they hold).
+    expect(got.rows.length).toBeGreaterThanOrEqual(2500);
+    expect(got.rows.length).toBeLessThan(4000);
+    expect(got.end).toMatchObject({ rows: got.rows.length, cut: "bytes" });
   });
 
   it("stops without an end when the consumer aborts, and holds no cursor afterwards", async () => {
@@ -234,5 +254,57 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
   it("changes nothing", async () => {
     await read("people");
     expect((await client.query("SELECT count(*)::int AS n FROM people")).rows[0].n).toBe(4);
+  });
+
+  describe("what the review of 1.8.0 found", () => {
+    it("exports every column of a wide table, not the first hundred", async () => {
+      const names = Array.from({ length: 121 }, (_, i) => `col${i}`);
+      await client.query(
+        `CREATE TABLE wide121 (${names.map((n, i) => `${n} int${i === 0 ? " PRIMARY KEY" : ""}`).join(", ")})`,
+      );
+      await client.query(`INSERT INTO wide121 VALUES (${names.map((_, i) => i).join(", ")})`);
+      const got = await read("wide121");
+      expect(got.columns).toHaveLength(121);
+      expect(got.rows[0]).toHaveLength(121);
+      expect(got.rows[0]![120]).toBe("120");
+    });
+
+    it("sizes a batch by what it holds: 300 million characters are never read in one fetch", async () => {
+      const got = await read("heavy");
+      expect(got.rows).toHaveLength(150);
+      // Two cells of a million characters per row: the first fetch is small and the rest take a few rows each,
+      // never the 1,000 of a plain table (which would be a gigabyte in memory).
+      expect(got.biggestBatch).toBeLessThanOrEqual(10);
+      expect(got.batches).toBeGreaterThanOrEqual(40);
+      expect(got.end).toMatchObject({ rows: 150, cut: null, cellsCut: 0 });
+    }, 60_000);
+
+    it("says `cut` only when the table really has more rows than the consumer took", async () => {
+      // The consumer is full after the only batch: nothing was left, so the file is not cut.
+      const whole = await read("two_rows", {}, 1);
+      expect(whole.rows).toHaveLength(2);
+      expect(whole.end).toMatchObject({ rows: 2, cut: null });
+      // And when more is left it says so.
+      const part = await read("big", {}, 1);
+      expect(part.end).toMatchObject({ cut: "bytes" });
+    });
+
+    it("orders by the table's key even when a column is named like an output alias", async () => {
+      const got = await read("aliases");
+      expect(got.rows.map((r) => r[1])).toEqual(["1", "2", "3"]);
+      const sorted = await read("aliases", { sort: { column: "r", direction: "asc" } });
+      expect(sorted.rows.map((r) => r[1])).toEqual(["3", "2", "1"]);
+      // The page reader shares the statement: the same order, and paging over it neither skips nor repeats.
+      const page = await adapter.getRows(
+        { schema: "public", name: "aliases" },
+        { pageSize: 2, cursor: null, revealColumns: [] },
+      );
+      expect(page.rows.map((r) => r[1]!.value)).toEqual(["1", "2"]);
+      const next = await adapter.getRows(
+        { schema: "public", name: "aliases" },
+        { pageSize: 2, cursor: page.nextCursor, revealColumns: [] },
+      );
+      expect(next.rows.map((r) => r[1]!.value)).toEqual(["3"]);
+    });
   });
 });

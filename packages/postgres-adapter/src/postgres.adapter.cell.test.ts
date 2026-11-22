@@ -33,6 +33,8 @@ const SQL = `
   CREATE TABLE dupes (id int PRIMARY KEY, doc jsonb);
   INSERT INTO dupes VALUES (1, '{}');
 
+  CREATE TABLE sessions (token text PRIMARY KEY, data jsonb);
+  INSERT INTO sessions VALUES ('guess-me', '{"a": 1}');
   CREATE VIEW docs_view AS SELECT id, body FROM docs;
   CREATE MATERIALIZED VIEW docs_mv AS SELECT id, body FROM docs;
   CREATE UNIQUE INDEX docs_mv_id ON docs_mv (id);
@@ -246,5 +248,19 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL getCell", () => {
     await adapter.getCell(docs, ask());
     const { rows } = await client.query("SELECT count(*)::int AS n FROM docs");
     expect(rows[0].n).toBe(4);
+  });
+
+  it("refuses a hidden key column: a right guess and a wrong one must not answer differently", async () => {
+    const sessions = { schema: "public", name: "sessions" };
+    const ask = (value: string, revealColumns: string[] = []): CellRequest => ({
+      column: "data",
+      key: [{ column: "token", value }],
+      revealColumns,
+    });
+    expect(await code(adapter.getCell(sessions, ask("guess-me")))).toBe("invalid_request");
+    expect(await code(adapter.getCell(sessions, ask("wrong-guess")))).toBe("invalid_request");
+    // Revealed on purpose (the person showed the column), it works as for a page.
+    const shown = await adapter.getCell(sessions, ask("guess-me", ["token"]));
+    expect(shown.value).toContain('"a"');
   });
 });

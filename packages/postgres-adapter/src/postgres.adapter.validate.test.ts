@@ -68,6 +68,15 @@ const SQL = `
   CREATE TABLE part_2026 PARTITION OF part FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
 
   CREATE TABLE lonely (id int PRIMARY KEY);
+
+  -- what the copy cannot see
+  CREATE TABLE defaulted_check (hi int, lo int NOT NULL DEFAULT 10, CONSTRAINT hi_above_lo CHECK (hi > lo));
+  CREATE TABLE excl (a int, CONSTRAINT excl_a EXCLUDE USING btree (a WITH =));
+  CREATE TABLE accounts (id int PRIMARY KEY, api_token text UNIQUE, owner_id int);
+  INSERT INTO accounts VALUES (1, 'tok-existing', NULL);
+  CREATE TABLE token_parent (secret_key text PRIMARY KEY);
+  INSERT INTO token_parent VALUES ('known');
+  CREATE TABLE token_child (id int PRIMARY KEY, secret_key text REFERENCES token_parent (secret_key));
 `;
 
 describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
@@ -544,6 +553,86 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
           expect(String((error as Error).message)).not.toContain(SECRET);
         }
       }
+    });
+  });
+
+  describe("what the review of 1.8.0 found", () => {
+    it("does not claim all is well when a rule across columns met a default it did not apply", async () => {
+      // The real insert is refused (hi 5 is not above the default 10): the copy has no defaults.
+      const report = await adapter.validateRows(insert("defaulted_check", ["hi"], [["5"]]));
+      expect(report.issues).toEqual([]);
+      expect(report.notChecked).toContain("defaults_not_applied");
+      await expect(
+        client.query("INSERT INTO defaulted_check (hi) VALUES (5)"),
+      ).rejects.toMatchObject({ code: "23514" });
+      // Giving the column removes the doubt.
+      const given = await adapter.validateRows(
+        insert("defaulted_check", ["hi", "lo"], [["5", "1"]]),
+      );
+      expect(given.notChecked).not.toContain("defaults_not_applied");
+    });
+
+    it("says it did not check an exclusion constraint, and the bounds of a partitioned table", async () => {
+      expect((await adapter.validateRows(insert("excl", ["a"], [["1"]]))).notChecked).toContain(
+        "exclusion_constraints",
+      );
+      expect(
+        (await adapter.validateRows(insert("part", ["id", "d"], [["1", "2031-01-01"]]))).notChecked,
+      ).toContain("partition_bounds");
+      expect(
+        (await adapter.validateRows(insert("part_2026", ["id", "d"], [["1", "2031-01-01"]])))
+          .notChecked,
+      ).toContain("partition_bounds");
+      expect(
+        (await adapter.validateRows(insert("lonely", ["id"], [["1"]]))).notChecked,
+      ).not.toContain("partition_bounds");
+    });
+
+    it("reports a lower bound of the rows that pass when more rows fail than a rule lists", async () => {
+      const rows = Array.from({ length: 50 }, (_, i) => [`n${i}`, "99"]);
+      const report = await adapter.validateRows(insert("target", ["name", "parent_id"], rows));
+      expect(report.issues[0]).toMatchObject({ rule: "foreign_key", count: 50 });
+      expect(report.issues[0]!.rows).toHaveLength(20);
+      expect(report.passed).toBe(0);
+    });
+
+    it("does not tell whether a value exists in a hidden column: no unique or foreign key check on it", async () => {
+      // A right guess and a wrong guess give the same answer, and it says why.
+      const right = await adapter.validateRows(
+        insert("accounts", ["id", "api_token"], [["2", "tok-existing"]]),
+      );
+      const wrong = await adapter.validateRows(
+        insert("accounts", ["id", "api_token"], [["2", "tok-guess"]]),
+      );
+      expect(right.issues).toEqual([]);
+      expect(wrong.issues).toEqual([]);
+      expect(right.notChecked).toContain("hidden_columns");
+      const fk = await adapter.validateRows(
+        insert("token_child", ["id", "secret_key"], [["1", "no-such"]]),
+      );
+      expect(fk.issues).toEqual([]);
+      expect(fk.notChecked).toContain("hidden_columns");
+      // A key whose columns are plain is still checked.
+      expect(
+        (await adapter.validateRows(insert("accounts", ["id"], [["1"]]))).issues[0],
+      ).toMatchObject({ rule: "unique_existing" });
+    });
+
+    it("says when an event trigger exists, because it runs when the copy is made", async () => {
+      await client.query(
+        "CREATE FUNCTION evt_noop() RETURNS event_trigger LANGUAGE plpgsql AS $x$ BEGIN NULL; END $x$",
+      );
+      await client.query(
+        "CREATE EVENT TRIGGER evt_probe ON ddl_command_end EXECUTE FUNCTION evt_noop()",
+      );
+      try {
+        const report = await adapter.validateRows(insert("lonely", ["id"], [["5"]]));
+        expect(report.notChecked).toContain("event_triggers");
+      } finally {
+        await client.query("DROP EVENT TRIGGER evt_probe");
+      }
+      const after = await adapter.validateRows(insert("lonely", ["id"], [["5"]]));
+      expect(after.notChecked).not.toContain("event_triggers");
     });
   });
 });

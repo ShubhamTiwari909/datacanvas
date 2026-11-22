@@ -21,7 +21,7 @@ describe("buildRowsQuery", () => {
     expect(buildRowsQuery(plan())).toEqual({
       text:
         'SELECT 1 AS r, left(CAST("id" AS text), $1) AS c0, left(CAST("email" AS text), $1) AS c1, CAST("id" AS text) AS k0 ' +
-        'FROM "public"."users" ORDER BY "id" LIMIT $2',
+        'FROM "public"."users" ORDER BY "public"."users"."id" LIMIT $2',
       values: [ROWS_CELL_CHARS + 1, 51],
     });
   });
@@ -30,7 +30,9 @@ describe("buildRowsQuery", () => {
     const { text, values } = buildRowsQuery(
       plan({ keyColumns: ["a", "b"], after: ["7", "x"], limit: 3 }),
     );
-    expect(text).toContain('WHERE ROW("a", "b") > ROW($2, $3) ORDER BY "a", "b" LIMIT $4');
+    expect(text).toContain(
+      'WHERE ROW("a", "b") > ROW($2, $3) ORDER BY "public"."users"."a", "public"."users"."b" LIMIT $4',
+    );
     expect(values).toEqual([ROWS_CELL_CHARS + 1, "7", "x", 3]);
   });
 

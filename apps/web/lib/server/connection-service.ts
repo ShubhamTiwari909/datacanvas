@@ -62,6 +62,8 @@ export interface ConnectionServiceDependencies {
   adapters: AdapterRegistry<ProviderConfigs>;
   connections: ConnectionRegistry;
   profiles: ProfileService;
+  /** How long a write to the browser may wait before an export is given up (a reader that stopped). Default one minute. */
+  exportStallMs?: number;
 }
 
 export interface TableDetails {
@@ -97,11 +99,13 @@ export class ConnectionService {
   private readonly rowsGate = new RowsGate();
   /** Connections with an export running: one at a time each. */
   private readonly exporting = new Set<string>();
+  private readonly exportStallMs: number;
 
   constructor(dependencies: ConnectionServiceDependencies) {
     this.adapters = dependencies.adapters;
     this.connections = dependencies.connections;
     this.profiles = dependencies.profiles;
+    this.exportStallMs = dependencies.exportStallMs ?? 60_000;
   }
 
   /** Close every database session and forget all credentials. Used when the server shuts down. */
@@ -376,7 +380,22 @@ export class ConnectionService {
       if (text === "") return true;
       const chunk = encoder.encode(text);
       bytes += chunk.byteLength;
-      await writer.write(chunk);
+      // A write waits for the reader of the stream. A reader that stopped (a closed laptop, a stalled socket) would
+      // hold the connection, its transaction and the one export slot for ever: after a minute it is given up.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          writer.write(chunk),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("The export stopped: the browser stopped receiving.")),
+              this.exportStallMs,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       return bytes < EXPORT_MAX_BYTES;
     };
     let began!: () => void;
@@ -412,10 +431,17 @@ export class ConnectionService {
         ),
       )
       .then(
-        () => writer.close(),
+        () => {
+          // The read is over: the slot is free now, while the browser may still be draining what was written.
+          void writer.close().catch(() => undefined);
+        },
         (error: unknown) => {
           if (!started) failedFirst(error);
-          return writer.abort(error);
+          // What ends the stream after the first byte reaches the server's own log through the framework: it is a
+          // fixed sentence, never the error of the database (whose message can hold a value) or its cause.
+          void writer
+            .abort(new Error("The export stopped before the end of the file."))
+            .catch(() => undefined);
         },
       )
       .catch(() => undefined)

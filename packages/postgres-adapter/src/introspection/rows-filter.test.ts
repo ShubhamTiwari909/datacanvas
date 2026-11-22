@@ -38,7 +38,7 @@ describe("buildRowsQuery with conditions", () => {
     ["starts_with", 'starts_with(lower(CAST("email" AS text)), lower($2))'],
   ] as const)("writes %s with the value as a bound parameter", (op, condition) => {
     expect(buildRowsQuery(plan({ filters: [{ column: "email", op, value: "bob" }] }))).toEqual({
-      text: `${PREFIX} WHERE ${condition} ORDER BY "id" LIMIT $3`,
+      text: `${PREFIX} WHERE ${condition} ORDER BY "public"."users"."id" LIMIT $3`,
       values: [CUT, "bob", 51],
     });
   });
@@ -48,7 +48,7 @@ describe("buildRowsQuery with conditions", () => {
     ["is_not_null", '"email" IS NOT NULL'],
   ] as const)("writes %s with no parameter at all", (op, condition) => {
     expect(buildRowsQuery(plan({ filters: [{ column: "email", op }] }))).toEqual({
-      text: `${PREFIX} WHERE ${condition} ORDER BY "id" LIMIT $2`,
+      text: `${PREFIX} WHERE ${condition} ORDER BY "public"."users"."id" LIMIT $2`,
       values: [CUT, 51],
     });
   });
@@ -93,7 +93,9 @@ describe("buildRowsQuery with conditions", () => {
     const { text, values } = buildRowsQuery(
       plan({ filters: [{ column: "email", op: "eq", value: "v" }], after: ["7"], limit: 5 }),
     );
-    expect(text).toContain('WHERE "email" = $2 AND ROW("id") > ROW($3) ORDER BY "id" LIMIT $4');
+    expect(text).toContain(
+      'WHERE "email" = $2 AND ROW("id") > ROW($3) ORDER BY "public"."users"."id" LIMIT $4',
+    );
     expect(values).toEqual([CUT, "v", "7", 5]);
   });
 
@@ -107,7 +109,7 @@ describe("buildRowsQuery with conditions", () => {
       }),
     );
     expect(text).toContain(
-      'WHERE "email" IS DISTINCT FROM $3 AND ("email" > $5 OR ("email" = $5 AND ROW("id") > ROW($4)) OR "email" IS NULL) ORDER BY "email" ASC NULLS LAST, "id"',
+      'WHERE "email" IS DISTINCT FROM $3 AND ("email" > $5 OR ("email" = $5 AND ROW("id") > ROW($4)) OR "email" IS NULL) ORDER BY "public"."users"."email" ASC NULLS LAST, "public"."users"."id"',
     );
   });
 

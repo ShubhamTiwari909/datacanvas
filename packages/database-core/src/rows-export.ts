@@ -20,8 +20,12 @@ import type { RowFilter, RowSort } from "./models.js";
 export const EXPORT_MAX_ROWS = 100_000;
 /** The most characters of file in one export (64 MB; the text is mostly ASCII, so about as many bytes). */
 export const EXPORT_MAX_BYTES = 64 * 1024 * 1024;
-/** Rows fetched from the cursor at a time. */
+/** The most rows fetched from the cursor at a time. */
 export const EXPORT_BATCH_ROWS = 1000;
+/** The first fetch is small, so a table of huge cells is not read 1,000 rows at a time before its size is known. */
+export const EXPORT_FIRST_BATCH_ROWS = 10;
+/** A fetch is sized to hold about this many characters (a few rows of big cells, many rows of small ones). */
+export const EXPORT_BATCH_CHARS = 4_000_000;
 /** The most characters of one cell; a longer value is cut, and the file counts how many were. */
 export const EXPORT_CELL_CHARS = 1_000_000;
 
@@ -105,8 +109,8 @@ export interface Formatter {
 }
 
 /** A key is never one that was already given, whatever the columns are called. */
-export function uniqueKeys(names: readonly string[]): string[] {
-  const taken = new Set<string>();
+export function uniqueKeys(names: readonly string[], reserved: readonly string[] = []): string[] {
+  const taken = new Set<string>(reserved);
   return names.map((name) => {
     let key = name;
     for (let n = 2; taken.has(key); n++) key = `${name} (${n})`;
@@ -124,13 +128,18 @@ function notes(
   source: FileSource,
   info: { rows: number; cut: ExportCut; cellsCut: number; leftOut: readonly string[] },
 ): string[] {
+  // A name comes from a database and may hold a line break (and so start a line of its own, in a
+  // spreadsheet, with a formula): every name in the notes is cut to one line of plain characters.
+  const one = (text: string): string =>
+    // eslint-disable-next-line no-control-regex
+    text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ");
   const lines = [
-    `Exported from ${source.table.schema}.${source.table.name} at ${source.at.toISOString()}.`,
+    `Exported from ${one(source.table.schema)}.${one(source.table.name)} at ${source.at.toISOString()}.`,
     `${info.rows.toLocaleString("en-US")} ${info.rows === 1 ? "row" : "rows"}.`,
   ];
-  if (source.filters.length > 0) lines.push(`Filtered by: ${source.filters.join("; ")}.`);
+  if (source.filters.length > 0) lines.push(`Filtered by: ${source.filters.map(one).join("; ")}.`);
   if (info.leftOut.length > 0) {
-    lines.push(`Left out because they look sensitive: ${info.leftOut.join(", ")}.`);
+    lines.push(`Left out because they look sensitive: ${info.leftOut.map(one).join(", ")}.`);
   }
   if (info.cellsCut > 0) {
     lines.push(
@@ -146,16 +155,25 @@ function delimitedFormatter(
   options: FormatOptions,
   source: FileSource,
 ): Formatter {
+  // With one column an empty field would be a blank line, which many readers skip: it is quoted then.
+  let single = false;
   const field = (value: string | null): string => {
     const text = value === null ? options.nullText : value;
     // The word standing for NULL is the person's own; it is not a formula to defuse.
     const safe = value === null ? text : defuse(text);
-    const quote = safe.includes(delimiter) || /["\r\n]/.test(safe) || /^\s|\s$/.test(safe);
+    const quote =
+      safe.includes(delimiter) ||
+      /["\r\n]/.test(safe) ||
+      /^\s|\s$/.test(safe) ||
+      (single && safe === "");
     return quote ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   const line = (values: ReadonlyArray<string | null>) => values.map(field).join(delimiter);
   return {
-    start: (columns) => (options.header ? `${line(columns.map((c) => c.name))}\r\n` : ""),
+    start: (columns) => {
+      single = columns.length === 1;
+      return options.header ? `${line(columns.map((c) => c.name))}\r\n` : "";
+    },
     rows: (batch) => batch.map((row) => `${line(row)}\r\n`).join(""),
     end: (info) =>
       options.meta || info.cut
@@ -183,7 +201,11 @@ function jsonFormatter(options: FormatOptions, source: FileSource): Formatter {
   if (options.format === "ndjson") {
     return {
       start: (columns) => {
-        keys = uniqueKeys(columns.map((c) => c.name));
+        // `_meta` is the key of the last line of notes: a column of that name must not look like it.
+        keys = uniqueKeys(
+          columns.map((c) => c.name),
+          ["_meta"],
+        );
         return "";
       },
       rows: (batch) => batch.map((row) => `${object(row)}\n`).join(""),

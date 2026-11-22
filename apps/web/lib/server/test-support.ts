@@ -58,7 +58,12 @@ export interface TestContext extends ServerContext {
 
 export function createTestContext(
   registryOptions: ConnectionRegistryOptions = {},
-  options: { dataDir?: string; now?: () => Date; writesEnabled?: boolean } = {},
+  options: {
+    dataDir?: string;
+    now?: () => Date;
+    writesEnabled?: boolean;
+    exportStallMs?: number;
+  } = {},
 ): TestContext {
   const dataDir = options.dataDir ?? createTestDataDir();
   const createdAdapters: MockDatabaseAdapter[] = [];
@@ -77,7 +82,12 @@ export function createTestContext(
     workspaces: workspaceStorage,
     now: options.now,
   });
-  const connections = new ConnectionService({ adapters, connections: registry, profiles });
+  const connections = new ConnectionService({
+    adapters,
+    connections: registry,
+    profiles,
+    ...(options.exportStallMs === undefined ? {} : { exportStallMs: options.exportStallMs }),
+  });
   return {
     connections,
     snapshots: new SnapshotService({

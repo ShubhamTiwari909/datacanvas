@@ -674,8 +674,19 @@ describe("an export of rows is table data behind the data-access check, bounded,
     expect(code).toMatch(/const leftOut = columns\.filter\(\(c\) => c\.masked\)/);
     // A cursor, fetched in batches; nothing that changes data; the row limit is the core's constant.
     expect(code).toMatch(/DECLARE dc_export NO SCROLL CURSOR FOR/);
-    expect(code).toMatch(/FETCH \$\{EXPORT_BATCH_ROWS\} FROM dc_export/);
+    // The size of a fetch is a number the reader computes (at most `EXPORT_BATCH_ROWS`), never one from a request.
+    expect(code).toMatch(/FETCH \$\{fetchRows\} FROM dc_export/);
+    expect(code).toMatch(/Math\.min\(EXPORT_BATCH_ROWS, /);
     expect(code).toContain("limit: EXPORT_MAX_ROWS + 1");
+    // A reader that stops reading cannot hold the transaction open for ever: the server ends it (and the
+    // service gives up a write that waits for a stopped reader).
+    expect(code).toContain("idle_in_transaction_session_timeout");
+    expect(stripComments(read("apps/web/lib/server/connection-service.ts"))).toMatch(
+      /Promise\.race\(\[\s*writer\.write\(chunk\)/,
+    );
+    // Batches are sized by what they hold, from a small first fetch.
+    expect(code).toMatch(/let fetchRows = EXPORT_FIRST_BATCH_ROWS/);
+    expect(code).not.toMatch(/ROWS_MAX_COLUMNS/);
     const texts = code.match(/`[^`]*`/g) ?? [];
     for (const t of texts) {
       expect(t.replace(/\$\{[^}]*\}/g, ""), t).not.toMatch(

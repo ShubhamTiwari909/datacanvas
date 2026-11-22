@@ -74,6 +74,8 @@ export function ValidationPanel({ validation }: { validation: Validation }) {
 function Report({ report }: { report: ValidationReport }) {
   const clean = report.issues.length === 0;
   const many = report.rows > 1;
+  // A rule that counts more rows than it lists: the number of rows that pass is then a lower bound.
+  const overflow = report.issues.some((i) => i.count > i.rows.length);
   return (
     <div className="flex flex-col gap-1.5 rounded-md border p-3">
       {clean ? (
@@ -93,7 +95,7 @@ function Report({ report }: { report: ValidationReport }) {
             <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
             <span>
               {many
-                ? `${report.passed} of ${report.rows} rows pass. Problems found:`
+                ? `${overflow ? "At least " : ""}${report.passed} of ${report.rows} rows pass. Problems found:`
                 : "The database would refuse this. Problems found:"}
             </span>
           </p>

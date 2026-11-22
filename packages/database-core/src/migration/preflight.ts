@@ -37,10 +37,12 @@ export type PreflightCheck =
  * What the database answered for one check.
  *  - `ok`: nothing would fail; `fails`: `count` rows (or groups of rows, for `duplicates`) would;
  *  - `missing`: the table or a column is not in this database, so there is nothing to check yet;
- *  - `too_slow`: the check took longer than its time limit.
+ *  - `too_slow`: the check took longer than its time limit;
+ *  - `hidden`: a column in the check has a name that looks sensitive, so it is not counted (a count of
+ *    shared values or of rows that match another table would tell what the column holds).
  */
 export interface PreflightResult {
-  status: "ok" | "fails" | "missing" | "too_slow";
+  status: "ok" | "fails" | "missing" | "too_slow" | "hidden";
   count: number;
 }
 
@@ -149,6 +151,9 @@ export function describePreflight(check: PreflightCheck, result: PreflightResult
     return "Not in this database yet, so there is nothing to check.";
   }
   if (result.status === "too_slow") return "The check took too long and was stopped.";
+  if (result.status === "hidden") {
+    return "A column here has a name that looks sensitive, so it is not counted: a count would tell what it holds.";
+  }
   const n = result.count;
   const rows = (k: number) => `${k.toLocaleString("en-US")} ${k === 1 ? "row" : "rows"}`;
   switch (check.kind) {

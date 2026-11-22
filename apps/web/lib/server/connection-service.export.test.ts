@@ -181,4 +181,65 @@ describe("ConnectionService.exportRows", () => {
       await text(again.stream);
     });
   });
+
+  it("ends a stream that fails after the first byte with a fixed sentence, never the database's error or its cause", async () => {
+    const { context, id } = await connected();
+    const secret = "SECRET-ROW-VALUE-9f3a";
+    script(context, async (sink) => {
+      await sink({ kind: "start", columns, leftOut: [] });
+      await sink({ kind: "rows", rows: [["1", "a"]], cellsCut: 0 });
+      throw new Error("unexpected", {
+        cause: new Error(`invalid input syntax for type integer: "${secret}"`),
+      });
+    });
+    const { stream } = await context.connections.exportRows(id, request());
+    let failure: unknown = null;
+    try {
+      await text(stream);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    const chain: string[] = [];
+    for (
+      let e = failure as { message?: string; cause?: unknown } | undefined;
+      e;
+      e = e.cause as typeof e
+    ) {
+      chain.push(String(e.message));
+    }
+    expect(chain).toEqual(["The export stopped before the end of the file."]);
+    expect(chain.join(" ")).not.toContain(secret);
+  });
+
+  it("gives up an export whose reader stopped, and frees the connection", async () => {
+    const context = createTestContext({}, { exportStallMs: 50 });
+    const { id } = await context.connections.createConnection(
+      postgresConnectionInputSchema.parse(fieldsInput({ dataAccess: true })),
+    );
+    let failure: unknown = null;
+    script(context, async (sink) => {
+      try {
+        await sink({ kind: "start", columns, leftOut: [] });
+        // Nobody reads the stream: a write must not wait for ever.
+        for (let i = 0; i < 100; i++) {
+          await sink({ kind: "rows", rows: [[String(i), "x".repeat(1000)]], cellsCut: 0 });
+        }
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
+    });
+    await context.connections.exportRows(id, request());
+    await vi.waitFor(() => expect(failure).not.toBeNull());
+    expect(String((failure as Error).message)).toMatch(/stopped receiving/);
+    script(context, async (sink) => {
+      await sink({ kind: "start", columns, leftOut: [] });
+      await sink({ kind: "end", rows: 0, cut: null, cellsCut: 0 });
+    });
+    await vi.waitFor(async () => {
+      const again = await context.connections.exportRows(id, request());
+      await text(again.stream);
+    });
+  });
 });

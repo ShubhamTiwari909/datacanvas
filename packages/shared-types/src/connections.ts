@@ -198,6 +198,11 @@ export const validationReportSchema = z.object({
       "other_unique_indexes",
       "foreign_key_unreadable",
       "stopped_early",
+      "defaults_not_applied",
+      "exclusion_constraints",
+      "partition_bounds",
+      "event_triggers",
+      "hidden_columns",
     ]),
   ),
 });
@@ -240,7 +245,7 @@ export type ParsedPreflightRequest = z.output<typeof preflightRequestSchema>;
 export const preflightResponseSchema = z.object({
   results: z.array(
     z.object({
-      status: z.enum(["ok", "fails", "missing", "too_slow"]),
+      status: z.enum(["ok", "fails", "missing", "too_slow", "hidden"]),
       count: z.number().int(),
     }),
   ),

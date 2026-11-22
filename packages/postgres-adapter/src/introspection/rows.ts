@@ -408,6 +408,10 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
 
   const parts = [`SELECT ${select.join(", ")}`, `FROM ${quoteQualified(plan.schema, plan.table)}`];
   const keyList = plan.keyColumns.map(quoteIdentifier).join(", ");
+  // In ORDER BY a bare name means an output column first: a table column called `c0`, `k0`, `r` or `s0` would be
+  // read as the alias of the select list. Qualified by the table, it is always the table's column.
+  const inTable = (column: string): string =>
+    `${quoteQualified(plan.schema, plan.table)}.${column}`;
   // Every condition is required: the person's conditions first, then "after the last row" of the paging.
   const conditions: string[] = [];
   conditions.push(
@@ -441,8 +445,8 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   if (keyed) {
     parts.push(
       sort
-        ? `ORDER BY ${sortName} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyList}`
-        : `ORDER BY ${keyList}`,
+        ? `ORDER BY ${inTable(sortName)} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyList.split(", ").map(inTable).join(", ")}`
+        : `ORDER BY ${keyList.split(", ").map(inTable).join(", ")}`,
     );
   }
   parts.push(`LIMIT ${param(plan.limit)}`);
@@ -612,6 +616,10 @@ export async function readCell(
 
   const order = await findRowKey(db, ref);
   if (order.kind === "none" || request.key.length !== order.columns.length) throw bad();
+  // A hidden key column would let a guess be tested: the right value answers, a wrong one is `not_found`.
+  if (order.columns.some((c) => isSensitiveColumnName(c) && !request.revealColumns.includes(c))) {
+    throw bad();
+  }
   const given = new Map<string, string>();
   for (const part of request.key) {
     if (given.has(part.column) || !order.columns.includes(part.column)) throw bad();

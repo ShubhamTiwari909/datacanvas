@@ -186,16 +186,17 @@ async function editRowRules(page: Page): Promise<void> {
     .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
   const pitches = tops.slice(1).map((top, i) => top - (tops[i] ?? 0));
   expect(new Set(pitches).size, `edit-row: one pitch, got ${pitches.join(", ")}`).toBe(1);
-  // Preview says why it waits, then how many columns changed.
-  await expect(dialog.getByRole("status")).toContainText("No changes yet");
+  // Preview says why it waits, then how many columns changed (the footer line: the form also has a region for the
+  // answer of Validate, which is a status of its own).
+  await expect(dialog.locator("p[role=status]")).toContainText("No changes yet");
   await expect(dialog.getByRole("button", { name: "Preview" })).toBeDisabled();
   // A changed field says so and can be put back; the count follows.
   await dialog.getByRole("textbox", { name: "name", exact: true }).fill("Someone Else");
   await expect(dialog.getByText("Changed", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("status")).toContainText("1 column changed");
+  await expect(dialog.locator("p[role=status]")).toContainText("1 column changed");
   await dialog.getByRole("button", { name: "Reset name" }).click();
   await expect(dialog.getByText("Changed", { exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole("status")).toContainText("No changes yet");
+  await expect(dialog.locator("p[role=status]")).toContainText("No changes yet");
 }
 
 async function addRowRules(page: Page): Promise<void> {
@@ -235,9 +236,9 @@ async function addRowRules(page: Page): Promise<void> {
   );
   const after = (await dialog.boundingBox())?.height ?? 0;
   expect(Math.abs(after - before), "add-row: the dialog keeps its height").toBeLessThanOrEqual(1);
-  await expect(dialog.getByRole("status")).toContainText("1 NULL");
+  await expect(dialog.locator("p[role=status]")).toContainText("1 NULL");
   // Required fields still waiting for a value are counted as such, not as set.
-  await expect(dialog.getByRole("status")).toContainText("2 to fill in");
+  await expect(dialog.locator("p[role=status]")).toContainText("2 to fill in");
 }
 
 /** The left edge of a control, in pixels. */

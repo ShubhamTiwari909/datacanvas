@@ -55,6 +55,18 @@ describe("findingsFor", () => {
   });
 });
 
+describe("a plan that renames", () => {
+  it("does not say 'not in this database yet' for a name the migration changes", () => {
+    const missing = [{ status: "missing", count: 0 }] as const;
+    const one: PlannedChecks[] = [{ stepId: "s1", checks: [nulls("a")], unchecked: null }];
+    expect(findingsFor(one, missing).get("s1")!.lines[0]).toMatch(/nothing to check/);
+    const renamed = findingsFor(one, missing, true).get("s1")!;
+    expect(renamed.lines[0]).toMatch(/renames something/);
+    expect(renamed.lines[0]).not.toMatch(/nothing to check/);
+    expect(renamed.verdict).toBe("partly");
+  });
+});
+
 describe("inRequests", () => {
   it("splits the checks into requests of at most the limit", () => {
     const many = Array.from({ length: PREFLIGHT_MAX_CHECKS * 2 + 3 }, (_, i) => nulls(`c${i}`));

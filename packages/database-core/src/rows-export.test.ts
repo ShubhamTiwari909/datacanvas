@@ -179,3 +179,39 @@ describe("JSON and NDJSON", () => {
     expect(uniqueKeys(["a", "a", "a (2)", "b"])).toEqual(["a", "a (2)", "a (2) (2)", "b"]);
   });
 });
+
+describe("what the review of 1.8.0 found in the formatters", () => {
+  it("cuts every name in the notes to one line, so a name cannot start a line of its own", () => {
+    const hostile = createFormatter(options({ meta: true }), {
+      table: { schema: "public", name: 'a\n=HYPERLINK("http://evil","x")' },
+      at: new Date("2026-11-21T10:00:00.000Z"),
+      filters: ["col\r\n=cmd|' /C calc'!A0 equals"],
+    });
+    hostile.start(columns, []);
+    const text = hostile.end({ rows: 1, cut: null, cellsCut: 0, leftOut: ["tok\n=1+1\u2028x"] });
+    // Every physical line of the notes is a `# ` line.
+    for (const line of text.split("\r\n").filter((l) => l !== ""))
+      expect(line.startsWith("# ")).toBe(true);
+    expect(text).not.toMatch(/\n=/);
+  });
+
+  it("quotes the empty value when there is only one column, so it is not a blank line", () => {
+    const f = createFormatter(options({ header: false }), source);
+    f.start([{ name: "a", dataType: "text" }], []);
+    const text = f.rows([["x"], [""], [null], ["y"]]);
+    expect(text).toBe('x\r\n""\r\n""\r\ny\r\n');
+    expect(text.split("\r\n").filter((l) => l === "")).toHaveLength(1);
+    // With several columns an empty field is still empty.
+    const wide = createFormatter(options({ header: false }), source);
+    wide.start(columns, []);
+    expect(wide.rows([["1", ""]])).toBe("1,\r\n");
+  });
+
+  it("gives a column called _meta a key of its own in NDJSON, so a row is never the line of notes", () => {
+    const f = createFormatter(options({ format: "ndjson" }), source);
+    f.start([{ name: "_meta", dataType: "text" }], []);
+    const line = f.rows([["hello"]]);
+    expect(JSON.parse(line)).toEqual({ "_meta (2)": "hello" });
+    expect(uniqueKeys(["a", "_meta"], ["_meta"])).toEqual(["a", "_meta (2)"]);
+  });
+});

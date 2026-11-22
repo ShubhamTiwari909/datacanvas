@@ -83,7 +83,17 @@ export type ValidationNote =
   /** A foreign key could not be checked: the referenced table cannot be read by this role. */
   | "foreign_key_unreadable"
   /** The search for failing rows stopped after `VALIDATE_MAX_FAILURES_FOUND`. */
-  | "stopped_early";
+  | "stopped_early"
+  /** A CHECK that reads several columns was judged without the defaults of the columns the row did not give. */
+  | "defaults_not_applied"
+  /** The table has an exclusion constraint, which the copy does not carry. */
+  | "exclusion_constraints"
+  /** The table is partitioned (or is a partition): the bounds of the partitions are not checked. */
+  | "partition_bounds"
+  /** An event trigger exists in this database: it runs when the temporary copy is made. */
+  | "event_triggers"
+  /** A unique key or foreign key on a column whose name looks sensitive was not checked (it would answer "does this value exist?"). */
+  | "hidden_columns";
 
 export interface ValidationReport {
   /** How many rows were asked about. */
@@ -167,6 +177,13 @@ export class IssueCollector {
     }
   }
 
+  /** The most rows any one issue counts. */
+  get largestCount(): number {
+    let most = 0;
+    for (const issue of this.byKey.values()) most = Math.max(most, issue.count);
+    return most;
+  }
+
   /** How many different rows failed so far. */
   get failedRows(): number {
     return this.failed.size;
@@ -186,7 +203,9 @@ export function buildReport(
 ): ValidationReport {
   return {
     rows,
-    passed: Math.max(0, rows - collector.failedRows),
+    // A query lists only the first rows it found: when an issue counts more rows than it lists, the rows that failed
+    // are at least that many, so `passed` is a lower bound (and the screen says "at least" then).
+    passed: Math.max(0, rows - Math.max(collector.failedRows, collector.largestCount)),
     issues: collector.issues(),
     notChecked: [...new Set(notChecked)],
   };
@@ -231,4 +250,14 @@ export const NOTE_TEXT: Record<ValidationNote, string> = {
   foreign_key_unreadable:
     "A foreign key was not checked, because this role cannot read the table it points to.",
   stopped_early: "The search for failing rows stopped early, so there may be more than are listed.",
+  defaults_not_applied:
+    "A rule of this table reads several columns, and a column that was not given takes its default only when the change is applied. The rule may be judged differently then.",
+  exclusion_constraints:
+    "This table has an exclusion constraint. It was not checked, and it can refuse a row that this check accepted.",
+  partition_bounds:
+    "This table is partitioned, or is a partition. The bounds of the partitions were not checked: a row that fits none of them is refused when the change is applied.",
+  event_triggers:
+    "This database has an event trigger. It runs when the temporary copy is made, and what it does outside the transaction is not undone.",
+  hidden_columns:
+    "A unique key or foreign key on a column whose name looks sensitive was not checked, because the answer would tell whether a value exists in it.",
 };

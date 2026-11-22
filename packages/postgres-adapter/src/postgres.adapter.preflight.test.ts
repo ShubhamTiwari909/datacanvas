@@ -29,6 +29,10 @@ const SQL = `
   CREATE TABLE big (n int, m text);
   INSERT INTO big SELECT i, md5(i::text) FROM generate_series(1, 1500000) AS i;
   CREATE TABLE text_ref (k text);
+  CREATE TABLE creds (id int PRIMARY KEY, password_hash text);
+  INSERT INTO creds VALUES (1, 'h'), (2, 'h'), (3, NULL);
+  CREATE TABLE known_hashes (password_hash text);
+  INSERT INTO known_hashes VALUES ('h');
 `;
 
 describe.skipIf(!testDatabaseUrl())("PostgreSQL preflight", () => {
@@ -220,5 +224,28 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL preflight", () => {
   it("changes nothing", async () => {
     await adapter.preflight([{ kind: "rows", ...t("child") }]);
     expect((await client.query("SELECT count(*)::int AS n FROM child")).rows[0].n).toBe(6);
+  });
+
+  it("does not count on a hidden column: shared values, NULLs or a match with another table would read it back", async () => {
+    const hidden = { status: "hidden", count: 0 };
+    expect(await one({ kind: "duplicates", ...t("creds"), columns: ["password_hash"] })).toEqual(
+      hidden,
+    );
+    expect(await one({ kind: "nulls", ...t("creds"), column: "password_hash" })).toEqual(hidden);
+    expect(
+      await one({
+        kind: "orphans",
+        ...t("creds"),
+        columns: ["password_hash"],
+        refSchema: "public",
+        refTable: "known_hashes",
+        refColumns: ["password_hash"],
+      }),
+    ).toEqual(hidden);
+    // A plain column of the same table is still counted.
+    expect(await one({ kind: "nulls", ...t("creds"), column: "id" })).toEqual({
+      status: "ok",
+      count: 0,
+    });
   });
 });

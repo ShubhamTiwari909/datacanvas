@@ -13,10 +13,11 @@
  */
 import {
   DatabaseError,
+  EXPORT_BATCH_CHARS,
   EXPORT_BATCH_ROWS,
+  EXPORT_FIRST_BATCH_ROWS,
   EXPORT_CELL_CHARS,
   EXPORT_MAX_ROWS,
-  ROWS_MAX_COLUMNS,
   checkRowsFilters,
   checkRowsSort,
   isSensitiveColumnName,
@@ -35,6 +36,8 @@ import type { Queryable } from "./types.js";
 
 /** One export may hold its connection this long, whatever the table. */
 export const EXPORT_MAX_MS = 10 * 60 * 1000;
+/** A transaction that waits this long between two statements is ended by the server. */
+export const EXPORT_IDLE_MS = 2 * 60 * 1000;
 
 /** What the consumer answers to a batch: `false` means "enough, stop here". */
 export type ExportSink = (event: ExportEvent) => void | boolean | Promise<void | boolean>;
@@ -64,11 +67,16 @@ export async function exportRows(
     filters: options.filters ?? [],
   });
 
+  // A reader that stops reading must not hold a transaction open for ever (the server ends the session).
+  await db.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
+    String(EXPORT_IDLE_MS),
+  ]);
   const [table] = await listTablesByRef(db, [ref]);
   if (!table) throw new DatabaseError("not_found");
   if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
 
-  const all = (await listColumns(db, ref.schema, ref.name)).slice(0, ROWS_MAX_COLUMNS);
+  // Every column: a file that quietly leaves some out would look complete (the page shows the first 100).
+  const all = await listColumns(db, ref.schema, ref.name);
   const kinds = await findColumnKinds(db, ref);
   const columns: RowColumn[] = all.map((c) => ({
     name: c.name,
@@ -125,15 +133,18 @@ export async function exportRows(
   let rows = 0;
   let cellsCut = 0;
   let cut: "rows" | "bytes" | null = null;
+  // Batches are cut by size as well as by rows: a few rows of 1 MB cells must not be held 1,000 at a time.
+  let fetchRows = EXPORT_FIRST_BATCH_ROWS;
   while (!stop) {
     if (signal?.aborted) return;
     if (Date.now() - started > EXPORT_MAX_MS) throw new DatabaseError("timeout");
     const { rows: batch } = await db.query<Record<string, string | null>>(
-      `FETCH ${EXPORT_BATCH_ROWS} FROM dc_export`,
+      `FETCH ${fetchRows} FROM dc_export`,
     );
     if (batch.length === 0) break;
     const out: Array<Array<string | null>> = [];
     let batchCut = 0;
+    let chars = 0;
     for (const row of batch) {
       if (rows >= EXPORT_MAX_ROWS) {
         cut = "rows";
@@ -145,16 +156,23 @@ export async function exportRows(
           const value = row[`c${s.position}`] ?? null;
           if (value !== null && value.length > EXPORT_CELL_CHARS) {
             batchCut += 1;
+            chars += EXPORT_CELL_CHARS;
             return safeSlice(value, EXPORT_CELL_CHARS);
           }
+          chars += value?.length ?? 0;
           return value;
         }),
       );
       rows += 1;
     }
     cellsCut += batchCut;
+    // The next fetch takes as many rows as fit in about `EXPORT_BATCH_CHARS`, at least one.
+    const perRow = Math.max(1, chars / Math.max(1, out.length));
+    fetchRows = Math.min(EXPORT_BATCH_ROWS, Math.max(1, Math.floor(EXPORT_BATCH_CHARS / perRow)));
     if (out.length > 0 && !(await proceed({ kind: "rows", rows: out, cellsCut: batchCut }))) {
-      cut = "bytes";
+      // The consumer is full. Say "cut" only if the table really has more.
+      const { rows: more } = await db.query("FETCH 1 FROM dc_export");
+      cut = more.length > 0 ? "bytes" : null;
       stop = true;
     }
   }

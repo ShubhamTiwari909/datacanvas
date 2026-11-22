@@ -142,6 +142,7 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
     [loaded, plan],
   );
   const fromConnection = loaded.status === "done" ? loaded.fromConnection : null;
+  const hasRenames = plan?.steps.some((s) => s.kind.startsWith("rename_")) ?? false;
   const signature = JSON.stringify([fromConnection, planned]);
   const shownPreflight =
     preflightState && preflightState.signature === signature ? preflightState : null;
@@ -159,7 +160,11 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
       }
       results.push(...answer.data);
     }
-    setPreflightState({ signature, status: "done", findings: findingsFor(planned, results) });
+    setPreflightState({
+      signature,
+      status: "done",
+      findings: findingsFor(planned, results, hasRenames),
+    });
   };
 
   if (state.status === "loading") {

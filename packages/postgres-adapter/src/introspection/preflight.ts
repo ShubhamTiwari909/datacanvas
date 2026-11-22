@@ -14,6 +14,7 @@ import {
   DatabaseError,
   PREFLIGHT_MAX_CHECKS,
   quoteIdentifier,
+  isSensitiveColumnName,
   quoteQualified,
   type PreflightCheck,
   type PreflightResult,
@@ -93,6 +94,19 @@ export async function runPreflight(
 
   const results: PreflightResult[] = [];
   for (const check of checks) {
+    // A count on a hidden column (shared values, rows that match another table) would read it back.
+    const named =
+      check.kind === "nulls"
+        ? [check.column]
+        : check.kind === "rows"
+          ? []
+          : check.kind === "duplicates"
+            ? check.columns
+            : [...check.columns, ...check.refColumns];
+    if (named.some(isSensitiveColumnName)) {
+      results.push({ status: "hidden", count: 0 });
+      continue;
+    }
     const own = await columnsOf(check.schema, check.table);
     const ownNames =
       check.kind === "nulls" ? [check.column] : check.kind === "rows" ? [] : check.columns;

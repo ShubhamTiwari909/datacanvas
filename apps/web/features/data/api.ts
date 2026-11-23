@@ -11,6 +11,7 @@ import {
   rowsResponseSchema,
   preflightResponseSchema,
   validateResponseSchema,
+  VALIDATE_MAX_BODY_BYTES,
   type CellRequestBody,
   type ExportRequestBody,
   type ConnectionSummary,
@@ -63,7 +64,7 @@ export async function validateRows(
   const result = await apiRequest(
     `/api/connections/${encodeURIComponent(connectionId)}/rows/validate`,
     validateResponseSchema,
-    { method: "POST", body: request },
+    { method: "POST", body: request, maxBodyBytes: VALIDATE_MAX_BODY_BYTES },
   );
   return result.ok ? { ok: true, data: result.data.report } : result;
 }

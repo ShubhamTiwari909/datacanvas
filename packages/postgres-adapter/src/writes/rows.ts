@@ -114,7 +114,7 @@ export function buildInsertRow(table: TableRef, values: readonly TypedValue[]): 
  * Does a row still hold what the person saw? One fixed shape, used by a bulk change to find the rows that changed
  * since they were loaded (at preview, in the read-only transaction, before anything is written):
  *
- *   SELECT 1 FROM "s"."t" WHERE "k" = CAST($1 AS <type of k>)
+ *   SELECT tableoid::text || ':' || ctid::text AS row_id FROM "s"."t" WHERE "k" = CAST($1 AS <type of k>)
  *     AND CAST("a" AS text) IS NOT DISTINCT FROM CAST($2 AS text) LIMIT 1
  */
 export function buildRowStillHolds(
@@ -128,7 +128,8 @@ export function buildRowStillHolds(
     return `CAST(${quoteIdentifier(e.column)} AS text) IS NOT DISTINCT FROM CAST($${values.length} AS text)`;
   });
   return {
-    text: `SELECT 1 FROM ${quoteQualified(table.schema, table.name)} WHERE ${[keyCondition(key, 1), ...checks].join(" AND ")} LIMIT 1`,
+    // The row's physical identity (the partition's own table and its position) says whether two keys found one row.
+    text: `SELECT tableoid::text || ':' || ctid::text AS row_id FROM ${quoteQualified(table.schema, table.name)} WHERE ${[keyCondition(key, 1), ...checks].join(" AND ")} LIMIT 1`,
     values,
   };
 }
@@ -490,12 +491,21 @@ async function splitByCurrent(
 ): Promise<{ kept: number[]; skipped: number[] }> {
   const kept: number[] = [];
   const skipped: number[] = [];
+  const identities = new Set<string>();
+  let repeated = false;
   await db.query("SAVEPOINT dc_bulk_check");
   try {
     for (let i = 0; i < rows.length; i++) {
       const statement = buildRowStillHolds(table, rows[i]!.key, rows[i]!.expected);
-      const { rows: found } = await db.query(statement.text, statement.values);
-      (found.length > 0 ? kept : skipped).push(i);
+      const { rows: found } = await db.query<{ row_id: string }>(statement.text, statement.values);
+      if (found.length === 0) {
+        skipped.push(i);
+        continue;
+      }
+      // Two keys written differently ('1' and '01') can find the same row: that would change it twice.
+      if (identities.has(found[0]!.row_id)) repeated = true;
+      identities.add(found[0]!.row_id);
+      kept.push(i);
     }
     await db.query("RELEASE SAVEPOINT dc_bulk_check");
   } catch (error) {
@@ -510,6 +520,7 @@ async function splitByCurrent(
     }
     throw error;
   }
+  if (repeated) throw invalidChange("A row is listed twice.");
   return { kept, skipped };
 }
 
@@ -520,19 +531,26 @@ async function bulkWarnings(
   table: CatalogTable,
   event: number,
   rows: number,
+  /** For an import: the number of batches (one statement each). A bulk update or delete is one statement per row. */
+  batches?: number,
 ): Promise<ChangeWarning[]> {
   const warnings = await rowWarnings(db, ref, table, event);
+  const count = rows.toLocaleString("en-US");
+  const how =
+    batches === undefined
+      ? `They run for each of the ${count} rows.`
+      : `A trigger that runs for each row runs for each of the ${count} rows; one that runs for each statement runs ${batches.toLocaleString("en-US")} ${batches === 1 ? "time" : "times"}, once for each batch of up to ${IMPORT_BATCH_ROWS} rows, and sees only that batch.`;
   return warnings.map((w) =>
-    w.code === "triggers"
-      ? { ...w, message: `${w.message} They run for each of the ${rows} rows.` }
-      : w,
+    w.code === "triggers" ? { ...w, message: `${w.message} ${how}` } : w,
   );
 }
 
-const leftOutWords = (skipped: number, total: number): string =>
+const leftOutWords = (skipped: number, total: number, deleting = false): string =>
   skipped === 0
     ? ""
-    : ` ${skipped} of the ${total} rows changed since you loaded them (or are gone), so ${skipped === 1 ? "it is" : "they are"} left out.`;
+    : deleting
+      ? ` ${skipped} of the ${total} rows ${skipped === 1 ? "is" : "are"} gone, so ${skipped === 1 ? "it is" : "they are"} left out (a delete is found by its key and does not compare values).`
+      : ` ${skipped} of the ${total} rows changed since you loaded them (or are gone), so ${skipped === 1 ? "it is" : "they are"} left out.`;
 
 async function planUpdateRows(db: Queryable, change: UpdateRowsChange): Promise<PlannedChange> {
   const { table, key } = await requireEditable(db, change.table);
@@ -609,7 +627,7 @@ async function planDeleteRows(db: Queryable, change: DeleteRowsChange): Promise<
     statements: kept.map((i) => buildDeleteRow(change.table, keys[i]!)),
     expect: "one_row",
     category: "row",
-    effect: `Deletes ${kept.length} ${kept.length === 1 ? "row" : "rows"} of ${displayName(change.table.schema, change.table.name)}, each found by its key. All of them are deleted or none is.${leftOutWords(skipped.length, change.rows.length)}`,
+    effect: `Deletes ${kept.length} ${kept.length === 1 ? "row" : "rows"} of ${displayName(change.table.schema, change.table.name)}, each found by its key. All of them are deleted or none is.${leftOutWords(skipped.length, change.rows.length, true)}`,
     warnings,
     destructive: true,
     guard: { relations: [guardRelation(table, key, "row_exclusive")] },
@@ -673,7 +691,22 @@ async function planInsertRows(db: Queryable, change: InsertRowsChange): Promise<
     );
   }
   const total = change.rows.length;
-  const warnings = await bulkWarnings(db, change.table, table, TRIGGER_EVENT.insert, total);
+  // A value given for an identity column does not move its sequence: the next row added without one may collide.
+  const given = change.columns.filter((name) => findColumn(table, name).identity !== null);
+  const warnings = await bulkWarnings(
+    db,
+    change.table,
+    table,
+    TRIGGER_EVENT.insert,
+    total,
+    statements.length,
+  );
+  if (given.length > 0) {
+    warnings.push({
+      code: "may_fail",
+      message: `${listWords(given)} ${given.length === 1 ? "is an identity column" : "are identity columns"}: values given here do not move ${given.length === 1 ? "its" : "their"} sequence, so a row added later without one can get a value that is already taken.`,
+    });
+  }
   const checked = (await listConstraints(db, table.oid)).filter((c) => c.type === "f").length;
   if (checked > 0) {
     warnings.push({

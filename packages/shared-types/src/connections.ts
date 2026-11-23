@@ -145,8 +145,8 @@ export const cellRequestSchema = z.strictObject({
 export type CellRequestBody = z.input<typeof cellRequestSchema>;
 export type ParsedCellRequest = z.output<typeof cellRequestSchema>;
 
-/** The largest body of a validation (it carries the values to be checked): the 24 MB an import can carry. */
-export const VALIDATE_MAX_BODY_BYTES = 24 * 1024 * 1024;
+/** The largest body of a validation (it carries the values to be checked): what an import can carry. */
+export const VALIDATE_MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 /**
  * `POST /api/connections/:id/rows/validate`: would the database accept these values? Answered without

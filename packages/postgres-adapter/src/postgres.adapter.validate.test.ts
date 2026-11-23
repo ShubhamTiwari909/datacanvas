@@ -586,7 +586,7 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
       ).not.toContain("partition_bounds");
     });
 
-    it("reports a lower bound of the rows that pass when more rows fail than a rule lists", async () => {
+    it("reports an upper bound of the rows that pass when more rows fail than a rule lists", async () => {
       const rows = Array.from({ length: 50 }, (_, i) => [`n${i}`, "99"]);
       const report = await adapter.validateRows(insert("target", ["name", "parent_id"], rows));
       expect(report.issues[0]).toMatchObject({ rule: "foreign_key", count: 50 });

@@ -128,6 +128,17 @@ test.describe("bulk editing", () => {
     await expect(chosen(page).getByRole("status")).toContainText("2 rows chosen");
     await chosen(page).getByRole("button", { name: "Clear" }).click();
     await expect(chosen(page)).toHaveCount(0);
+
+    // A range starts from a click on THIS page: the click made on the previous one is not an anchor here (it would
+    // have chosen every row between two rows that are not on the same page).
+    await page.getByRole("button", { name: "Previous" }).click();
+    await expect(grid(page).locator("tbody tr td[data-col='0']").first()).toHaveText("1");
+    await pick(page, 2).click();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(grid(page).locator("tbody tr td[data-col='0']").first()).toHaveText("51");
+    await pick(page, 5).click({ modifiers: ["Shift"] });
+    await expect(chosen(page).getByRole("status")).toContainText("2 rows chosen");
+    await chosen(page).getByRole("button", { name: "Clear" }).click();
   });
 
   test("sets one value on the chosen rows through a preview, and only on them", async ({

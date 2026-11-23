@@ -91,6 +91,15 @@ export async function parseJsonBody<S extends z.ZodType>(
 
   const text = await readTextWithLimit(request, maxBytes);
   if (text === null) return { ok: false, response: tooLarge(maxBytes) };
+  // A body shorter than the client said it was has been cut on the way (the framework keeps a limited part of a large
+  // body): say so, rather than "not valid JSON" about a request that was fine.
+  if (
+    Number.isFinite(declared) &&
+    declared > 0 &&
+    new TextEncoder().encode(text).byteLength < declared
+  ) {
+    return { ok: false, response: tooLarge(maxBytes) };
+  }
 
   let json: unknown;
   try {
@@ -120,7 +129,7 @@ export async function parseJsonBody<S extends z.ZodType>(
 function tooLarge(maxBytes: number): Response {
   return errorResponse(
     "payload_too_large",
-    `The request body is larger than the ${Math.round(maxBytes / 1024)} KB limit.`,
+    `The request body is larger than the ${maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))} MB` : `${Math.round(maxBytes / 1024)} KB`} limit, or was cut short on the way.`,
     413,
   );
 }

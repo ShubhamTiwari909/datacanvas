@@ -85,8 +85,10 @@ function Report({ report, rowOffset }: { report: ValidationReport; rowOffset: nu
   const clean = report.issues.length === 0;
   const many = report.rows > 1;
   const n = (count: number) => count.toLocaleString("en-US");
-  // A rule that counts more rows than it lists: the number of rows that pass is then a lower bound.
-  const overflow = report.issues.some((i) => i.count > i.rows.length);
+  // A rule that counts more rows than it lists: the number of rows that pass is then an upper bound ("at most").
+  const overflow =
+    report.issues.some((i) => i.count > i.rows.length) ||
+    report.notChecked.includes("stopped_early");
   return (
     <div className="flex flex-col gap-1.5 rounded-md border p-3">
       {clean ? (
@@ -106,7 +108,7 @@ function Report({ report, rowOffset }: { report: ValidationReport; rowOffset: nu
             <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
             <span>
               {many
-                ? `${overflow ? "At least " : ""}${n(report.passed)} of ${n(report.rows)} rows pass. Problems found:`
+                ? `${overflow ? "At most " : ""}${n(report.passed)} of ${n(report.rows)} rows pass. Problems found:`
                 : "The database would refuse this. Problems found:"}
             </span>
           </p>

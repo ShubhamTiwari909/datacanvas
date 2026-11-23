@@ -62,5 +62,8 @@ export async function runPlan(
     }
     rowCount += count;
   }
+  // A cancel that came during the last statement is still honoured: the caller commits only when this returns.
+  if (signal?.aborted)
+    throw new DatabaseError("unexpected", { message: "The change was cancelled." });
   return { rowCount };
 }

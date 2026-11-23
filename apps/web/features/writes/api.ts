@@ -9,6 +9,7 @@
  */
 import type { Change, TableEditInfo } from "@datacanvas/database-core";
 import {
+  IMPORT_MAX_BODY_BYTES,
   applyChangeResponseSchema,
   editInfoResponseSchema,
   historyResponseSchema,
@@ -86,7 +87,7 @@ export async function requestPreview(
   const result = await apiRequest(
     `${base(connectionId)}/writes/preview`,
     previewChangeResponseSchema,
-    { method: "POST", body: { change } },
+    { method: "POST", body: { change }, maxBodyBytes: IMPORT_MAX_BODY_BYTES },
   );
   return unwrap(result, (d) => d.preview);
 }

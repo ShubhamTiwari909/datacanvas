@@ -181,11 +181,24 @@ export function ChangeDialog({
                 />
                 <div className="flex flex-col items-start gap-1.5">
                   <p>
-                    {preview.skipped.length} {preview.skipped.length === 1 ? "row" : "rows"} changed
-                    since you loaded {preview.skipped.length === 1 ? "it" : "them"} (or{" "}
-                    {preview.skipped.length === 1 ? "is" : "are"} gone) and{" "}
-                    {preview.skipped.length === 1 ? "is" : "are"} left out. Apply changes the other
-                    rows only, or cancel and reload to see the new values.
+                    {request?.change.kind === "delete_rows" ? (
+                      <>
+                        {preview.skipped.length}{" "}
+                        {preview.skipped.length === 1 ? "row is" : "rows are"} gone and{" "}
+                        {preview.skipped.length === 1 ? "is" : "are"} left out. A delete is found by
+                        its key and does not compare values, so a row that was changed since you
+                        loaded it is still deleted. Apply deletes the other rows only, or cancel and
+                        reload to see the rows as they are.
+                      </>
+                    ) : (
+                      <>
+                        {preview.skipped.length} {preview.skipped.length === 1 ? "row" : "rows"}{" "}
+                        changed since you loaded {preview.skipped.length === 1 ? "it" : "them"} (or{" "}
+                        {preview.skipped.length === 1 ? "is" : "are"} gone) and{" "}
+                        {preview.skipped.length === 1 ? "is" : "are"} left out. Apply changes the
+                        other rows only, or cancel and reload to see the new values.
+                      </>
+                    )}
                   </p>
                   {onRowChanged ? (
                     <Button type="button" size="sm" variant="outline" onClick={onRowChanged}>

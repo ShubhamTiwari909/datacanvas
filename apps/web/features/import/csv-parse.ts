@@ -118,7 +118,9 @@ export type Parsed =
 
 /**
  * Parse text into rows of fields. Row numbers in a refusal are the file's rows (the first row is 1, a line break
- * inside quotes does not start a new row). A line with no characters is skipped; the fields of a row are as written.
+ * inside quotes does not start a new row). A line with no characters is skipped, except in a file of one column, where
+ * a blank line between rows is an empty value (skipping it would lose a row without a word); the fields of a row are
+ * as written.
  */
 export function parseCsv(text: string, delimiter: Delimiter): Parsed {
   if (text.includes("\u0000")) {
@@ -150,11 +152,21 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
     return null;
   };
 
+  // Where the last character that is not a line break is: blank lines after it are the end of the file.
+  let lastContent = n - 1;
+  while (lastContent >= 0 && (text[lastContent] === "\n" || text[lastContent] === "\r"))
+    lastContent -= 1;
+
   while (i < n) {
-    // A line with no characters is not a row.
+    // A line with no characters is not a row, unless the file has one column (then it is an empty value).
     if (text[i] === "\n" || text[i] === "\r") {
       if (text[i] === "\r" && text[i + 1] === "\n") i += 1;
       i += 1;
+      if (width === 1 && i <= lastContent) {
+        row = [""];
+        const refused = pushRow();
+        if (refused) return refused;
+      }
       rowNumber += 1;
       continue;
     }

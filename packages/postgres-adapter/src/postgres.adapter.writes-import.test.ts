@@ -44,6 +44,8 @@ const SQL = `
   CREATE TABLE i_part (id int, region text, PRIMARY KEY (id, region)) PARTITION BY LIST (region);
   CREATE TABLE i_part_eu PARTITION OF i_part FOR VALUES IN ('eu');
   CREATE TABLE i_part_us PARTITION OF i_part FOR VALUES IN ('us');
+  CREATE TABLE i_stmt (id int PRIMARY KEY);
+  CREATE TRIGGER i_stmt_trig AFTER INSERT ON i_stmt FOR EACH STATEMENT EXECUTE PROCEDURE i_audit_fn();
   CREATE TABLE i_nokey (v text);
   CREATE TABLE "i ""odd"" ; table" ("select" int PRIMARY KEY, "a""b" text);
   CREATE VIEW i_view AS SELECT id FROM i_items;
@@ -280,6 +282,64 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
     );
     await adapter.applyChange(plan);
     expect(await count("i_audit")).toBe(600);
+  });
+
+  it("says a statement-level trigger runs once for each batch, not for each row, with thousands separators", async () => {
+    await sql.query("TRUNCATE i_stmt, i_audit");
+    const rows = Array.from({ length: 1200 }, (_, i) => [String(i + 1)]);
+    const plan = await adapter.previewChange(importRows("i_stmt", ["id"], rows));
+    const message = plan.warnings.find((w) => w.code === "triggers")?.message ?? "";
+    expect(message).toContain("for each of the 1,200 rows");
+    expect(message).toContain("runs for each statement runs 3 times");
+    await adapter.applyChange(plan);
+    // What the message says is what happened: 3 batches, 3 runs.
+    expect(await count("i_audit")).toBe(3);
+  });
+
+  it("warns that values given for an identity column do not move its sequence", async () => {
+    await sql.query("TRUNCATE i_serial RESTART IDENTITY");
+    const plan = await adapter.previewChange(
+      importRows(
+        "i_serial",
+        ["id", "v"],
+        [
+          ["5", "a"],
+          ["6", "b"],
+        ],
+      ),
+    );
+    expect(plan.warnings.find((w) => w.code === "may_fail")?.message).toMatch(
+      /id is an identity column.*do not move its sequence/,
+    );
+    await adapter.applyChange(plan);
+    // The claim is true: the next default value is the sequence's first, which is not taken yet here, but it is 1, not 7.
+    await sql.query("INSERT INTO i_serial (v) VALUES ('c')");
+    expect(await q("SELECT id FROM i_serial WHERE v = 'c'")).toEqual([{ id: 1 }]);
+    // And a plan that gives no value for it carries no such warning.
+    const plain = await adapter.previewChange(importRows("i_serial", ["v"], [["x"]]));
+    expect(plain.warnings.some((w) => w.code === "may_fail")).toBe(false);
+  });
+
+  it("honours a cancel that arrives during the last statement: nothing is committed", async () => {
+    await sql.query("TRUNCATE i_items");
+    const plan = await adapter.previewChange(
+      importRows(
+        "i_items",
+        ["id", "name"],
+        items(1200).map((r) => [r[0]!, r[1]!]),
+      ),
+    );
+    expect(plan.statements).toHaveLength(3);
+    // Not aborted at the three looks before the statements, aborted afterwards: only the check before the commit sees it.
+    let looked = 0;
+    const signal = {
+      get aborted() {
+        looked += 1;
+        return looked > 3;
+      },
+    };
+    await failure(adapter.applyChange(plan, signal));
+    expect(await count("i_items")).toBe(0);
   });
 
   it("rolls everything back when a trigger swallows a row, because a batch must add exactly the rows it was planned for", async () => {

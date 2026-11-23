@@ -203,8 +203,8 @@ export function buildReport(
 ): ValidationReport {
   return {
     rows,
-    // A query lists only the first rows it found: when an issue counts more rows than it lists, the rows that failed
-    // are at least that many, so `passed` is a lower bound (and the screen says "at least" then).
+    // A search stops after the first failures it found: when an issue counts more rows than it lists, more rows fail
+    // than were counted here, so `passed` is an UPPER bound (the screen says "at most" then).
     passed: Math.max(0, rows - Math.max(collector.failedRows, collector.largestCount)),
     issues: collector.issues(),
     notChecked: [...new Set(notChecked)],

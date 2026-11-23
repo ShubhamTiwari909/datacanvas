@@ -23,8 +23,12 @@ export const WRITE_MAX_BULK_ROWS = 500;
 export const WRITE_MAX_IMPORT_ROWS = 100_000;
 export const WRITE_MAX_IMPORT_COLUMNS = 50;
 export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
-/** The largest body of a preview or a validation: an import carries its rows (a file of up to 20 MB). */
-export const IMPORT_MAX_BODY_BYTES = 24 * 1024 * 1024;
+/**
+ * The largest body of a preview or a validation: an import carries its rows as JSON (a file of up to 20 MB, and every
+ * field gets two quotes, so 100,000 rows of 50 short fields is about 30 MB). `next.config.ts` lets the proxy buffer more
+ * than this (a rule test pins it): Next keeps only the first 10 MB of a body unless told otherwise.
+ */
+export const IMPORT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
 /** The largest preview request body: a row change can carry long values. */
@@ -54,11 +58,22 @@ export const newIdentifierSchema = z
   .refine((name) => name.trim() === name, "A name cannot start or end with a space.");
 
 const tableSchema = z.strictObject({ schema: identifierSchema, name: identifierSchema });
-const valueSchema = z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).nullable();
+/**
+ * A half of a surrogate pair on its own is not text: PostgreSQL would store it as U+FFFD without a word. A browser's
+ * UTF-8 decoder never produces one, so only a request made by hand meets this.
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const wellFormed = (s: string): boolean => !LONE_SURROGATE.test(s);
+const WELL_FORMED = "A value must be valid text (a lone half of a surrogate pair is not).";
+const valueSchema = z
+  .string()
+  .max(WRITE_MAX_CHANGE_VALUE_CHARS)
+  .refine(wellFormed, WELL_FORMED)
+  .nullable();
 const columnValueSchema = z.strictObject({ column: identifierSchema, value: valueSchema });
 const keyValueSchema = z.strictObject({
   column: identifierSchema,
-  value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS),
+  value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).refine(wellFormed, WELL_FORMED),
 });
 const columnListSchema = z.array(identifierSchema).min(1).max(WRITE_MAX_CHANGE_PARTS);
 
@@ -103,8 +118,16 @@ export const deleteRowChangeSchema = z
   .refine((c) => uniqueColumns(c.key, (k) => k.column), "A key column is listed twice.");
 
 /** Each row of a bulk change is named once: the same key twice would change one row twice. */
-function distinctKeys(rows: ReadonlyArray<{ key: Array<{ value: string }> }>): boolean {
-  return new Set(rows.map((r) => JSON.stringify(r.key.map((k) => [k.value])))).size === rows.length;
+function distinctKeys(
+  rows: ReadonlyArray<{ key: Array<{ column: string; value: string }> }>,
+): boolean {
+  const named = (r: { key: Array<{ column: string; value: string }> }) =>
+    JSON.stringify(
+      r.key
+        .map((k): [string, string] => [k.column, k.value])
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
+  return new Set(rows.map(named)).size === rows.length;
 }
 
 const bulkRowSchema = z
@@ -156,7 +179,9 @@ export const insertRowsChangeSchema = z
     rows: z
       .array(
         z
-          .array(z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).nullable())
+          .array(
+            z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).refine(wellFormed, WELL_FORMED).nullable(),
+          )
           .max(WRITE_MAX_IMPORT_COLUMNS),
       )
       .min(1)

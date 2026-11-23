@@ -80,13 +80,21 @@ export function useRowEditing({
     table: string;
     rows: Selection;
     anchor: number | null;
+    /** The page the anchor is an index of: after a new page, sort or filter it points at another row, so it is let go of. */
+    anchorPage: unknown;
     limited: boolean;
-  }>({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
+  }>({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, anchorPage: null, limited: false });
   const selected = chosen.table === tableKey ? chosen.rows : EMPTY_SELECTION;
   const [setting, setSetting] = useState(false);
   const [importing, setImporting] = useState(false);
   const clearSelection = () =>
-    setChosen({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, limited: false });
+    setChosen({
+      table: tableKey,
+      rows: EMPTY_SELECTION,
+      anchor: null,
+      anchorPage: null,
+      limited: false,
+    });
 
   // When writing stops being possible (locked, the connection gone, table data switched off) the
   // server drops its previews, so an open editor or preview would offer an Apply that cannot run.
@@ -148,7 +156,7 @@ export function useRowEditing({
   const selection = useMemo<GridSelection | null>(() => {
     if (!page || !info?.editable) return null;
     const apply = (next: { rows: Selection; anchor: number | null; limited: boolean }) =>
-      setChosen({ table: tableKey, ...next });
+      setChosen({ table: tableKey, ...next, anchorPage: page });
     return {
       isSelected: (r) => {
         const row = selectable[r];
@@ -159,7 +167,8 @@ export function useRowEditing({
         );
       },
       onToggle: (r, extend) => {
-        const next = toggleRow(selected, selectable, r, extend, chosen.anchor);
+        const anchor = chosen.anchorPage === page ? chosen.anchor : null;
+        const next = toggleRow(selected, selectable, r, extend, anchor);
         apply({ rows: next.selection, anchor: next.anchor, limited: next.limited });
       },
       pageState: pageState(selected, selectable),
@@ -168,7 +177,7 @@ export function useRowEditing({
         apply({ rows: next.selection, anchor: next.anchor, limited: next.limited });
       },
     };
-  }, [page, info, selectable, selected, chosen.anchor, tableKey]);
+  }, [page, info, selectable, selected, chosen.anchor, chosen.anchorPage, tableKey]);
   const chosenRows = [...selected.values()];
 
   let hint: string | null = null;

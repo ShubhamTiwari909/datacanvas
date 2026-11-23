@@ -761,7 +761,8 @@ describe("bulk row changes are many single-row changes in one transaction, never
       rows.indexOf("export function buildRowStillHolds"),
       rows.indexOf("export function buildDeleteRow"),
     );
-    expect(holds).toContain("SELECT 1 FROM");
+    // It asks which row a key finds (its table and position), so that two keys that find one row are refused.
+    expect(holds).toContain("AS row_id FROM");
     expect(holds).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
   });
 
@@ -887,6 +888,22 @@ describe("an import is batches of one fixed statement with every value bound, an
     expect(stripComments(read("apps/web/features/import/import-dialog.tsx"))).toContain(
       "buildImport(",
     );
+  });
+
+  it("a cancel is looked at again before the commit, two keys that find one row are refused, and no text of a request can hold half a character", () => {
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    // After the loop of statements, before `return { rowCount }`, which is what the caller commits on.
+    expect(index).toMatch(/\}\s*if \(signal\?\.aborted\)[\s\S]*?return \{ rowCount \};/);
+    expect(rows).toContain("tableoid::text || ':' || ctid::text AS row_id");
+    expect(rows).toContain('if (repeated) throw invalidChange("A row is listed twice.")');
+    const schema = read("packages/shared-types/src/writes.ts");
+    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(3);
+  });
+
+  it("the preview store keeps at most two imports per connection", () => {
+    const store = stripComments(read("apps/web/lib/server/preview-store.ts"));
+    expect(store).toMatch(/MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2/);
+    expect(store).toContain('plan.change.kind === "insert_rows"');
   });
 
   it("is kept nowhere: not in the stores, the autosave or the saved layouts", () => {

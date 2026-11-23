@@ -221,3 +221,19 @@ describe("refusalText", () => {
     }
   });
 });
+
+describe("a blank line", () => {
+  it("is an empty value in a file of one column, between rows (skipping it would lose a row without a word)", () => {
+    expect(rowsOf("name\nAnn\n\nBo\n")).toEqual([["name"], ["Ann"], [""], ["Bo"]]);
+    expect(rowsOf("name\r\nAnn\r\n\r\n\r\nBo")).toEqual([["name"], ["Ann"], [""], [""], ["Bo"]]);
+  });
+
+  it("is still nothing at the start and the end of the file, and in a file of several columns", () => {
+    expect(rowsOf("\n\nname\nAnn\n\n\n")).toEqual([["name"], ["Ann"]]);
+    expect(rowsOf("a,b\n1,2\n\n3,4\n")).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+  });
+});

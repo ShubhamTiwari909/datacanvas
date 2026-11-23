@@ -1,6 +1,10 @@
 import { PREVIEW_TTL_MS, type PlannedChange } from "@datacanvas/database-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_PREVIEWS_PER_CONNECTION, PreviewStore } from "./preview-store";
+import {
+  MAX_IMPORT_PREVIEWS_PER_CONNECTION,
+  MAX_PREVIEWS_PER_CONNECTION,
+  PreviewStore,
+} from "./preview-store";
 
 const plan = (effect = "Changes one row."): PlannedChange => ({
   change: {
@@ -192,5 +196,37 @@ describe("PreviewStore: retention is bounded by the time to live", () => {
     expect(timer).toBeDefined();
     expect(timer?.hasRef()).toBe(false);
     store.dispose();
+  });
+});
+
+describe("PreviewStore and imports", () => {
+  const importPlan = (): PlannedChange => ({
+    change: {
+      kind: "insert_rows",
+      table: { schema: "public", name: "users" },
+      columns: ["name"],
+      rows: [["a"]],
+    },
+    statements: [],
+    expect: "any",
+    category: "row",
+    effect: "Adds one row.",
+    warnings: [],
+    destructive: false,
+  });
+
+  it("keeps only the latest import previews of a connection, since each can hold 100,000 rows, and leaves the other kinds alone", () => {
+    const { store } = setup();
+    const kept = store.put("c1", plan()).id;
+    const ids = Array.from({ length: MAX_IMPORT_PREVIEWS_PER_CONNECTION + 3 }, () =>
+      store.put("c1", importPlan()),
+    ).map((p) => p.id);
+    expect(store.count("c1")).toBe(MAX_IMPORT_PREVIEWS_PER_CONNECTION + 1);
+    expect(store.take("c1", ids[0]!)).toBeNull();
+    expect(store.take("c1", ids.at(-1)!)).not.toBeNull();
+    expect(store.take("c1", kept)).not.toBeNull();
+    // Another connection's imports are not counted against this one.
+    store.put("c2", importPlan());
+    expect(store.count("c2")).toBe(1);
   });
 });

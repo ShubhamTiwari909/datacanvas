@@ -130,3 +130,48 @@ describe("delete_rows", () => {
     expect(changeSchema.safeParse(remove({ [name]: "x" })).success).toBe(false);
   });
 });
+
+describe("review findings (1.9.0)", () => {
+  it("names a row once even when its key columns are written in another order, and keeps different keys apart", () => {
+    const composite = (a: string, b: string, swap = false) => {
+      const parts = [
+        { column: "a", value: a },
+        { column: "b", value: b },
+      ];
+      return { key: swap ? parts.reverse() : parts };
+    };
+    // The same row written in two orders is one row twice.
+    expect(
+      changeSchema.safeParse(remove({ rows: [composite("1", "2"), composite("1", "2", true)] }))
+        .success,
+    ).toBe(false);
+    // Two different rows that share their values in another column order are two rows.
+    expect(
+      changeSchema.safeParse(remove({ rows: [composite("1", "2"), composite("2", "1")] })).success,
+    ).toBe(true);
+  });
+
+  it("refuses a lone half of a surrogate pair in a value, a key and a cell, and accepts a whole pair", () => {
+    expect(
+      changeSchema.safeParse(update({ set: [{ column: "status", value: "a\ud800b" }] })).success,
+    ).toBe(false);
+    expect(
+      changeSchema.safeParse(update({ set: [{ column: "status", value: "a\udc00b" }] })).success,
+    ).toBe(false);
+    expect(
+      changeSchema.safeParse(update({ set: [{ column: "status", value: "a😀b" }] })).success,
+    ).toBe(true);
+    expect(
+      changeSchema.safeParse(remove({ rows: [{ key: [{ column: "id", value: "\ud800" }] }] }))
+        .success,
+    ).toBe(false);
+    const insert = (cell: string) => ({
+      kind: "insert_rows",
+      table,
+      columns: ["name"],
+      rows: [[cell]],
+    });
+    expect(changeSchema.safeParse(insert("x\ud83d")).success).toBe(false);
+    expect(changeSchema.safeParse(insert("x😀")).success).toBe(true);
+  });
+});

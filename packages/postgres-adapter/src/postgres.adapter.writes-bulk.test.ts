@@ -484,6 +484,36 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
     });
   });
 
+  describe("review findings (1.9.0)", () => {
+    it("refuses a row named twice in different spellings of its key ('1' and '01'), for an update and a delete", async () => {
+      await reset();
+      for (const change of [
+        setRows("b_items", { status: "done" }, [
+          { id: 1, expected: { status: "new" } },
+          { id: "01" as unknown as number, expected: { status: "new" } },
+        ]),
+        removeRows("b_items", [1, "01"]),
+      ]) {
+        const failed = await failure(adapter.previewChange(change));
+        expect(failed.message).toMatch(/listed twice/i);
+      }
+      // Nothing was written, and no trigger ran twice.
+      expect((await q("SELECT count(*)::int AS n FROM b_items"))[0]).toEqual({ n: 10 });
+    });
+
+    it("says a delete is found by its key: a row that changed since it was seen is still deleted, and a missing one is left out in words that do not claim a comparison", async () => {
+      await reset();
+      await sql.query("UPDATE b_items SET status = 'changed' WHERE id = 1");
+      await sql.query("DELETE FROM b_items WHERE id = 2");
+      const plan = await adapter.previewChange(removeRows("b_items", [1, 2, 3]));
+      expect(plan.skipped).toEqual([1]);
+      expect(plan.effect).toContain("is gone");
+      expect(plan.effect).toContain("does not compare values");
+      expect(plan.effect).not.toContain("changed since you loaded");
+      expect((await adapter.applyChange(plan)).rowCount).toBe(2);
+    });
+  });
+
   it("refuses a plan whose table was replaced between preview and apply, and writes nothing", async () => {
     await sql.query("CREATE TABLE b_swap (id int PRIMARY KEY, v text)");
     await sql.query("INSERT INTO b_swap VALUES (1,'a'),(2,'a')");

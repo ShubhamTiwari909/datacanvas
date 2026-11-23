@@ -262,9 +262,11 @@ test.describe("import", () => {
   }) => {
     test.setTimeout(240_000);
     const dialog = dialogOf(page);
+    // Past 10 MB on purpose: Next.js keeps only the first 10 MB of a body for its proxy unless the config says more.
     const body = Array.from(
       { length: 100_000 },
-      (_, i) => `Person ${i + 1},p${i + 1}@x.test,${i % 40},"a note, number ${i + 1}"`,
+      (_, i) =>
+        `Person ${i + 1},p${i + 1}@x.test,${i % 40},"a note, number ${i + 1} ${"x".repeat(90)}"`,
     ).join("\n");
     await dialog.getByLabel("CSV file").setInputFiles(file(`Full Name,Email,Qty,Note\n${body}\n`));
     await expect(dialog.getByRole("status").first()).toContainText("100,000 rows");

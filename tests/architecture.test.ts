@@ -223,3 +223,22 @@ describe("writes are a separate capability (1.4.0)", () => {
     }
   });
 });
+
+describe("the proxy buffers the largest body a route accepts", () => {
+  it("next.config.ts sets proxyClientMaxBodySize at or above every body limit (Next keeps only 10 MB otherwise)", () => {
+    const config = readFileSync(path.join(root, "apps/web/next.config.ts"), "utf8");
+    const match = /proxyClientMaxBodySize:\s*"(\d+)mb"/.exec(config);
+    expect(match, "proxyClientMaxBodySize in MB").not.toBeNull();
+    const configured = Number(match![1]) * 1024 * 1024;
+    const limits = [
+      readFileSync(path.join(root, "packages/shared-types/src/writes.ts"), "utf8"),
+      readFileSync(path.join(root, "packages/shared-types/src/connections.ts"), "utf8"),
+    ].flatMap((code) =>
+      [...code.matchAll(/(?:IMPORT|VALIDATE)_MAX_BODY_BYTES = (\d+) \* 1024 \* 1024/g)].map(
+        (m) => Number(m[1]) * 1024 * 1024,
+      ),
+    );
+    expect(limits.length).toBe(2);
+    for (const limit of limits) expect(configured).toBeGreaterThanOrEqual(limit);
+  });
+});

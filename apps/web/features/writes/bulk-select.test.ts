@@ -93,6 +93,21 @@ describe("toggling rows", () => {
     expect(toggleRow(range.selection, blocked, 0, true, range.anchor).selection.size).toBe(1);
   });
 
+  it("skips a row that cannot be chosen in the middle of a range, and says when the most is reached", () => {
+    const holes = [...selectable];
+    holes[3] = null;
+    const first = toggleRow(EMPTY_SELECTION, holes, 1, false, null);
+    const range = toggleRow(first.selection, holes, 5, true, first.anchor);
+    expect([...range.selection.values()].map((r) => r.key[0]!.value)).toEqual(["2", "3", "5", "6"]);
+    expect(range.limited).toBe(false);
+    // A range that does not fit in the most rows takes what fits and says so.
+    const long = pageSelectable(page(MAX_BULK_ROWS + 20), info);
+    const first500 = toggleRow(EMPTY_SELECTION, long, 0, false, null);
+    const wide = toggleRow(first500.selection, long, MAX_BULK_ROWS + 10, true, first500.anchor);
+    expect(wide.selection.size).toBe(MAX_BULK_ROWS);
+    expect(wide.limited).toBe(true);
+  });
+
   it("keeps the choice when the page changes, and counts a row once wherever it is shown", () => {
     const firstPage = pageSelectable(page(5, 1), info);
     const chosen = togglePage(EMPTY_SELECTION, firstPage);

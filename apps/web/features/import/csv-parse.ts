@@ -113,24 +113,32 @@ export function detectDelimiter(text: string): Delimiter {
 }
 
 export type Parsed =
-  | { ok: true; rows: string[][]; delimiter: Delimiter }
+  | { ok: true; rows: string[][]; delimiter: Delimiter; lines: number[] }
   | { ok: false; refusal: CsvRefusal; row?: number };
 
 /**
- * Parse text into rows of fields. Row numbers in a refusal are the file's rows (the first row is 1, a line break
- * inside quotes does not start a new row). A line with no characters is skipped, except in a file of one column, where
+ * Parse text into rows of fields. Row numbers in a refusal are the file's lines (the first line is 1; blank lines and
+ * line breaks inside quotes count, so the number is where a text editor shows the row). A line with no characters is skipped, except in a file of one column, where
  * a blank line between rows is an empty value (skipping it would lose a row without a word); the fields of a row are
  * as written.
  */
 export function parseCsv(text: string, delimiter: Delimiter): Parsed {
   if (text.includes("\u0000")) {
     // The first row with a NUL, so the person can find it.
+    // Lines are counted as the parser counts them: \n, \r\n and a lone \r each end one.
+    const nul = text.indexOf("\u0000");
     let row = 1;
-    for (let i = 0; i < text.indexOf("\u0000"); i++) if (text[i] === "\n") row += 1;
+    for (let i = 0; i < nul; i++) {
+      if (text[i] === "\r" && text[i + 1] === "\n") continue;
+      if (text[i] === "\n" || text[i] === "\r") row += 1;
+    }
     return { ok: false, refusal: "nul", row };
   }
   if (text.trim() === "") return { ok: false, refusal: "empty" };
   const rows: string[][] = [];
+  // The file's line each row starts on, parallel to `rows` (blank lines and line breaks inside quotes shift it).
+  const lines: number[] = [];
+  let startLine = 1;
   let width = -1;
   let row: string[] = [];
   let rowNumber = 1;
@@ -146,6 +154,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
       return { ok: false, refusal: "ragged", row: rowNumber };
     }
     rows.push(row);
+    lines.push(startLine);
     // The header is one of the rows: the data may hold the most rows, plus the header.
     if (rows.length > IMPORT_MAX_ROWS + 1) return { ok: false, refusal: "too_many_rows" };
     row = [];
@@ -163,6 +172,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
       if (text[i] === "\r" && text[i + 1] === "\n") i += 1;
       i += 1;
       if (width === 1 && i <= lastContent) {
+        startLine = rowNumber;
         row = [""];
         const refused = pushRow();
         if (refused) return refused;
@@ -171,6 +181,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
       continue;
     }
     // One row: fields separated by the delimiter, up to a line break outside quotes or the end.
+    startLine = rowNumber;
     for (;;) {
       let field: string;
       if (text[i] === '"') {
@@ -233,5 +244,5 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
       rowNumber += 1;
     }
   }
-  return { ok: true, rows, delimiter };
+  return { ok: true, rows, delimiter, lines };
 }

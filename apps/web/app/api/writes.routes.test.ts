@@ -542,7 +542,7 @@ describe("requests are strict JSON with no SQL anywhere", () => {
 
   it("refuses a body that is too large (413)", async () => {
     const id = await unlocked();
-    // The preview takes the size of an import (24 MB), so a body past that is what is refused as too large.
+    // The preview takes the size of an import, so a body past that is what is refused as too large.
     const huge = await preview(id, updateEmail("x".repeat(IMPORT_MAX_BODY_BYTES + 1)));
     expect(huge.status).toBe(413);
   });

@@ -96,7 +96,11 @@ export async function requestPreview(
 export async function requestApply(
   connectionId: string,
   previewId: string,
-  /** Aborting it cancels an import between its batches, and everything is rolled back. */
+  /**
+   * Aborting it cancels a change of several statements (an import, a bulk change) between them, and everything is
+   * rolled back. A change of one statement may still commit on the server after the abort: the client drops the
+   * answer, so reload the table to see it.
+   */
   signal?: AbortSignal,
 ): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {
   const result = await apiRequest(`${base(connectionId)}/writes/apply`, applyChangeResponseSchema, {

@@ -36,7 +36,15 @@ export async function apiRequest<S extends z.ZodType>(
     maxBodyBytes?: number;
   } = {},
 ): Promise<ApiResult<z.output<S>>> {
-  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  let body: string | undefined;
+  try {
+    body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  } catch {
+    return failure(
+      "bad_request",
+      "This request holds something that cannot be sent (a value that is not plain data).",
+    );
+  }
   if (
     body !== undefined &&
     options.maxBodyBytes !== undefined &&
@@ -44,7 +52,7 @@ export async function apiRequest<S extends z.ZodType>(
   ) {
     return failure(
       "payload_too_large",
-      `This is more than DataCanvas can send in one request (${Math.round(options.maxBodyBytes / (1024 * 1024))} MB as it is sent, which is more than the file itself because every field is quoted). Import fewer rows or columns, or split the file.`,
+      `This is more than DataCanvas can send in one request (${Math.round(options.maxBodyBytes / (1024 * 1024))} MB as it is sent, which is more than the data itself because every value is quoted and escaped). Send fewer rows or columns; for an import, split the file.`,
     );
   }
   let response: Response;

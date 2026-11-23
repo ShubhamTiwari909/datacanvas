@@ -189,17 +189,18 @@ export function bulkUpdateBeforeAfter(
   column: string,
   value: string | null,
 ): BeforeAfterRow[] {
-  return rows.slice(0, BULK_PREVIEW_ROWS).flatMap((r) => {
-    const cell = r.cells[column];
-    if (!cell || cell.truncated) return [];
-    return [
-      {
-        column: r.key.map((k) => `${k.column} ${k.value}`).join(", "),
-        before: shownValue(cell.value),
-        after: shownValue(value),
-      },
-    ];
-  });
+  // The rows that will be written (a value that was cut cannot be compared), then the first of them.
+  return rows
+    .filter((r) => {
+      const cell = r.cells[column];
+      return cell !== undefined && !cell.truncated;
+    })
+    .slice(0, BULK_PREVIEW_ROWS)
+    .map((r) => ({
+      column: r.key.map((k) => `${k.column} ${k.value}`).join(", "),
+      before: shownValue(r.cells[column]!.value),
+      after: shownValue(value),
+    }));
 }
 
 /** The first rows of a bulk delete, labelled by their key. */

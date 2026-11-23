@@ -63,8 +63,13 @@ export function missingRequired(
   mapping: ReadonlyArray<string | null>,
 ): string[] {
   const mapped = new Set(mapping.filter((m): m is string => m !== null));
-  return importableColumns(info)
-    .filter((c) => !c.nullable && !c.hasDefault && c.identity === null && !mapped.has(c.name))
+  // Every column of the table, not only those a person can give a value to here: a NOT NULL column with no default
+  // that the file cannot fill (a `bytea`, say) is named now, not refused by the database as a bare not-null error.
+  return info.columns
+    .filter(
+      (c) =>
+        !c.generated && !c.nullable && !c.hasDefault && c.identity === null && !mapped.has(c.name),
+    )
     .map((c) => c.name);
 }
 
@@ -88,6 +93,11 @@ export function mappingProblem(
   if (dataRows > IMPORT_MAX_ROWS) return "Too many rows for one import.";
   const missing = missingRequired(info, mapping);
   if (missing.length > 0) {
+    const importable = new Set(importableColumns(info).map((c) => c.name));
+    const stuck = missing.filter((c) => !importable.has(c));
+    if (stuck.length > 0) {
+      return `${stuck.join(", ")} ${stuck.length === 1 ? "needs" : "need"} a value (NOT NULL, no default) but cannot be given one by an import, so the database would refuse every row.`;
+    }
     return `${missing.join(", ")} ${missing.length === 1 ? "needs" : "need"} a value (NOT NULL, no default): choose ${missing.length === 1 ? "a column of the file" : "columns of the file"} for ${missing.length === 1 ? "it" : "them"}.`;
   }
   return null;

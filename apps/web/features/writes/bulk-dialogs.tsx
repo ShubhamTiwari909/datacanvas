@@ -69,6 +69,9 @@ function Form({
   const choices = info.columns.filter((c) => c.editable && !c.generated && !c.inKey);
   const [column, setColumn] = useState(choices[0]?.name ?? "");
   const [value, setValue] = useState<ValueState>({ mode: "value", text: "" });
+  // Nothing is previewed until the person has given a value (an untouched form would write "" to every row, and
+  // show "false" for a boolean it does not hold).
+  const [touched, setTouched] = useState(false);
   const chosen = choices.find((c) => c.name === column);
   const next = value.mode === "null" ? null : value.text;
   const built = chosen ? buildUpdateRows(table, rows, chosen.name, next) : null;
@@ -82,7 +85,7 @@ function Form({
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!built || !chosen || problem) return;
+        if (!built || !chosen || problem || !touched) return;
         onPreview({
           change: built.change,
           title: `Set ${chosen.name} on ${built.change.rows.length} rows of ${table.schema}.${table.name}`,
@@ -116,6 +119,7 @@ function Form({
                 onChange={(event) => {
                   setColumn(event.target.value);
                   setValue({ mode: "value", text: "" });
+                  setTouched(false);
                 }}
               >
                 {choices.map((c) => (
@@ -142,7 +146,10 @@ function Form({
                   state={value}
                   offers={{ null: chosen.nullable, default: false }}
                   blurred={blurred}
-                  onChange={setValue}
+                  onChange={(next) => {
+                    setValue(next);
+                    setTouched(true);
+                  }}
                 />
               )}
             </FormField>
@@ -153,8 +160,9 @@ function Form({
       {built && built.leftOut > 0 ? (
         <p role="note" className="text-xs text-muted-foreground">
           {built.leftOut} of the chosen {built.leftOut === 1 ? "row holds" : "rows hold"} a value in
-          this column that is too long to compare, so {built.leftOut === 1 ? "it is" : "they are"}{" "}
-          left out.
+          this column that is too long to compare or was not shown when{" "}
+          {built.leftOut === 1 ? "it was" : "they were"} chosen, so{" "}
+          {built.leftOut === 1 ? "it is" : "they are"} left out.
         </p>
       ) : null}
 
@@ -162,7 +170,7 @@ function Form({
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" disabled={!built || problem !== null}>
+        <Button type="submit" disabled={!built || problem !== null || !touched}>
           Preview
         </Button>
         <p

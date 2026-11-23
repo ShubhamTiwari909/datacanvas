@@ -206,9 +206,13 @@ const GridRow = memo(function GridRow({
             aria-label={`Select row ${r + 1}`}
             title={block ?? undefined}
             checked={selected}
-            disabled={block !== null}
+            aria-disabled={block !== null}
             onChange={() => undefined}
-            onClick={(event) => selection.onToggle(r, event.shiftKey)}
+            onClick={(event) => {
+              // Not `disabled`: that drops the box out of keyboard focus, and with it the reason in the title.
+              if (block !== null) event.preventDefault();
+              else selection.onToggle(r, event.shiftKey);
+            }}
           />
         </td>
       ) : null}

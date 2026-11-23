@@ -75,7 +75,7 @@ export function useRowEditing({
   const [notice, setNotice] = useState<string | null>(null);
   // The rows chosen for a bulk change: by key, in memory, kept across pages and filters, and let go of when the
   // table changes (the choice belongs to the table it was made in).
-  const tableKey = `${table.schema}.${table.name}`;
+  const tableKey = JSON.stringify([connectionId, table.schema, table.name]);
   const [chosen, setChosen] = useState<{
     table: string;
     rows: Selection;
@@ -84,6 +84,17 @@ export function useRowEditing({
     anchorPage: unknown;
     limited: boolean;
   }>({ table: tableKey, rows: EMPTY_SELECTION, anchor: null, anchorPage: null, limited: false });
+  // Another table or connection: the old choice is dropped (state adjusted while rendering), not just hidden, so
+  // coming back to a table never restores rows and snapshots chosen earlier.
+  if (chosen.table !== tableKey) {
+    setChosen({
+      table: tableKey,
+      rows: EMPTY_SELECTION,
+      anchor: null,
+      anchorPage: null,
+      limited: false,
+    });
+  }
   const selected = chosen.table === tableKey ? chosen.rows : EMPTY_SELECTION;
   const [setting, setSetting] = useState(false);
   const [importing, setImporting] = useState(false);

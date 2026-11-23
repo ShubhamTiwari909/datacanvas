@@ -89,5 +89,7 @@ describe("apiRequest and the size of a body", () => {
       maxBodyBytes: 1500,
     });
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("payload_too_large");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

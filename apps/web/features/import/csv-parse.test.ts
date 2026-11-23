@@ -109,11 +109,16 @@ describe("parseCsv", () => {
     ]);
   });
 
+  it("says which line of the file each row starts on, past blank lines and line breaks in quotes", () => {
+    const parsed = parseCsv('a,b\n\n"x\ny",1\n\n3,4\n', ",");
+    expect(parsed.ok && parsed.lines).toEqual([1, 3, 6]);
+  });
+
   it("reads one column, where an empty line is not a row but a quoted empty value is", () => {
     expect(rowsOf('a\nx\n""\ny\n')).toEqual([["a"], ["x"], [""], ["y"]]);
   });
 
-  it("refuses a row with a different number of fields, naming the row (a quoted line break does not count as a row)", () => {
+  it("refuses a row with a different number of fields, naming the line (a line break inside quotes counts, as in a text editor)", () => {
     expect(refusal("a,b\n1,2\n3\n")).toEqual({ refusal: "ragged", row: 3 });
     expect(refusal("a,b\n1,2,3\n")).toEqual({ refusal: "ragged", row: 2 });
     expect(refusal('a,b\n"one\ntwo",2\n3\n')).toEqual({ refusal: "ragged", row: 4 });
@@ -127,6 +132,8 @@ describe("parseCsv", () => {
 
   it("refuses a NUL character, an empty file and a file of nothing but white space", () => {
     expect(refusal("a,b\n1,x\u0000y\n")).toEqual({ refusal: "nul", row: 2 });
+    expect(refusal("a,b\r1,x\u0000y\r")).toEqual({ refusal: "nul", row: 2 });
+    expect(refusal("a,b\r\n1,x\u0000y\r\n")).toEqual({ refusal: "nul", row: 2 });
     expect(refusal("")).toEqual({ refusal: "empty", row: undefined });
     expect(refusal(" \n\r\n ")).toEqual({ refusal: "empty", row: undefined });
   });

@@ -54,17 +54,17 @@ export function useValidation(
   return { run, outcome, busy: outcome?.status === "loading" };
 }
 
-/** The row numbers, moved by `offset` (an import counts the header of the file as row 1). */
-const listRows = (rows: readonly number[], count: number, offset: number) =>
-  `Row${rows.length === 1 ? "" : "s"} ${rows.map((r) => r + offset).join(", ")}${count > rows.length ? ` and ${count - rows.length} more` : ""}`;
+/** The row numbers, as `label` says them (an import says the file's line the row is on). */
+const listRows = (rows: readonly number[], count: number, label: (row: number) => number) =>
+  `Row${rows.length === 1 ? "" : "s"} ${rows.map(label).join(", ")}${count > rows.length ? ` and ${count - rows.length} more` : ""}`;
 
 export function ValidationPanel({
   validation,
-  rowOffset = 0,
+  rowLabel = (row) => row,
 }: {
   validation: Validation;
-  /** Added to the row numbers of the report: 1 for a file whose first row is its header. */
-  rowOffset?: number;
+  /** The number to show for a row of the report (the report counts the rows it was sent, from 1). */
+  rowLabel?: (row: number) => number;
 }) {
   const { outcome } = validation;
   // A region that is always in the page, so a screen reader announces what appears in it.
@@ -76,12 +76,18 @@ export function ValidationPanel({
       {outcome?.status === "error" ? (
         <p className="text-destructive">The values could not be checked. {outcome.message}</p>
       ) : null}
-      {outcome?.status === "done" ? <Report report={outcome.report} rowOffset={rowOffset} /> : null}
+      {outcome?.status === "done" ? <Report report={outcome.report} rowLabel={rowLabel} /> : null}
     </div>
   );
 }
 
-function Report({ report, rowOffset }: { report: ValidationReport; rowOffset: number }) {
+function Report({
+  report,
+  rowLabel,
+}: {
+  report: ValidationReport;
+  rowLabel: (row: number) => number;
+}) {
   const clean = report.issues.length === 0;
   const many = report.rows > 1;
   const n = (count: number) => count.toLocaleString("en-US");
@@ -116,7 +122,7 @@ function Report({ report, rowOffset }: { report: ValidationReport; rowOffset: nu
             {report.issues.map((issue, i) => (
               <li key={i}>
                 {describeIssue(issue)}
-                {many ? ` ${listRows(issue.rows, issue.count, rowOffset)}.` : ""}
+                {many ? ` ${listRows(issue.rows, issue.count, rowLabel)}.` : ""}
               </li>
             ))}
           </ul>

@@ -13,7 +13,7 @@
  */
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import {
   IMPORT_MAX_FILE_BYTES,
@@ -127,6 +127,8 @@ function Body({
   const [emptyIsNull, setEmptyIsNull] = useState(true);
   const [words, setWords] = useState<readonly string[]>([]);
   const [custom, setCustom] = useState("");
+  // The field answers each key at once; the import is rebuilt (up to 100,000 rows) when typing pauses.
+  const deferredCustom = useDeferredValue(custom);
   const [picked, setPicked] = useState<{ key: string; values: Array<string | null> } | null>(null);
   const counter = useRef(0);
 
@@ -140,6 +142,10 @@ function Body({
     [loaded, delimiter],
   );
   const rows = parsed?.ok ? parsed.rows : null;
+  // The file's line of a row the check names (it counts the rows it was sent, from 1): blank lines and line breaks in
+  // quotes are in the file but not among the rows.
+  const fileLine = (row: number) =>
+    parsed?.ok ? (parsed.lines[row - 1 + (header ? 1 : 0)] ?? row) : row;
 
   // What each file column is called: its header, or "Column 1", "Column 2" when the first row is data.
   const names = useMemo(
@@ -154,8 +160,8 @@ function Body({
   );
   const mapping = picked && picked.key === mappingKey ? picked.values : suggested;
   const rule: NullRule = useMemo(
-    () => ({ emptyIsNull, words: custom === "" ? words : [...words, custom] }),
-    [emptyIsNull, words, custom],
+    () => ({ emptyIsNull, words: deferredCustom === "" ? words : [...words, deferredCustom] }),
+    [emptyIsNull, words, deferredCustom],
   );
   const dataRows = rows ? dataRowsOf({ rows, header }).length : 0;
 
@@ -175,6 +181,9 @@ function Body({
   );
 
   async function choose(file: File | undefined) {
+    // A later choice (or a cleared one) makes an earlier file's slow read stale: only the latest is used.
+    counter.current += 1;
+    const mine = counter.current;
     setLoaded(null);
     setProblem(null);
     setPicked(null);
@@ -184,13 +193,33 @@ function Body({
       return;
     }
     const decoded = decodeUtf8(await file.arrayBuffer());
+    if (counter.current !== mine) return;
     if (!decoded.ok) {
       setProblem(refusalText("not_utf8"));
       return;
     }
-    counter.current += 1;
-    setLoaded({ text: decoded.text, name: file.name, size: file.size, id: counter.current });
+    setLoaded({ text: decoded.text, name: file.name, size: file.size, id: mine });
   }
+
+  // Shown with the refusals too: "choose the separator it uses" needs the control to choose it with.
+  const separatorControl = loaded ? (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="import-separator">Separator</Label>
+      <select
+        id="import-separator"
+        className={SELECT_CLASS}
+        value={choice}
+        onChange={(event) => setChoice(event.target.value as "auto" | Delimiter)}
+      >
+        <option value="auto">Found: {DELIMITER_LABEL[detectDelimiter(loaded.text)]}</option>
+        {DELIMITERS.map((d) => (
+          <option key={d} value={d}>
+            {DELIMITER_LABEL[d]}
+          </option>
+        ))}
+      </select>
+    </div>
+  ) : null;
 
   const importable = importableColumns(info);
   const refusal = parsed && !parsed.ok ? refusalText(parsed.refusal, parsed.row) : null;
@@ -229,28 +258,12 @@ function Body({
           </p>
         ) : null}
       </div>
+      {refusal ? separatorControl : null}
 
       {rows ? (
         <>
           <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="import-separator">Separator</Label>
-              <select
-                id="import-separator"
-                className={SELECT_CLASS}
-                value={choice}
-                onChange={(event) => setChoice(event.target.value as "auto" | Delimiter)}
-              >
-                <option value="auto">
-                  Found: {DELIMITER_LABEL[detectDelimiter(loaded!.text)]}
-                </option>
-                {DELIMITERS.map((d) => (
-                  <option key={d} value={d}>
-                    {DELIMITER_LABEL[d]}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {separatorControl}
             <label className="flex items-center gap-2 pb-1.5 text-sm">
               <input
                 type="checkbox"
@@ -420,11 +433,11 @@ function Body({
             </div>
           ) : null}
 
-          <ValidationPanel validation={validation} rowOffset={header ? 1 : 0} />
+          <ValidationPanel validation={validation} rowLabel={fileLine} />
           {validation.outcome?.status === "done" ? (
             <p className="text-xs text-muted-foreground">
-              Row numbers are the file&apos;s rows
-              {header ? ", the first row (the names) being row 1" : ""}.
+              Row numbers are the file&apos;s lines, as a text editor counts them
+              {header ? " (the first line, the names, is line 1)" : ""}.
             </p>
           ) : null}
         </>

@@ -330,12 +330,13 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
       ),
     );
     expect(plan.statements).toHaveLength(3);
-    // Not aborted at the three looks before the statements, aborted afterwards: only the check before the commit sees it.
+    // Not aborted at the look before the transaction and the three before the statements, aborted afterwards: only the
+    // check before the commit sees it.
     let looked = 0;
     const signal = {
       get aborted() {
         looked += 1;
-        return looked > 3;
+        return looked > 4;
       },
     };
     await failure(adapter.applyChange(plan, signal));
@@ -354,6 +355,20 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
     expect(await count("i_swallowing")).toBe(0);
   });
 
+  it("refuses a cancel that came before it began, without taking a connection or writing", async () => {
+    await sql.query("TRUNCATE i_items");
+    const plan = await adapter.previewChange(
+      importRows(
+        "i_items",
+        ["id", "name"],
+        items(10).map((r) => [r[0]!, r[1]!]),
+      ),
+    );
+    const error = await failure(adapter.applyChange(plan, { aborted: true }));
+    expect(error.code).toBe("unexpected");
+    expect(await count("i_items")).toBe(0);
+  });
+
   it("stops between batches when it is cancelled, and nothing is kept", async () => {
     await sql.query("TRUNCATE i_items");
     const plan = await adapter.previewChange(
@@ -365,11 +380,12 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
     );
     expect(plan.statements).toHaveLength(6);
     let looked = 0;
-    // Cancelled after the third batch was run.
+    // Not aborted at the look before the transaction and the three before the first three batches: cancelled after the
+    // third batch was run.
     const signal = {
       get aborted() {
         looked += 1;
-        return looked > 3;
+        return looked > 4;
       },
     };
     await failure(adapter.applyChange(plan, signal));

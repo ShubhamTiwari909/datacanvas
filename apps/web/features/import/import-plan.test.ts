@@ -106,8 +106,9 @@ describe("suggestMapping, with names that differ only loosely", () => {
     expect(suggestMapping(["fullName", "full_name"], two)).toEqual(["fullName", "full_name"]);
   });
 
-  it("suggests nothing for a header that is empty", () => {
-    expect(suggestMapping(["", ""], info)).toEqual([null, null]);
+  it("suggests nothing for a header that is empty, even for a column whose loose name is empty", () => {
+    const odd = { ...info, columns: [...info.columns, column("_")] };
+    expect(suggestMapping(["", ""], odd)).toEqual([null, null]);
   });
 });
 

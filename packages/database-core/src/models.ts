@@ -388,13 +388,10 @@ export const ROWS_MAX_FILTER_GROUPS = 3;
 export type RowSortDirection = "asc" | "desc";
 
 /**
- * What a condition can ask. `eq` and the comparisons are typed (the value must be valid for the column's
- * type); `neq` also matches NULL; `contains` and `starts_with` ignore case and treat every character of the
- * value as itself (there are no wildcards); `is_null` and `is_not_null` take no value.
- */
-/**
- * The filter operators. `contains`, `starts_with`, `ends_with` and `not_contains` compare literal text
- * (case-insensitive); `matches` is the one operator that reads its value as a case-insensitive regular expression.
+ * The filter operators. `eq` and the comparisons are typed (the value must be valid for the column's type); `neq`
+ * also matches NULL; `contains`, `starts_with`, `ends_with` and `not_contains` compare literal text
+ * (case-insensitive, no wildcards); `matches` is the one operator that reads its value as a case-insensitive
+ * regular expression; `is_null` and `is_not_null` take no value.
  */
 export const ROW_FILTER_OPS = [
   "eq",

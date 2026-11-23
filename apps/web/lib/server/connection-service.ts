@@ -375,12 +375,19 @@ export class ConnectionService {
     const encoder = new TextEncoder();
     let bytes = 0;
     let leftOut: string[] = [];
+    /** The rows actually written, and whether a batch was left out for the size limit. */
+    let rowsWritten = 0;
+    let refused = false;
     /** Write a piece; false when the file has reached its size limit. */
     const write = async (text: string, limited = false): Promise<boolean> => {
       if (text === "") return true;
       const chunk = encoder.encode(text);
       // A batch of rows that would pass the limit is left out whole, so the file never grows past it by a batch.
-      if (limited && bytes + chunk.byteLength > EXPORT_MAX_BYTES) return false;
+      // The first batch is always written: a file with a header and no rows would say nothing about the table.
+      if (limited && rowsWritten > 0 && bytes + chunk.byteLength > EXPORT_MAX_BYTES) {
+        refused = true;
+        return false;
+      }
       bytes += chunk.byteLength;
       // A write waits for the reader of the stream. A reader that stopped (a closed laptop, a stalled socket) would
       // hold the connection, its transaction and the one export slot for ever: after a minute it is given up.
@@ -425,8 +432,20 @@ export class ConnectionService {
               );
               return undefined;
             }
-            if (event.kind === "rows") return write(formatter.rows(event.rows), true);
-            await write(formatter.end({ ...event, leftOut }));
+            if (event.kind === "rows") {
+              const more = await write(formatter.rows(event.rows), true);
+              if (!refused) rowsWritten += event.rows.length;
+              return more;
+            }
+            // The end note counts what the file holds, and says "bytes" when a batch was left out for the limit.
+            await write(
+              formatter.end({
+                ...event,
+                rows: rowsWritten,
+                cut: refused ? "bytes" : event.cut,
+                leftOut,
+              }),
+            );
             return undefined;
           },
           signal,

@@ -10,3 +10,6 @@ package-lock.json
 docs/development-plan.md
 .package
 *.tgz
+
+# Astro generates these when the docs site is built (site/ has its own .gitignore)
+site/.astro

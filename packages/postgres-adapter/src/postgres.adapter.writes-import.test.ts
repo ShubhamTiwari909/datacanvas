@@ -392,7 +392,8 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
     );
     await sql.query("DROP TABLE i_swap");
     await sql.query("CREATE TABLE i_swap (id int PRIMARY KEY, v text)");
-    await failure(adapter.applyChange(plan));
+    // The table was replaced after the preview: the guard (not some other failure) refuses.
+    expect((await failure(adapter.applyChange(plan))).code).toBe("row_changed");
     expect(await count("i_swap")).toBe(0);
   });
 
@@ -429,7 +430,7 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter import", () => {
           ),
         )
       ).code,
-    ).toBeTruthy();
+    ).toBe("check_violation");
     expect(await count("i_part")).toBe(2);
     await adapter.applyChange(
       await adapter.previewChange({

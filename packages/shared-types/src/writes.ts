@@ -19,20 +19,20 @@ export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
 /** Rows in one bulk change. */
 export const WRITE_MAX_BULK_ROWS = 500;
-/** Limits of an import (mirrored from the core): rows, columns, characters in a cell, rows in one statement. */
+/** Limits of an import (mirrored from the core): rows, columns, characters in a cell. */
 export const WRITE_MAX_IMPORT_ROWS = 100_000;
 export const WRITE_MAX_IMPORT_COLUMNS = 50;
 export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
 /**
  * The largest body of a preview or a validation: an import carries its rows as JSON (a file of up to 20 MB, and every
- * field gets two quotes, so 100,000 rows of 50 short fields is about 30 MB). `next.config.ts` lets the proxy buffer more
+ * field gets two quotes, so 100,000 rows of 50 short fields is about 30 MB). A file of 20 MB can still come to more
+ * than 32 MB as JSON when it is full of characters JSON escapes (backslashes, tabs, control characters, line breaks
+ * inside quotes): it is then refused, in plain words, before anything is sent. `next.config.ts` lets the proxy buffer more
  * than this (a rule test pins it): Next keeps only the first 10 MB of a body unless told otherwise.
  */
 export const IMPORT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
-/** The largest preview request body: a row change can carry long values. */
-export const WRITE_MAX_BODY_BYTES = 1024 * 1024;
 
 function utf8Bytes(name: string): number {
   let bytes = 0;

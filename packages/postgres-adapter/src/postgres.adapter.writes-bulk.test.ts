@@ -28,6 +28,8 @@ const SQL = `
     id int PRIMARY KEY, status text, qty int CHECK (qty >= 0), note text,
     total int GENERATED ALWAYS AS (qty * 2) STORED
   );
+  CREATE TABLE b_short (id int PRIMARY KEY, code varchar(3));
+  INSERT INTO b_short VALUES (1, 'a');
   CREATE TABLE b_audit (what text);
   CREATE FUNCTION b_audit_fn() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN INSERT INTO b_audit VALUES (TG_OP); RETURN COALESCE(NEW, OLD); END $$;
@@ -145,7 +147,22 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
       expect(text).not.toContain("done");
     });
 
-    it("sets NULL, and keeps NULL apart from the empty string in the check of what was seen", async () => {
+    it("refuses at the preview a value too long for a varchar(n), instead of cutting it in the check and failing at apply", async () => {
+      const error = await failure(
+        adapter.previewChange(
+          setRows("b_short", { code: "abcd" }, [{ id: 1, expected: { code: "a" } }]),
+        ),
+      );
+      expect(error.code).toBe("invalid_value");
+      // Spaces at the end past the length are accepted by the assignment, as by the database.
+      const plan = await adapter.previewChange(
+        setRows("b_short", { code: "ab   " }, [{ id: 1, expected: { code: "a" } }]),
+      );
+      await adapter.applyChange(plan);
+      expect(await q("SELECT code FROM b_short")).toEqual([{ code: "ab " }]);
+    });
+
+    it("keeps NULL apart from the empty string in the check of what was seen", async () => {
       await reset();
       await sql.query(
         "UPDATE b_items SET note = NULL WHERE id = 1; UPDATE b_items SET note = '' WHERE id = 2",
@@ -527,7 +544,7 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
     await sql.query("DROP TABLE b_swap");
     await sql.query("CREATE TABLE b_swap (id int PRIMARY KEY, v text)");
     await sql.query("INSERT INTO b_swap VALUES (1,'a'),(2,'a')");
-    await failure(adapter.applyChange(plan));
+    expect((await failure(adapter.applyChange(plan))).code).toBe("row_changed");
     expect(await q("SELECT v FROM b_swap ORDER BY id")).toEqual([{ v: "a" }, { v: "a" }]);
   });
 });

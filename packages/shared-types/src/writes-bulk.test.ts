@@ -45,6 +45,14 @@ describe("update_rows", () => {
           { column: "a", value: "1" },
           { column: "a", value: "2" },
         ],
+        // Each row has two seen values, so the length check passes and only the duplicate-column rule can refuse.
+        rows: [0, 1].map((id) => ({
+          ...row(id),
+          expected: [
+            { column: "a", value: "1" },
+            { column: "a", value: "2" },
+          ],
+        })),
       },
     ],
     ["a row without the value that was seen", { rows: [{ ...row(1), expected: [] }] }],
@@ -71,6 +79,29 @@ describe("update_rows", () => {
     ["a value that is not text or null", { set: [{ column: "status", value: 5 }] }],
   ])("refuses %s", (_name, over) => {
     expect(changeSchema.safeParse(update(over)).success).toBe(false);
+  });
+
+  it("names the duplicate column as the one reason when a column is set twice", () => {
+    const result = changeSchema.safeParse(
+      update({
+        set: [
+          { column: "a", value: "1" },
+          { column: "a", value: "2" },
+        ],
+        rows: [
+          {
+            ...row(1),
+            expected: [
+              { column: "a", value: "1" },
+              { column: "a", value: "2" },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.issues.map((i) => i.message)).toEqual(["A column is changed twice."]);
   });
 
   it(`refuses more than ${WRITE_MAX_BULK_ROWS} rows and accepts exactly that many`, () => {

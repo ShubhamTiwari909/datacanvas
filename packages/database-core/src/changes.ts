@@ -381,6 +381,7 @@ export const STRUCTURE_CHANGE_KINDS = [
 /** Changes that destroy something: the person must tick that they read the preview. */
 export const DESTRUCTIVE_CHANGE_KINDS: readonly ChangeKind[] = [
   "delete_row",
+  "delete_rows",
   "drop_constraint",
   "drop_index",
   "drop_column",

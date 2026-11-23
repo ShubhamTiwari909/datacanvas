@@ -745,10 +745,7 @@ describe("bulk row changes are many single-row changes in one transaction, never
       bulk.indexOf("async function planUpdateRows"),
       bulk.indexOf("async function planDeleteRows"),
     );
-    const deletePlan = bulk.slice(
-      bulk.indexOf("async function planDeleteRows"),
-      bulk.indexOf("export function planRowChange"),
-    );
+    const deletePlan = bulk.slice(bulk.indexOf("async function planDeleteRows"), bulk.length);
     expect(updatePlan).toMatch(
       /buildUpdateRow\(change\.table, keys\[i\]!, set, change\.rows\[i\]!\.expected\)/,
     );

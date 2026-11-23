@@ -12,6 +12,7 @@ import type { DatabaseAdapter, WritableAdapter } from "../adapter.js";
 import type {
   AppliedChange,
   Change,
+  CancelSignal,
   PlannedChange,
   RoleInfo,
   StructureChange,
@@ -547,8 +548,11 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
     return copy(this.writes.previewChange(copy(change)));
   }
 
-  async applyChange(plan: PlannedChange): Promise<AppliedChange> {
+  async applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange> {
     this.requireConnection();
+    // As the PostgreSQL adapter: a change cancelled before it runs is refused, and nothing is applied.
+    if (signal?.aborted)
+      throw new DatabaseError("unexpected", { message: "The change was cancelled." });
     return this.writes.applyChange(copy(plan));
   }
 

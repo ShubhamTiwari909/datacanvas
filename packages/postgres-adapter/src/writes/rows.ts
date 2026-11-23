@@ -271,7 +271,22 @@ async function checkValues(
     const type = fullType(v.column);
     await db.query("SAVEPOINT dc_value_check");
     try {
-      await db.query(`SELECT CAST($1 AS ${type})`, [v.value]);
+      // An explicit CAST to varchar(n) or char(n) cuts a longer value silently, where the assignment to the column
+      // refuses it (except for spaces at the end): compare the length to see whether this cast cut anything.
+      const bounded = /^(?:character varying|character|varchar|char|bpchar)\s*\(\d+\)$/i.test(type);
+      if (bounded) {
+        const checked = await db.query(
+          `SELECT char_length(CAST($1 AS ${type})) < char_length(rtrim($1)) AS cut`,
+          [v.value],
+        );
+        if ((checked.rows[0] as { cut?: unknown } | undefined)?.cut === true) {
+          throw new DatabaseError("invalid_value", {
+            message: `The value for ${v.column} is too long for ${type}.`,
+          });
+        }
+      } else {
+        await db.query(`SELECT CAST($1 AS ${type})`, [v.value]);
+      }
       await db.query("RELEASE SAVEPOINT dc_value_check");
     } catch (error) {
       await db.query("ROLLBACK TO SAVEPOINT dc_value_check");

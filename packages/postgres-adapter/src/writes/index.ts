@@ -54,7 +54,9 @@ export async function runPlan(
     const count = result.rowCount ?? 0;
     // A statement that was planned for a number of rows must report exactly that many, or nothing is kept.
     if (statement.expectRows !== undefined && count !== statement.expectRows) {
-      throw new DatabaseError(count === 0 ? "row_changed" : "unexpected");
+      // "A loaded row changed" is about a row the person saw: an insert (an import batch) has none.
+      const inserting = /^\s*INSERT\b/i.test(statement.text);
+      throw new DatabaseError(count === 0 && !inserting ? "row_changed" : "unexpected");
     }
     if (plan.expect === "one_row") {
       if (count === 0) throw new DatabaseError("row_changed");

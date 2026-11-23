@@ -20,6 +20,12 @@ import {
   type IndexUsageReport,
   type RelationshipInfo,
   type RoleInfo,
+  type CellRead,
+  EXPORT_MAX_BYTES,
+  createFormatter,
+  EXPORT_MEDIA,
+  type PreflightResult,
+  type ValidationReport,
   type RowPage,
   type SchemaInfo,
   type SearchHit,
@@ -35,6 +41,10 @@ import {
   resolvePostgresConnection,
   summarizePostgresConnection,
   type ConnectionSummary,
+  type ParsedCellRequest,
+  type ParsedExportRequest,
+  type ParsedPreflightRequest,
+  type ParsedValidateRequest,
   type ParsedRowsRequest,
   type SnapshotSource,
   type PostgresConnectionInput,
@@ -52,6 +62,8 @@ export interface ConnectionServiceDependencies {
   adapters: AdapterRegistry<ProviderConfigs>;
   connections: ConnectionRegistry;
   profiles: ProfileService;
+  /** How long a write to the browser may wait before an export is given up (a reader that stopped). Default one minute. */
+  exportStallMs?: number;
 }
 
 export interface TableDetails {
@@ -85,11 +97,15 @@ export class ConnectionService {
   private readonly profiles: ProfileService;
   /** Row reads, one page at a time per connection. */
   private readonly rowsGate = new RowsGate();
+  /** Connections with an export running: one at a time each. */
+  private readonly exporting = new Set<string>();
+  private readonly exportStallMs: number;
 
   constructor(dependencies: ConnectionServiceDependencies) {
     this.adapters = dependencies.adapters;
     this.connections = dependencies.connections;
     this.profiles = dependencies.profiles;
+    this.exportStallMs = dependencies.exportStallMs ?? 60_000;
   }
 
   /** Close every database session and forget all credentials. Used when the server shuts down. */
@@ -211,6 +227,252 @@ export class ConnectionService {
         ),
       ),
     );
+  }
+
+  /**
+   * ONE `json` or `jsonb` value of one row, whole, for the JSON editor. Table data, so the same rule as
+   * `getRows`: refused unless viewing table data is switched on, and that check comes first.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `not_found`, `not_supported`, `invalid_request`, `permission_denied`, ...
+   */
+  getCell(id: string, request: ParsedCellRequest): Promise<CellRead> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) =>
+        adapter.getCell(
+          { schema: request.schema, name: request.table },
+          { column: request.column, key: request.key, revealColumns: request.revealColumns },
+        ),
+      ),
+    );
+  }
+
+  /**
+   * Would the database accept these values? Answered without writing a row (decision 157). It asks the
+   * database whether values of a table collide with its rows, so it is table data like a page of rows: the
+   * same rule, refused unless viewing table data is switched on, and that check comes first. It does not
+   * need writes to be unlocked: it changes nothing.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `invalid_request`, `not_found`, `not_supported`, `permission_denied`, `timeout`, ...
+   */
+  validateRows(id: string, request: ParsedValidateRequest): Promise<ValidationReport> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) =>
+        adapter.validateRows({
+          table: { schema: request.schema, name: request.table },
+          mode: request.mode,
+          columns: request.columns,
+          rows: request.rows,
+          ...(request.key ? { key: request.key } : {}),
+        }),
+      ),
+    );
+  }
+
+  /**
+   * How many rows would make steps of a migration fail, in the database of this connection (the pre-flight of
+   * the Migrations tab; decision 157). Only counts come back, but a count says how the data is, so it is table
+   * data like a page of rows: the same rule, the data-access check first, the same gate.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `rows_busy`;
+   *   DatabaseError `invalid_request`, `permission_denied`, ...
+   */
+  preflight(id: string, request: ParsedPreflightRequest): Promise<PreflightResult[]> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) {
+      return Promise.reject(
+        new ServiceError("connection_not_found", "This connection does not exist."),
+      );
+    }
+    if (!summary.dataAccess) {
+      return Promise.reject(
+        new ServiceError(
+          "data_access_disabled",
+          "Viewing table data is switched off for this connection. Switch it on to see rows.",
+        ),
+      );
+    }
+    return this.rowsGate.run(id, () =>
+      this.connections.use(id, (adapter) => adapter.preflight(request.checks)),
+    );
+  }
+
+  /**
+   * The rows of a table as a file, streamed (decision 158). Table data, so the same rule as `getRows`: refused
+   * unless viewing table data is switched on, and that check comes first. One export at a time per connection.
+   * The answer is a stream of text: the file is built a batch at a time and let go, up to `EXPORT_MAX_ROWS` rows
+   * and `EXPORT_MAX_BYTES`, after which it ends with a line that says it was cut. A client that goes away (or
+   * `signal` aborting) ends the read and rolls its transaction back. Errors about the request come before the
+   * first byte, so the route can still answer them; one after that ends the stream.
+   *
+   * @throws ServiceError `connection_not_found`, `data_access_disabled`, `export_busy`;
+   *   DatabaseError `invalid_request`, `not_found`, `permission_denied`, ...
+   */
+  async exportRows(
+    id: string,
+    request: ParsedExportRequest,
+    signal?: AbortSignal,
+  ): Promise<{ stream: ReadableStream<Uint8Array>; contentType: string }> {
+    const summary = this.connections.getSummary(id);
+    if (!summary) throw new ServiceError("connection_not_found", "This connection does not exist.");
+    if (!summary.dataAccess) {
+      throw new ServiceError(
+        "data_access_disabled",
+        "Viewing table data is switched off for this connection. Switch it on to see rows.",
+      );
+    }
+    if (this.exporting.has(id)) {
+      throw new ServiceError("export_busy", "An export is already running on this connection.");
+    }
+    this.exporting.add(id);
+    const table = { schema: request.schema, name: request.table };
+    const formatter = createFormatter(
+      {
+        format: request.format,
+        delimiter: request.delimiter,
+        header: request.header,
+        nullText: request.nullText,
+        meta: request.meta,
+      },
+      {
+        table,
+        at: new Date(),
+        // The conditions in words that name no value.
+        filters: request.filters.map((f) => `${f.column} ${f.op.replace(/_/g, " ")}`),
+      },
+    );
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    let bytes = 0;
+    let leftOut: string[] = [];
+    /** The rows actually written, and whether a batch was left out for the size limit. */
+    let rowsWritten = 0;
+    let refused = false;
+    /** Write a piece; false when the file has reached its size limit. */
+    const write = async (text: string, limited = false): Promise<boolean> => {
+      if (text === "") return true;
+      const chunk = encoder.encode(text);
+      // A batch of rows that would pass the limit is left out whole, so the file never grows past it by a batch.
+      // The first batch is always written: a file with a header and no rows would say nothing about the table.
+      if (limited && rowsWritten > 0 && bytes + chunk.byteLength > EXPORT_MAX_BYTES) {
+        refused = true;
+        return false;
+      }
+      bytes += chunk.byteLength;
+      // A write waits for the reader of the stream. A reader that stopped (a closed laptop, a stalled socket) would
+      // hold the connection, its transaction and the one export slot for ever: after a minute it is given up.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          writer.write(chunk),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("The export stopped: the browser stopped receiving.")),
+              this.exportStallMs,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+      return bytes < EXPORT_MAX_BYTES;
+    };
+    let began!: () => void;
+    let failedFirst!: (error: unknown) => void;
+    const first = new Promise<void>((resolve, reject) => {
+      began = resolve;
+      failedFirst = reject;
+    });
+    let started = false;
+    void this.connections
+      .use(id, (adapter) =>
+        adapter.exportRows(
+          table,
+          { revealColumns: request.revealColumns, sort: request.sort, filters: request.filters },
+          async (event) => {
+            if (event.kind === "start") {
+              started = true;
+              leftOut = event.leftOut;
+              // Answer before the first write: a write waits for the reader of the stream.
+              began();
+              // Spreadsheets guess the encoding of a CSV file from a byte order mark.
+              await write(
+                (request.format === "csv" ? "\uFEFF" : "") +
+                  formatter.start(event.columns, leftOut),
+              );
+              return undefined;
+            }
+            if (event.kind === "rows") {
+              const more = await write(formatter.rows(event.rows), true);
+              if (!refused) rowsWritten += event.rows.length;
+              return more;
+            }
+            // The end note counts what the file holds, and says "bytes" when a batch was left out for the limit.
+            await write(
+              formatter.end({
+                ...event,
+                rows: rowsWritten,
+                cut: refused ? "bytes" : event.cut,
+                leftOut,
+              }),
+            );
+            return undefined;
+          },
+          signal,
+        ),
+      )
+      .then(
+        () => {
+          // An export that ended before it began (the request was already cancelled) must not leave the caller waiting.
+          began();
+          // The read is over: the slot is free now, while the browser may still be draining what was written.
+          void writer.close().catch(() => undefined);
+        },
+        (error: unknown) => {
+          if (!started) failedFirst(error);
+          // What ends the stream after the first byte reaches the server's own log through the framework: it is a
+          // fixed sentence, never the error of the database (whose message can hold a value) or its cause.
+          void writer
+            .abort(new Error("The export stopped before the end of the file."))
+            .catch(() => undefined);
+        },
+      )
+      .catch(() => undefined)
+      .finally(() => {
+        this.exporting.delete(id);
+      });
+    await first;
+    return { stream: readable, contentType: EXPORT_MEDIA[request.format].type };
   }
 
   /** Called when a saved profile is forgotten, so no live connection keeps pointing at it. */

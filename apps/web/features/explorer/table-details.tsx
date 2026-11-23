@@ -76,7 +76,13 @@ function ColumnsTable({
   const unique = columnsOf("unique");
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    // A table wider than a phone scrolls sideways: the region must take the keyboard to be reachable by it.
+    <div
+      role="region"
+      aria-label="Columns of the table"
+      tabIndex={0}
+      className="overflow-x-auto rounded-lg border"
+    >
       <table className="w-full text-sm">
         <thead className="bg-muted text-left text-xs text-muted-foreground">
           <tr>

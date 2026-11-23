@@ -13,14 +13,18 @@
  * One adapter instance is bound to ONE database (the connection details are
  * given to the adapter's constructor, not to its methods).
  *
- * All methods are READ-ONLY (writes are a separate interface,
+ * All methods are READ-ONLY, except that `validateRows` briefly opens a read-write transaction
+ * to make a temporary copy (writes are a separate interface,
  * `WritableAdapter`, below). Almost all return STRUCTURE (names, types, keys,
- * definitions, counters). `getRows` is the one method that returns table ROWS: it
- * exists for the opt-in data viewer, and it is the caller's job (the service
+ * definitions, counters). `getRows`, `getCell` and `exportRows` are the methods that return table
+ * ROWS: they exist for the opt-in data viewer, and it is the caller's job (the service
  * layer) to call it only when the person has switched data viewing on for that
  * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
 import type { DdlDetail } from "./ddl.js";
+import type { ExportEvent, ExportRowsOptions, ExportSignal } from "./rows-export.js";
+import type { PreflightCheck, PreflightResult } from "./migration/preflight.js";
+import type { ValidateRequest, ValidationReport } from "./validation.js";
 import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
 import type {
   ColumnInfo,
@@ -31,6 +35,8 @@ import type {
   RelationshipInfo,
   RowPage,
   RowsOptions,
+  CellRequest,
+  CellRead,
   SchemaInfo,
   SearchHit,
   TableDetailsEntry,
@@ -163,7 +169,7 @@ export interface DatabaseAdapter {
 
   /**
    * One page of the ROWS of a table, view or materialized view, read-only and
-   * bounded. This is the only method that returns table data.
+   * bounded. `getCell` and `exportRows` also return table data, behind the same check.
    *
    * - Every value is read as text, and cut in the database to `ROWS_CELL_CHARS`
    *   (flagged `truncated`); SQL NULL stays distinct from the empty string.
@@ -186,6 +192,69 @@ export interface DatabaseAdapter {
    *   The error text never contains a value from the table.
    */
   getRows(table: TableRef, options: RowsOptions): Promise<RowPage>;
+
+  /**
+   * ONE `json` or `jsonb` value of ONE row, read whole up to `CELL_EDIT_MAX_CHARS`, for the JSON editor
+   * (a page of rows cuts every cell at `ROWS_CELL_CHARS`). Like `getRows` it returns table data, and the
+   * service calls it only behind the same data-access check.
+   *
+   * - The row is found by the table's row key (the primary key, else a usable unique index); every key
+   *   column is named once, and every value is a bound parameter. A table without a key has no cell to name.
+   * - Any other column type, or a column that does not exist, is `invalid_request`; a column whose name
+   *   looks sensitive and was not revealed is `invalid_request` too (it would be an oracle).
+   * - A value over the limit is not sent: `tooLarge` is true and `value` is null.
+   *
+   * @throws DatabaseError `not_found` (no such table or no such row), `not_supported` (a foreign table),
+   *   `invalid_request`, `permission_denied`. The error text never contains a value from the table.
+   */
+  getCell(table: TableRef, request: CellRequest): Promise<CellRead>;
+
+  /**
+   * Would the database accept these values? Answered WITHOUT writing a row (`docs/advanced-data-workspace-plan.md`,
+   * section 6.2; decision 157): the values go into a temporary copy of the table (no triggers, no foreign keys,
+   * no defaults, no indexes) inside a transaction that is read-only before the first value goes in and is always
+   * rolled back; uniqueness and foreign keys are asked by read-only queries on the real tables.
+   *
+   * - `insert`: up to `VALIDATE_MAX_ROWS` rows; `update`: one row, found by the table's row key.
+   * - The report holds rules, names of columns and constraints, counts and row numbers. NEVER a value.
+   * - It needs the right to create temporary tables; triggers, row-level security and rules the check cannot
+   *   see are named in `notChecked`.
+   *
+   * @throws DatabaseError `invalid_request` (a request that does not fit the table), `not_found`,
+   *   `not_supported` (a view, a foreign table, a server that is read-only), `permission_denied`, `timeout`.
+   *   The error text never contains a value.
+   */
+  validateRows(request: ValidateRequest): Promise<ValidationReport>;
+
+  /**
+   * How many rows would make steps of a migration fail (`docs/advanced-data-workspace-plan.md`, section 6.3):
+   * NULLs before `SET NOT NULL`, shared values before a unique key, rows with no parent before a foreign key,
+   * rows at all before a column that cannot be NULL. Four fixed read-only queries, built from names that are
+   * looked up in this database's catalog; a table or column that is not there is `missing`. Only counts come
+   * back. At most `PREFLIGHT_MAX_CHECKS` checks.
+   *
+   * @throws DatabaseError `invalid_request` (too many checks, or a shape that does not fit), `permission_denied`.
+   */
+  preflight(checks: PreflightCheck[]): Promise<PreflightResult[]>;
+
+  /**
+   * The rows of a table, view or materialized view as filtered and sorted on screen, handed to `sink` a batch
+   * at a time (`docs/advanced-data-workspace-plan.md`, section 8; decision 158): a `start` with the columns
+   * (those whose names look sensitive are LEFT OUT unless revealed, and named), batches of `rows` read
+   * through a cursor in one read-only transaction, and an `end` that says whether the file was cut at
+   * `EXPORT_MAX_ROWS`. Nothing is held: each batch is let go once the sink has it. A sink that answers `false`
+   * ends the export (its own byte limit); an aborted `signal` ends it without an `end`. Like `getRows` it
+   * returns table data, and the service calls it only behind the same data-access check.
+   *
+   * @throws DatabaseError `invalid_request`, `not_found`, `not_supported` (a foreign table),
+   *   `permission_denied`, `timeout`. The error text never contains a value.
+   */
+  exportRows(
+    table: TableRef,
+    options: ExportRowsOptions,
+    sink: (event: ExportEvent) => void | boolean | Promise<void | boolean>,
+    signal?: ExportSignal,
+  ): Promise<void>;
 
   /**
    * What the connected role can do (superuser, role and database creation,

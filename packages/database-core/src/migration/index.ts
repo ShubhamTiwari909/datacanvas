@@ -14,3 +14,11 @@ export {
 export type { Selection, Resolved, Scripts, Summary } from "./script.js";
 export { buildExport, exportName, exportTimestamp, EXPORT_FORMATS } from "./export.js";
 export type { ExportFormat, ExportOptions, ExportFile, ExportResult } from "./export.js";
+export {
+  PREFLIGHT_MAX_CHECKS,
+  NOT_CHECKABLE,
+  planPreflight,
+  describePreflight,
+  preflightVerdict,
+} from "./preflight.js";
+export type { PreflightCheck, PreflightResult, PlannedChecks } from "./preflight.js";

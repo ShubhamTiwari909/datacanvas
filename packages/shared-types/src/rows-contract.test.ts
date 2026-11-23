@@ -3,20 +3,32 @@
  * `dataAccess` setting of a connection: bounded, strict, and off by default.
  */
 import {
+  FILTER_SHAPE,
   ROWS_MAX_FILTERS,
   ROWS_MAX_FILTER_VALUE_CHARS,
+  ROWS_MAX_FILTER_VALUES,
+  ROWS_MAX_FILTER_PATH,
+  ROWS_MAX_FILTER_PATH_CHARS,
+  ROWS_MAX_FILTER_GROUPS,
   ROW_FILTER_OPS,
 } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import {
-  MAX_ROW_FILTERS,
-  MAX_ROW_FILTER_VALUE_CHARS,
-  ROW_FILTER_OPERATORS,
   connectionSummarySchema,
   dataAccessRequestSchema,
   rowsRequestSchema,
   rowsResponseSchema,
 } from "./connections.js";
+import {
+  MAX_ROW_FILTERS,
+  MAX_ROW_FILTER_VALUE_CHARS,
+  MAX_ROW_FILTER_VALUES,
+  MAX_ROW_FILTER_PATH,
+  MAX_ROW_FILTER_PATH_CHARS,
+  MAX_ROW_FILTER_GROUPS,
+  ROW_FILTER_OPERATORS,
+  ROW_FILTER_SHAPE,
+} from "./row-filters.js";
 import {
   postgresConnectionInputSchema,
   resolvePostgresConnection,
@@ -202,16 +214,49 @@ describe("a sort and conditions in the rows request", () => {
 
   it("use the same operators and limits as the core, so the two cannot drift apart", () => {
     expect([...ROW_FILTER_OPERATORS]).toEqual([...ROW_FILTER_OPS]);
+    expect(ROW_FILTER_SHAPE).toEqual(FILTER_SHAPE);
     expect(MAX_ROW_FILTERS).toBe(ROWS_MAX_FILTERS);
     expect(MAX_ROW_FILTER_VALUE_CHARS).toBe(ROWS_MAX_FILTER_VALUE_CHARS);
+    expect(MAX_ROW_FILTER_VALUES).toBe(ROWS_MAX_FILTER_VALUES);
+    expect(MAX_ROW_FILTER_PATH).toBe(ROWS_MAX_FILTER_PATH);
+    expect(MAX_ROW_FILTER_PATH_CHARS).toBe(ROWS_MAX_FILTER_PATH_CHARS);
+    expect(MAX_ROW_FILTER_GROUPS).toBe(ROWS_MAX_FILTER_GROUPS);
     for (const op of ROW_FILTER_OPS) {
-      const nullary = op === "is_null" || op === "is_not_null";
-      const filter = nullary ? { column: "a", op } : { column: "a", op, value: "v" };
+      const shape = ROW_FILTER_SHAPE[op];
+      const filter =
+        shape === "none"
+          ? { column: "a", op }
+          : shape === "one"
+            ? { column: "a", op, value: "v" }
+            : shape === "path"
+              ? { column: "a", op, path: ["p"], value: "v" }
+              : { column: "a", op, values: ["v", "w"] };
       expect(rowsRequestSchema.safeParse({ ...base, filters: [filter] }).success, op).toBe(true);
     }
   });
 
-  it("accept the limits: three conditions, a value of 200 characters, a column name of 255", () => {
+  it("refuse a condition that carries more or fewer fields than its operator takes", () => {
+    for (const filter of [
+      { column: "a", op: "eq" },
+      { column: "a", op: "eq", value: "v", values: ["v"] },
+      { column: "a", op: "in", value: "v" },
+      { column: "a", op: "in", values: [] },
+      { column: "a", op: "between", values: ["1"] },
+      { column: "a", op: "json_path_eq", value: "v" },
+      { column: "a", op: "json_path_eq", path: [], value: "v" },
+      { column: "a", op: "has_key", value: "k", path: ["a"] },
+      { column: "a", op: "today", value: "x" },
+      { column: "a", op: "eq", value: "v", group: 4 },
+      { column: "a", op: "eq", value: "v", group: 0 },
+    ]) {
+      expect(
+        rowsRequestSchema.safeParse({ ...base, filters: [filter] }).success,
+        JSON.stringify(filter),
+      ).toBe(false);
+    }
+  });
+
+  it("accept the limits: ten conditions, a value of 200 characters, a column name of 255", () => {
     const filter = {
       column: "c".repeat(255),
       op: "eq",

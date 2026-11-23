@@ -18,6 +18,7 @@ import {
   tableInfoSchema,
 } from "./metadata.js";
 import { profileIdSchema } from "./ids.js";
+import { MAX_ROW_FILTERS, rowFilterSchema } from "./row-filters.js";
 import { postgresConnectionSummarySchema } from "./postgres-connection.js";
 
 /** The server's connection identifiers: unguessable URL-safe tokens. */
@@ -99,53 +100,6 @@ export const rowSortSchema = z.strictObject({
   direction: z.enum(["asc", "desc"]),
 });
 
-/** The conditions a person can put on a column; a type test keeps this list in step with the core's. */
-export const ROW_FILTER_OPERATORS = [
-  "eq",
-  "neq",
-  "gt",
-  "gte",
-  "lt",
-  "lte",
-  "contains",
-  "starts_with",
-  "is_null",
-  "is_not_null",
-] as const;
-
-/** At most 3 conditions per read, a value of at most 200 characters (the same limits as the core's). */
-export const MAX_ROW_FILTERS = 3;
-export const MAX_ROW_FILTER_VALUE_CHARS = 200;
-
-/**
- * One condition: a column, an operator from the fixed list, and a value. The two tests for NULL take no value
- * and every other operator needs one (an empty string is a value). Whether the column allows the operator,
- * and whether it is hidden, is decided later against the table, by the adapter.
- */
-export const rowFilterSchema = z
-  .strictObject({
-    column: identifierSchema,
-    op: z.enum(ROW_FILTER_OPERATORS),
-    value: z.string().max(MAX_ROW_FILTER_VALUE_CHARS).optional(),
-  })
-  .superRefine((filter, context) => {
-    const nullary = filter.op === "is_null" || filter.op === "is_not_null";
-    if (nullary && filter.value !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: "This condition takes no value.",
-      });
-    }
-    if (!nullary && filter.value === undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: "This condition needs a value.",
-      });
-    }
-  });
-
 /**
  * `POST /api/connections/:id/rows`: one page of a table's rows. A POST with a JSON
  * body, so table names, paging positions and the values of conditions never appear
@@ -163,7 +117,7 @@ export const rowsRequestSchema = z.strictObject({
   revealColumns: z.array(identifierSchema).max(100).default([]),
   /** Sort by one column; null for the key order. */
   sort: rowSortSchema.nullable().default(null),
-  /** Up to 3 conditions, all required. */
+  /** Up to 10 conditions, all required except those that share a group (any one of them is enough). */
   filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
 });
 /** What a client may send (defaults are optional). */
@@ -172,6 +126,157 @@ export type RowsRequest = z.input<typeof rowsRequestSchema>;
 export type ParsedRowsRequest = z.output<typeof rowsRequestSchema>;
 
 export const rowsResponseSchema = z.object({ page: rowPageSchema });
+
+/**
+ * `POST /api/connections/:id/rows/cell`: ONE `json` or `jsonb` value of ONE row, read whole (up to 1 MB),
+ * for the JSON editor. The row is named by its key (one entry per key column), never by a condition.
+ * Strict, like the request for a page; a value of the key is a value and is never logged or echoed.
+ */
+export const cellRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  column: identifierSchema,
+  key: z
+    .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+    .min(1)
+    .max(32),
+  revealColumns: z.array(identifierSchema).max(100).default([]),
+});
+export type CellRequestBody = z.input<typeof cellRequestSchema>;
+export type ParsedCellRequest = z.output<typeof cellRequestSchema>;
+
+/** The largest body of a validation (it carries the values to be checked): 1 MB, as a change does. */
+export const VALIDATE_MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * `POST /api/connections/:id/rows/validate`: would the database accept these values? Answered without
+ * writing a row (decision 157). `insert` checks up to 1,000 rows; `update` checks one row, found by its key.
+ * Strict, and bounded in every list. The values are values: never logged, saved or echoed.
+ */
+export const validateRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  mode: z.enum(["insert", "update"]),
+  columns: z.array(identifierSchema).max(50),
+  rows: z
+    .array(z.array(z.string().max(100_000).nullable()).max(50))
+    .min(1)
+    .max(1000),
+  key: z
+    .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+    .min(1)
+    .max(32)
+    .optional(),
+});
+export type ValidateRequestBody = z.input<typeof validateRequestSchema>;
+export type ParsedValidateRequest = z.output<typeof validateRequestSchema>;
+
+const validationIssueSchema = z.object({
+  rule: z.enum([
+    "not_null",
+    "check",
+    "type",
+    "unique_in_request",
+    "unique_existing",
+    "foreign_key",
+    "no_effects",
+    "rejected",
+  ]),
+  column: z.string().nullable(),
+  constraint: z.string().nullable(),
+  count: z.number().int(),
+  rows: z.array(z.number().int()),
+});
+export const validationReportSchema = z.object({
+  rows: z.number().int(),
+  passed: z.number().int(),
+  issues: z.array(validationIssueSchema),
+  notChecked: z.array(
+    z.enum([
+      "triggers",
+      "row_level_security",
+      "other_unique_indexes",
+      "foreign_key_unreadable",
+      "stopped_early",
+      "defaults_not_applied",
+      "exclusion_constraints",
+      "partition_bounds",
+      "event_triggers",
+      "hidden_columns",
+    ]),
+  ),
+});
+export const validateResponseSchema = z.object({ report: validationReportSchema });
+
+/**
+ * `POST /api/connections/:id/rows/preflight`: how many rows would make steps of a migration fail
+ * (section 6.3 of the plan). Up to 50 checks, each a structure (names, never SQL), strict, bounded.
+ */
+const preflightColumns = z.array(identifierSchema).min(1).max(32);
+export const preflightCheckSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("nulls"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    column: identifierSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("duplicates"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    columns: preflightColumns,
+  }),
+  z.strictObject({
+    kind: z.literal("orphans"),
+    schema: identifierSchema,
+    table: identifierSchema,
+    columns: preflightColumns,
+    refSchema: identifierSchema,
+    refTable: identifierSchema,
+    refColumns: preflightColumns,
+  }),
+  z.strictObject({ kind: z.literal("rows"), schema: identifierSchema, table: identifierSchema }),
+]);
+export const preflightRequestSchema = z.strictObject({
+  checks: z.array(preflightCheckSchema).min(1).max(50),
+});
+export type PreflightRequestBody = z.input<typeof preflightRequestSchema>;
+export type ParsedPreflightRequest = z.output<typeof preflightRequestSchema>;
+export const preflightResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      status: z.enum(["ok", "fails", "missing", "too_slow", "hidden"]),
+      count: z.number().int(),
+    }),
+  ),
+});
+
+/**
+ * `POST /api/connections/:id/rows/export`: the rows of a table as a file, as filtered and sorted on screen
+ * (section 8 of the plan; decision 158). The answer is the FILE, streamed, not JSON. Strict and bounded; a
+ * condition is a structure, a hidden column is left out unless revealed.
+ */
+export const exportRequestSchema = z.strictObject({
+  schema: identifierSchema,
+  table: identifierSchema,
+  revealColumns: z.array(identifierSchema).max(100).default([]),
+  sort: rowSortSchema.nullable().default(null),
+  filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
+  format: z.enum(["csv", "tsv", "json", "ndjson"]),
+  /** For CSV: a comma or a semicolon (a tab is TSV). */
+  delimiter: z.enum([",", ";"]).default(","),
+  header: z.boolean().default(true),
+  /** What NULL is written as in CSV and TSV; empty by default (an empty string stays empty too). */
+  nullText: z.string().max(50).default(""),
+  /** Notes about the file even when it was not cut. */
+  meta: z.boolean().default(false),
+});
+export type ExportRequestBody = z.input<typeof exportRequestSchema>;
+export type ParsedExportRequest = z.output<typeof exportRequestSchema>;
+
+export const cellResponseSchema = z.object({
+  cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),
+});
 
 /** `PUT /api/connections/:id/data-access`: switch viewing table data on or off for this connection. */
 export const dataAccessRequestSchema = z.strictObject({ enabled: z.boolean() });

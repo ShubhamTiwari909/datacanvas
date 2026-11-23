@@ -11,6 +11,7 @@ export type ServiceErrorCode =
   | "invalid_workspace_file"
   | "data_access_disabled"
   | "rows_busy"
+  | "export_busy"
   | "sql_busy"
   | "snapshot_not_found"
   | "snapshot_limit_reached"

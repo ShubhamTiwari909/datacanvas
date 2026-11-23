@@ -3,11 +3,13 @@
  *
  * Responsibilities, in one place:
  *   - own the connection pool and its lifecycle,
- *   - run every query inside a read-only transaction (`withReadOnlyTransaction`),
+ *   - run every query inside a read-only transaction (`withReadOnlyTransaction`); the one exception is
+ *     `validateRows`, which is read-write until its temporary copy is made (`checking-transaction.ts`),
  *   - translate every failure into a safe `DatabaseError` (`mapPgError`),
  *   - delegate the actual catalog queries to the `introspection/` modules.
  *
- * Apart from `getRows` (the opt-in data viewer, in `introspection/rows.ts`),
+ * Apart from `getRows`, `getCell` and `exportRows` (the opt-in data viewer, in `introspection/`),
+ * and `validateRows` (which reads the rows it is given),
  * nothing here reads table rows, and there is no way to run caller-supplied
  * SQL: every query is a fixed string, or a fixed shape built from catalog
  * names, with bound parameters.
@@ -43,6 +45,14 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type RowPage,
+  type ExportSignal,
+  type CellRead,
+  type ExportRowsOptions,
+  type PreflightCheck,
+  type PreflightResult,
+  type CellRequest,
+  type ValidateRequest,
+  type ValidationReport,
   type RowsOptions,
   type RoleInfo,
   type RelationshipInfo,
@@ -73,7 +83,10 @@ import { listIndexes } from "./introspection/indexes.js";
 import { listIndexUsage } from "./introspection/index-usage.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
-import { readRows } from "./introspection/rows.js";
+import { readCell, readRows } from "./introspection/rows.js";
+import { exportRows, EXPORT_MAX_MS, type ExportSink } from "./introspection/export-rows.js";
+import { runPreflight } from "./introspection/preflight.js";
+import { validateRows } from "./validation/validate-rows.js";
 import { listRelationships } from "./introspection/relationships.js";
 import { readRoleInfo } from "./introspection/role-info.js";
 import { listSchemas } from "./introspection/schemas.js";
@@ -211,6 +224,40 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
         throw new DatabaseError("too_slow", { cause: error.cause });
       }
       throw error;
+    }
+  }
+
+  getCell(table: TableRef, request: CellRequest): Promise<CellRead> {
+    return this.read((db) => readCell(db, table, request));
+  }
+
+  exportRows(
+    table: TableRef,
+    options: ExportRowsOptions,
+    sink: ExportSink,
+    signal?: ExportSignal,
+  ): Promise<void> {
+    // Each statement may take as long as the export itself: the default limit is for a page, not for a file.
+    return this.read((db) => exportRows(db, table, options, sink, signal), EXPORT_MAX_MS);
+  }
+
+  preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {
+    // A short time limit for each check, as for a read with a sort or a filter.
+    const limit = Math.min(ROWS_SORT_FILTER_TIMEOUT_MS, this.options.statementTimeoutMs);
+    return this.read((db) => runPreflight(db, checks), limit);
+  }
+
+  async validateRows(request: ValidateRequest): Promise<ValidationReport> {
+    const pool = this.pool;
+    if (!pool) throw new DatabaseError("not_connected");
+    try {
+      return await validateRows(pool, this.options.statementTimeoutMs, request);
+    } catch (error) {
+      // A server that is a standby (or set read-only) cannot make the temporary copy.
+      if ((error as { code?: unknown } | null)?.code === "25006") {
+        throw new DatabaseError("not_supported", { cause: error });
+      }
+      throw mapPgError(error);
     }
   }
 

@@ -1,3 +1,4 @@
+import { ROWS_MAX_FILTERS } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import {
   PAGE_SIZES,
@@ -201,14 +202,15 @@ describe("filters in the paging state", () => {
     expect(pageNumber(cleared)).toBe(1);
   });
 
-  it("holds at most three, and ignores a fourth", () => {
-    const three = run([
-      { type: "addFilter", filter: byName },
-      { type: "addFilter", filter: byScore },
-      { type: "addFilter", filter: byName },
-    ]);
-    expect(three.filters).toHaveLength(3);
-    expect(pagingReducer(three, { type: "addFilter", filter: byScore })).toBe(three);
+  it("holds at most the limit, and ignores one more", () => {
+    const full = run(
+      Array.from({ length: ROWS_MAX_FILTERS }, (_, i) => ({
+        type: "addFilter" as const,
+        filter: i % 2 === 0 ? byName : byScore,
+      })),
+    );
+    expect(full.filters).toHaveLength(ROWS_MAX_FILTERS);
+    expect(pagingReducer(full, { type: "addFilter", filter: byScore })).toBe(full);
   });
 
   it("removes the one asked for and keeps the others in order; an index that is not there changes nothing", () => {

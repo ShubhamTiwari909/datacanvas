@@ -39,6 +39,33 @@ const dataCalls: Array<[string, (a: DatabaseAdapter) => Promise<unknown>]> = [
         { pageSize: 10, cursor: null, revealColumns: [] },
       ),
   ],
+  [
+    "getCell",
+    (a) =>
+      a.getCell(
+        { schema: "public", name: "users" },
+        { column: "id", key: [{ column: "id", value: "1" }], revealColumns: [] },
+      ),
+  ],
+  [
+    "exportRows",
+    (a) =>
+      a.exportRows({ schema: "public", name: "users" }, { revealColumns: [] }, () => undefined),
+  ],
+  [
+    "preflight",
+    (a) => a.preflight([{ kind: "nulls", schema: "public", table: "users", column: "email" }]),
+  ],
+  [
+    "validateRows",
+    (a) =>
+      a.validateRows({
+        table: { schema: "public", name: "users" },
+        mode: "insert",
+        columns: ["email"],
+        rows: [["a@x.test"]],
+      }),
+  ],
 ];
 
 /** Assert a promise rejects with a DatabaseError carrying exactly this code. */
@@ -610,8 +637,8 @@ export function describeAdapterContract(label: string, createAdapter: () => Data
             ],
             ["a value on is_null", [{ column: "email", op: "is_null", value: "x" }]],
             [
-              "more than three conditions",
-              Array(4).fill({ column: "email", op: "neq", value: "z" }),
+              "more than ten conditions",
+              Array(11).fill({ column: "email", op: "neq", value: "z" }),
             ],
           ])("refuses %s, with invalid_request", async (_name, filters) => {
             await expect(

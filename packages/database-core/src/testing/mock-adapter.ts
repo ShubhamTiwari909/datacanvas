@@ -20,6 +20,8 @@ import type {
 import { emptyDdl, type DdlDetail } from "../ddl.js";
 import { DatabaseError, type DatabaseErrorCode } from "../errors.js";
 import type {
+  CellRead,
+  CellRequest,
   ColumnInfo,
   ConstraintInfo,
   DatabaseObjects,
@@ -38,6 +40,13 @@ import type {
   TableRef,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
+import type { ExportEvent, ExportRowsOptions, ExportSignal } from "../rows-export.js";
+import {
+  PREFLIGHT_MAX_CHECKS,
+  type PreflightCheck,
+  type PreflightResult,
+} from "../migration/preflight.js";
+import type { ValidateRequest, ValidationReport } from "../validation.js";
 import {
   checkStatementText,
   SqlStatementError,
@@ -270,6 +279,45 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
   async getObjects(): Promise<DatabaseObjects> {
     this.requireConnection();
     return normalizeObjects(copy(this.data.objects));
+  }
+
+  /** The sample data has no `json` column to read whole: a table that exists is `invalid_request`, one that does not is `not_found`. */
+  async getCell(ref: TableRef, request: CellRequest): Promise<CellRead> {
+    this.requireConnection();
+    const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);
+    if (!table) throw new DatabaseError("not_found");
+    if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+    void request;
+    throw new DatabaseError("invalid_request");
+  }
+
+  /** The mock has no rows to write to a file. */
+  async exportRows(
+    ref: TableRef,
+    options: ExportRowsOptions,
+    sink: (event: ExportEvent) => void | boolean | Promise<void | boolean>,
+    signal?: ExportSignal,
+  ): Promise<void> {
+    void signal;
+    this.requireConnection();
+    void ref;
+    void options;
+    void sink;
+    throw new DatabaseError("not_supported");
+  }
+
+  /** The mock has no rows to check a migration against: every check answers "missing". The cap is the real one. */
+  async preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {
+    this.requireConnection();
+    if (checks.length > PREFLIGHT_MAX_CHECKS) throw new DatabaseError("invalid_request");
+    return checks.map(() => ({ status: "missing" as const, count: 0 }));
+  }
+
+  /** The mock has no database to check values against. */
+  async validateRows(request: ValidateRequest): Promise<ValidationReport> {
+    this.requireConnection();
+    void request;
+    throw new DatabaseError("not_supported");
   }
 
   async getRows(ref: TableRef, options: RowsOptions): Promise<RowPage> {

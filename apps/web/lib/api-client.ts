@@ -71,3 +71,68 @@ export async function apiRequest<S extends z.ZodType>(
   }
   return failure("bad_response", `The request failed (HTTP ${response.status}).`);
 }
+
+/**
+ * Call an endpoint whose answer is a FILE (the export of rows), read as a stream so the page can show how much has
+ * arrived and a cancel stops it. Like `apiRequest` it never throws: a failure, including one that the server knew
+ * before the first byte (an ordinary JSON error), arrives as `{ ok: false, error }`.
+ */
+export async function apiDownload(
+  path: string,
+  options: {
+    body: unknown;
+    signal?: AbortSignal;
+    /** Called with the bytes received so far. */
+    onProgress?: (bytes: number) => void;
+  },
+): Promise<ApiResult<{ blob: Blob; bytes: number }>> {
+  const cancelled = () => failure("aborted", "The export was cancelled.");
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options.body),
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (options.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+      return cancelled();
+    }
+    return failure("network_error", "Could not reach the DataCanvas server. Is it still running?");
+  }
+  if (!response.ok) {
+    try {
+      const error = apiErrorResponseSchema.safeParse(await response.json());
+      if (error.success) {
+        return failure(
+          error.data.error.code,
+          error.data.error.message,
+          error.data.error.issues ?? [],
+        );
+      }
+    } catch {
+      // Falls through to the plain message.
+    }
+    return failure("bad_response", `The request failed (HTTP ${response.status}).`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return failure("bad_response", "The server sent an unreadable response.");
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      bytes += value.byteLength;
+      options.onProgress?.(bytes);
+    }
+  } catch {
+    if (options.signal?.aborted) return cancelled();
+    return failure("network_error", "The file stopped arriving before it was complete.");
+  }
+  const type = response.headers.get("content-type") ?? "application/octet-stream";
+  return { ok: true, data: { blob: new Blob(chunks as BlobPart[], { type }), bytes } };
+}

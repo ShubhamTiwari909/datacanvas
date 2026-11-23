@@ -10,8 +10,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftRight, FileDiff, Loader2 } from "lucide-react";
 import {
   planMigration,
+  planPreflight,
   suggestRenames,
   type DatabaseStructure,
+  type PreflightResult,
   type Selection,
 } from "@datacanvas/database-core";
 import { ErrorState } from "@/components/states/error-state";
@@ -22,6 +24,9 @@ import { useAsyncData } from "@/lib/use-async-data";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { listSnapshots } from "../snapshots/api";
 import { loadSide, sideValue, type CompareSide } from "../snapshots/compare";
+import { preflight } from "../data/api";
+import { PreflightPanel } from "./preflight-panel";
+import { findingsFor, flattenChecks, inRequests, type StepFinding } from "./preflight-findings";
 import { PlanView } from "./plan-view";
 
 const SELECT_CLASS =
@@ -37,7 +42,15 @@ type Loaded =
       to: DatabaseStructure;
       before: string;
       after: string;
+      /** The connection of the From side when it is a live database: where the migration will meet its data. */
+      fromConnection: string | null;
     };
+
+/** What the pre-flight found for the plan it was run for (kept with that plan's checks, so a changed plan hides it). */
+type Preflight =
+  | { signature: string; status: "running" }
+  | { signature: string; status: "error"; message: string }
+  | { signature: string; status: "done"; findings: ReadonlyMap<string, StepFinding> };
 
 const EMPTY: Selection = { leftOut: new Set(), confirmed: new Set() };
 
@@ -56,6 +69,8 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
   const [selection, setSelection] = useState<Selection>(EMPTY);
   const run = useRef(0);
   const started = useRef(false);
+  const [preflightState, setPreflightState] = useState<Preflight | null>(null);
+  const preflightRun = useRef(0);
 
   const snapshots = state.status === "success" ? state.data : [];
   const options: CompareSide[] = [
@@ -83,7 +98,15 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
     if (mine !== run.current) return;
     if (!x.ok) return setLoaded({ status: "error", message: x.error.message });
     if (!y.ok) return setLoaded({ status: "error", message: y.error.message });
-    setLoaded({ status: "done", from: x.data, to: y.data, before: a.label, after: b.label });
+    setPreflightState(null);
+    setLoaded({
+      status: "done",
+      from: x.data,
+      to: y.data,
+      before: a.label,
+      after: b.label,
+      fromConnection: a.kind === "live" ? a.connectionId : null,
+    });
   };
 
   // Arriving from a comparison: build its plan once the choices exist.
@@ -112,6 +135,37 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
         : null,
     [loaded, concurrentIndexes, safeConstraints, renames],
   );
+
+  // The checks that answer "will this step fail on the data?", and what to do with them.
+  const planned = useMemo(
+    () => (loaded.status === "done" && plan ? planPreflight(plan.steps, loaded.to) : []),
+    [loaded, plan],
+  );
+  const fromConnection = loaded.status === "done" ? loaded.fromConnection : null;
+  const hasRenames = plan?.steps.some((s) => s.kind.startsWith("rename_")) ?? false;
+  const signature = JSON.stringify([fromConnection, planned]);
+  const shownPreflight =
+    preflightState && preflightState.signature === signature ? preflightState : null;
+  const runPreflight = async () => {
+    if (!fromConnection) return;
+    const mine = ++preflightRun.current;
+    setPreflightState({ signature, status: "running" });
+    const results: PreflightResult[] = [];
+    for (const request of inRequests(flattenChecks(planned))) {
+      const answer = await preflight(fromConnection, { checks: request });
+      if (mine !== preflightRun.current) return;
+      if (!answer.ok) {
+        setPreflightState({ signature, status: "error", message: answer.error.message });
+        return;
+      }
+      results.push(...answer.data);
+    }
+    setPreflightState({
+      signature,
+      status: "done",
+      findings: findingsFor(planned, results, hasRenames),
+    });
+  };
 
   if (state.status === "loading") {
     return (
@@ -241,8 +295,18 @@ export function MigrationsView({ connectionId }: { connectionId: string }) {
           {loaded.message}
         </p>
       ) : null}
+      {loaded.status === "done" && plan && planned.length > 0 ? (
+        <PreflightPanel
+          connection={connections.find((c) => c.id === fromConnection)}
+          running={shownPreflight?.status === "running"}
+          outcome={shownPreflight}
+          steps={planned.length}
+          onRun={() => void runPreflight()}
+        />
+      ) : null}
       {loaded.status === "done" && plan ? (
         <PlanView
+          findings={shownPreflight?.status === "done" ? shownPreflight.findings : undefined}
           plan={plan}
           suggestions={suggestions}
           confirmedRenames={renames}

@@ -1,7 +1,7 @@
 /**
  * Filtering the rows of a table from the Filter panel, end to end: adding and removing
  * conditions, what each kind of column offers, combining them with a sort and paging,
- * the limit of three, and the states (no match, a value that does not fit, a read that
+ * the limit of ten, and the states (no match, a value that does not fit, a read that
  * took too long). A condition's value never reaches the page's storage.
  */
 import pg from "pg";
@@ -166,8 +166,17 @@ test.describe("filtering the rows", () => {
     expect(numeric).toContain("is at least");
     expect(numeric).not.toContain("contains");
     expect(numeric).not.toContain("starts with");
-    // jsonb: it has no useful order, so only the tests for NULL.
-    expect(await conditions("data")).toEqual(["is NULL", "is not NULL"]);
+    // jsonb: it has no useful order, so it is searched (a key, what it contains, a path) and tested for NULL.
+    expect(await conditions("data")).toEqual([
+      "has the key",
+      "contains the JSON",
+      "at a path equals",
+      "is NULL",
+      "is not NULL",
+    ]);
+    // The date shortcuts are for a date.
+    expect(await conditions("joined")).toContain("is in the last 7 days");
+    expect(numeric).not.toContain("is in the last 7 days");
 
     // A hidden column is not offered; once shown, it is.
     await expect(
@@ -213,19 +222,17 @@ test.describe("filtering the rows", () => {
     await expect(page.getByText(/^Page 1/)).toBeVisible();
   });
 
-  test("stops at three conditions and says why", async ({ page }) => {
-    await addFilter(page, "score", "is at least", "1");
-    await addFilter(page, "score", "is at most", "12");
-    await addFilter(page, "name", "contains", "a");
-    await expect(chips(page)).toHaveCount(3);
+  test("stops at ten conditions and says why", async ({ page }) => {
+    for (let i = 0; i < 10; i += 1) await addFilter(page, "score", "is at least", String(i));
+    await expect(chips(page)).toHaveCount(10);
     await expect(panel(page).getByRole("button", { name: "Add filter" })).toBeDisabled();
-    await expect(panel(page).getByText(/At most 3 filters/)).toBeVisible();
-    await page.getByRole("button", { name: /Remove filter score is at least/ }).click();
-    await expect(chips(page)).toHaveCount(2);
-    // There is room again: the limit message is gone, and a third condition can be added.
-    await expect(panel(page).getByText(/At most 3 filters/)).toHaveCount(0);
+    await expect(panel(page).getByText(/At most 10 filters/)).toBeVisible();
+    await page.getByRole("button", { name: /Remove filter score is at least "0"/ }).click();
+    await expect(chips(page)).toHaveCount(9);
+    // There is room again: the limit message is gone, and another condition can be added.
+    await expect(panel(page).getByText(/At most 10 filters/)).toHaveCount(0);
     await addFilter(page, "email", "starts with", "ann");
-    await expect(chips(page)).toHaveCount(3);
+    await expect(chips(page)).toHaveCount(10);
   });
 
   test("tests for NULL, with no value to type", async ({ page }) => {

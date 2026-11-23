@@ -278,6 +278,459 @@ describe("table rows are read only behind the data-access check", () => {
   });
 });
 
+describe("one cell is read whole only behind the same data-access check", () => {
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const cellRoute = path.join(root, "apps/web/app/api/connections/[id]/rows/cell/route.ts");
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("calls getCell on an adapter only in the connection service, and the route asks the service", () => {
+    const callers = appCode.filter((f) => /\badapter\.getCell\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const route = readFileSync(cellRoute, "utf8");
+    expect(route).toMatch(/connections\.getCell\(/);
+    expect(route).not.toMatch(/adapter/i);
+  });
+
+  it("refuses when data access is off before it uses the adapter", () => {
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("getCell(id: string");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    const use = body.indexOf("this.connections.use(");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(use).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    // It waits its turn with the other reads of the connection.
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body, never cached", () => {
+    const code = readFileSync(cellRoute, "utf8");
+    expect(code).toMatch(/export function POST\b/);
+    expect(code).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(code).toContain("jsonResponse");
+    expect(code).toContain("cellRequestSchema");
+    expect(read("packages/shared-types/src/connections.ts")).toMatch(
+      /cellRequestSchema = z\s*\.strictObject/,
+    );
+  });
+
+  it("names the row by the table's whole key from the catalog, binds every value, reads only JSON, and never reads a hidden column", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    const start = code.indexOf("export async function readCell");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start);
+    // Only a json or jsonb column.
+    expect(body).toMatch(/kinds\.get\(column\.name\) !== "json"/);
+    // A column that looks sensitive is read only when it was revealed (as a page does).
+    expect(body).toMatch(
+      /isSensitiveColumnName\(column\.name\) && !request\.revealColumns\.includes/,
+    );
+    // The key must be the whole key, each column once, and a name of the catalog.
+    expect(body).toMatch(/request\.key\.length !== order\.columns\.length/);
+    expect(body).toMatch(
+      /given\.has\(part\.column\) \|\| !order\.columns\.includes\(part\.column\)/,
+    );
+    // The statement is built from catalog names, quoted; the values are bound parameters.
+    expect(body).toMatch(/quoteIdentifier\(column\.name\)/);
+    expect(body).toMatch(/values\.push\(given\.get\(name\)\)/);
+    expect(body).not.toMatch(/\$\{(request|part|given)\b/);
+  });
+
+  it("has no code in the cell path that writes to the console", () => {
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/cell/route.ts",
+      "apps/web/features/json/json-editor-dialog.tsx",
+      "apps/web/features/json/json-code-editor.tsx",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("never reaches the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    expect(places.length).toBeGreaterThan(5);
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /\bgetCell\b|cellResponseSchema|cellRequestSchema|features\/json\//,
+      );
+    }
+  });
+});
+
+describe("a validation never changes a row", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/validate/route.ts");
+
+  it("runs in a transaction that is read-only before any value goes in, and is never committed", () => {
+    const code = stripComments(
+      read("packages/postgres-adapter/src/connection/checking-transaction.ts"),
+    );
+    const readOnly = code.indexOf('"SET TRANSACTION READ ONLY"');
+    const prepare = code.indexOf("await prepare(db)");
+    const work = code.indexOf("await work(db)");
+    expect(prepare).toBeGreaterThan(-1);
+    expect(readOnly).toBeGreaterThan(prepare);
+    expect(work).toBeGreaterThan(readOnly);
+    // Rolled back in `finally`, whatever happened; there is no COMMIT anywhere.
+    expect(code).toMatch(/finally \{[\s\S]*"ROLLBACK"/);
+    expect(code).not.toMatch(/COMMIT/);
+    // The timeouts are local to the transaction.
+    expect(code).toMatch(/set_config\('statement_timeout', \$1, true\)/);
+  });
+
+  it("writes only into its own temporary copy: no other table is named in a statement that changes data", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/validation/validate-rows.ts"));
+    // The text of every statement is a template literal, where the words of SQL are.
+    const texts = code.match(/`[^`]*`/g) ?? [];
+    // Its words, without the `${...}` parts (the name of the copy is a constant called COPY there).
+    const words = (t: string) => t.replace(/\$\{[^}]*\}/g, "");
+    const changing = texts.filter((t) =>
+      /\b(INSERT INTO|CREATE TEMP TABLE|ALTER TABLE|UPDATE|DELETE FROM|TRUNCATE|DROP|COPY)\b/.test(
+        words(t),
+      ),
+    );
+    expect(changing.length).toBeGreaterThan(3);
+    // Every statement that changes anything is CREATE TEMP TABLE, ALTER of the copy, or INSERT into the copy.
+    for (const statement of changing) {
+      expect(statement, statement).toMatch(
+        /^`(INSERT INTO|ALTER TABLE|CREATE TEMP TABLE) \$\{quoteIdentifier\(COPY\)\}/,
+      );
+    }
+    for (const text of texts) {
+      expect(words(text), text).not.toMatch(/\b(UPDATE|DELETE FROM|TRUNCATE|DROP|COPY|CASCADE)\b/);
+    }
+    // The copy has no defaults (a copied default can advance a real sequence), no indexes, no identity, no triggers.
+    expect(code).not.toMatch(
+      /INCLUDING (DEFAULTS|INDEXES|IDENTITY|ALL|STORAGE|COMMENTS|STATISTICS)/,
+    );
+    expect(code).toContain("INCLUDING CONSTRAINTS INCLUDING GENERATED");
+    expect(code).not.toMatch(/nextval|setval|CREATE (TRIGGER|INDEX|SEQUENCE)/i);
+  });
+
+  it("holds no value in a statement's text: values are bound, names come from the catalog", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/validation/validate-rows.ts"));
+    // A value of the request never appears inside a template literal.
+    expect(code).not.toMatch(/\$\{[^}]*\b(row|rows|value|values|slice|arrays)\b[^}]*\}/);
+    // The values travel in these arrays and nowhere else.
+    expect(code).toMatch(/await db\.query\(insert, arrays\)/);
+    expect(code).not.toMatch(/\$\{request\.(rows|key)/);
+    // The one request name that reaches a statement is checked against the catalog first (a column, the key).
+    expect(code).toMatch(/byName\.get\(name\)/);
+    expect(code).toMatch(/order\.columns\.includes\(part\.column\)/);
+    // It never reads a message of the database (it can hold a value).
+    expect(code).not.toMatch(/\.message\b/);
+  });
+
+  it("never reaches the write capability or the write connection", () => {
+    for (const file of [
+      "packages/postgres-adapter/src/validation/validate-rows.ts",
+      "packages/postgres-adapter/src/connection/checking-transaction.ts",
+    ]) {
+      const code = stripComments(read(file));
+      expect(code, file).not.toMatch(
+        /WritableAdapter|connection\/write|WriteClient|applyChange|\.\.\/writes\/(rows|sql|structure|guard)/,
+      );
+    }
+    // Only the catalog of the write path (read-only queries) is borrowed.
+    expect(read("packages/postgres-adapter/src/validation/validate-rows.ts")).toMatch(
+      /from "\.\.\/writes\/catalog\.js"/,
+    );
+  });
+
+  it("is asked of an adapter only by the connection service, behind the data-access check", () => {
+    const callers = appCode.filter((f) =>
+      /\badapter\.validateRows\(/.test(readFileSync(f, "utf8")),
+    );
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.validateRows\(/);
+    expect(routeCode).not.toMatch(/adapter|writes\./i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("validateRows(id: string");
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    expect(start).toBeGreaterThan(-1);
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(body.indexOf("this.connections.use(")).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body and no cache, and never writes to the console", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("jsonResponse");
+    expect(routeCode).toContain("validateRequestSchema");
+    expect(read("packages/shared-types/src/connections.ts")).toMatch(
+      /validateRequestSchema = z\s*\.strictObject/,
+    );
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/validate/route.ts",
+      "packages/postgres-adapter/src/validation/validate-rows.ts",
+      "packages/postgres-adapter/src/connection/checking-transaction.ts",
+      "packages/database-core/src/validation.ts",
+      "apps/web/features/writes/validation-panel.tsx",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("is not kept anywhere: not in the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /validateRows|ValidationReport|validateRequestSchema|validationReportSchema/,
+      );
+    }
+  });
+});
+
+describe("the pre-flight of a migration reads only counts, from names it checked", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/preflight/route.ts");
+
+  it("is asked of an adapter only by the connection service, behind the data-access check", () => {
+    const callers = appCode.filter((f) => /\badapter\.preflight\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.preflight\(/);
+    expect(routeCode).not.toMatch(/adapter/i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("preflight(id: string");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    expect(body.indexOf("this.connections.use(")).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    expect(body).toContain("this.rowsGate.run(");
+  });
+
+  it("is a JSON POST with a strict body in which a check is a structure and never text that becomes SQL", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("preflightRequestSchema");
+    const schema = read("packages/shared-types/src/connections.ts");
+    expect(schema).toMatch(/preflightRequestSchema = z\.strictObject/);
+    expect(schema).toMatch(/preflightCheckSchema = z\.discriminatedUnion\("kind"/);
+    // Every kind is a strict object of names; there is no `sql`, `where` or `definition` in it.
+    const checks = schema.slice(
+      schema.indexOf("preflightCheckSchema"),
+      schema.indexOf("preflightRequestSchema"),
+    );
+    expect(checks).not.toMatch(/\b(sql|where|definition|expression|text)\b/);
+    expect((checks.match(/z\.strictObject/g) ?? []).length).toBe(4);
+  });
+
+  it("builds four fixed statements from catalog names, quoted, and returns only a count", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/preflight.ts"));
+    const texts = (code.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    const statements = texts.filter((t) => /\bSELECT\b/.test(t));
+    expect(statements.length).toBe(5); // nulls, duplicates (two parts), orphans (two parts), rows
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/);
+    }
+    // Every statement answers with a count (or a yes or no), never a column.
+    expect(code).toMatch(/count\(\*\)::text AS n/);
+    // The names are looked up in the catalog before any statement is built from them.
+    expect(code).toMatch(/listTablesByRef\(db, \[\{ schema, name \}\]\)/);
+    expect(code).toMatch(/ownNames\.every\(\(c\) => own\.has\(c\)\)/);
+    expect(code).toMatch(/check\.refColumns\.every\(\(c\) => ref\.has\(c\)\)/);
+    expect(code).not.toMatch(/\.message\b/);
+  });
+
+  it("makes its checks from the plan's steps and the structure, and never from the text of a constraint", () => {
+    const code = stripComments(read("packages/database-core/src/migration/preflight.ts"));
+    // The definition of a constraint (an expression) is never run, quoted or sent from here: the one use is to
+    // look for two fixed words (NULLS NOT DISTINCT, MATCH FULL) with a regular expression, to say "not checked".
+    const withoutWordTests = code.replace(/\/\\b[^/]+\/i\.test\(found\.definition \?\? ""\)/g, "");
+    expect(withoutWordTests).not.toMatch(/\.definition\b/);
+    expect(code).not.toMatch(/\.up\b|\.down\b/);
+  });
+
+  it("never writes to the console and is not kept anywhere", () => {
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/preflight/route.ts",
+      "packages/postgres-adapter/src/introspection/preflight.ts",
+      "packages/database-core/src/migration/preflight.ts",
+      "apps/web/features/migrations/preflight-panel.tsx",
+      "apps/web/features/migrations/preflight-findings.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /preflight|PreflightResult|preflightRequestSchema/,
+      );
+    }
+  });
+});
+
+describe("an export of rows is table data behind the data-access check, bounded, and leaves hidden columns out", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const appCode = walk(path.join(root, "apps/web")).filter(
+    (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+  );
+  const service = path.join(root, "apps/web/lib/server/connection-service.ts");
+  const route = path.join(root, "apps/web/app/api/connections/[id]/rows/export/route.ts");
+
+  it("is asked of an adapter only by the connection service, behind the data-access check, one at a time", () => {
+    const callers = appCode.filter((f) => /\badapter\.exportRows\(/.test(readFileSync(f, "utf8")));
+    expect(callers.map(rel)).toEqual([rel(service)]);
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/connections\.exportRows\(/);
+    expect(routeCode).not.toMatch(/adapter/i);
+    const code = readFileSync(service, "utf8");
+    const start = code.indexOf("async exportRows(");
+    expect(start).toBeGreaterThan(-1);
+    const body = code.slice(start, code.indexOf("unlinkProfile(", start));
+    const refusal = body.indexOf("data_access_disabled");
+    expect(refusal).toBeGreaterThan(-1);
+    // The adapter is reached through the registry (a call that prettier may put on two lines).
+    const use = body.search(/this\.connections\s*\.use\(/);
+    expect(use).toBeGreaterThan(refusal);
+    expect(body.slice(0, refusal)).toMatch(/summary\.dataAccess/);
+    // The export is registered only after the check, and before the adapter is reached.
+    expect(body.indexOf("this.exporting.add(id)")).toBeGreaterThan(refusal);
+    expect(body.indexOf("this.exporting.add(id)")).toBeLessThan(use);
+    // One export at a time per connection, freed when it ends.
+    expect(body).toMatch(/this\.exporting\.has\(id\)/);
+    expect(body).toMatch(/this\.exporting\.delete\(id\)/);
+    // The file stops at its size limit.
+    expect(body).toContain("EXPORT_MAX_BYTES");
+  });
+
+  it("is a JSON POST with a strict body, answers with a file that is never cached or sniffed, and never writes to the console", () => {
+    const routeCode = readFileSync(route, "utf8");
+    expect(routeCode).toMatch(/export function POST\b/);
+    expect(routeCode).not.toMatch(/export (async )?function (GET|PUT|PATCH|DELETE|HEAD)\b/);
+    expect(routeCode).toContain("exportRequestSchema");
+    expect(routeCode).toContain('"Cache-Control": "no-store"');
+    expect(routeCode).toContain('"X-Content-Type-Options": "nosniff"');
+    expect(routeCode).toContain('"Content-Disposition": "attachment"');
+    const schema = read("packages/shared-types/src/connections.ts");
+    expect(schema).toMatch(/exportRequestSchema = z\.strictObject/);
+    // The format is one of a fixed list, never free text; the limits are not in the request.
+    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson"\]\)/);
+    const body = schema.slice(
+      schema.indexOf("exportRequestSchema"),
+      schema.indexOf("ParsedExportRequest"),
+    );
+    expect(body).not.toMatch(/\b(limit|maxRows|maxBytes|sql|where|orderBy)\b/);
+    for (const file of [
+      "apps/web/app/api/connections/[id]/rows/export/route.ts",
+      "packages/postgres-adapter/src/introspection/export-rows.ts",
+      "packages/database-core/src/rows-export.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("reads through the page reader's own statement and checks, in the read-only transaction, and leaves a hidden column out", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/export-rows.ts"));
+    // The same statement builder, the same check that a hidden column is neither sorted nor filtered.
+    expect(code).toMatch(/buildRowsQuery\(/);
+    expect(code).toMatch(/checkRowsSort\(requestedSort, columns, order\)/);
+    expect(code).toMatch(/checkRowsFilters\(requestedFilters, columns\)/);
+    // A column whose name looks sensitive is not read unless it was revealed, and is named as left out.
+    expect(code).toMatch(/masked: isSensitiveColumnName\(c\.name\) && !reveal\.has\(c\.name\)/);
+    expect(code).toMatch(
+      /const shown = columns\.flatMap\(\(c, position\) => \(c\.masked \? \[\] :/,
+    );
+    expect(code).toMatch(/const leftOut = columns\.filter\(\(c\) => c\.masked\)/);
+    // A cursor, fetched in batches; nothing that changes data; the row limit is the core's constant.
+    expect(code).toMatch(/DECLARE dc_export NO SCROLL CURSOR FOR/);
+    // The size of a fetch is a number the reader computes (at most `EXPORT_BATCH_ROWS`), never one from a request.
+    expect(code).toMatch(/FETCH \$\{fetchRows\} FROM dc_export/);
+    expect(code).toMatch(/Math\.min\(EXPORT_BATCH_ROWS, /);
+    expect(code).toContain("limit: EXPORT_MAX_ROWS + 1");
+    // A reader that stops reading cannot hold the transaction open for ever: the server ends it (and the
+    // service gives up a write that waits for a stopped reader).
+    expect(code).toContain("idle_in_transaction_session_timeout");
+    expect(stripComments(read("apps/web/lib/server/connection-service.ts"))).toMatch(
+      /Promise\.race\(\[\s*writer\.write\(chunk\)/,
+    );
+    // Batches are sized by what they hold, from a small first fetch.
+    expect(code).toMatch(/let fetchRows = EXPORT_FIRST_BATCH_ROWS/);
+    expect(code).not.toMatch(/ROWS_MAX_COLUMNS/);
+    const texts = code.match(/`[^`]*`/g) ?? [];
+    for (const t of texts) {
+      expect(t.replace(/\$\{[^}]*\}/g, ""), t).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/,
+      );
+    }
+    expect(code).not.toMatch(/\.message\b/);
+    // The page reader accepts the longer cell only through its plan, not from a request.
+    expect(read("packages/postgres-adapter/src/introspection/rows.ts")).toMatch(
+      /plan\.cellChars \?\? ROWS_CELL_CHARS/,
+    );
+  });
+
+  it("makes every value of a spreadsheet format safe to open, and puts nothing about a value in the notes", () => {
+    const code = stripComments(read("packages/database-core/src/rows-export.ts"));
+    expect(code).toMatch(/defuse\(text\)/);
+    // The notes name the table, the time, a count, column NAMES and conditions without values.
+    const notes = code.slice(
+      code.indexOf("function notes("),
+      code.indexOf("function delimitedFormatter"),
+    );
+    expect(notes).not.toMatch(/\.value\b|\.values\b|\brows\[/);
+    const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
+    expect(service).toMatch(
+      /filters: request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
+    );
+  });
+
+  it("is not kept anywhere: not in the stores, the autosave or the saved layouts", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /exportRows|exportRequestSchema|ExportEvent|rows-export/,
+      );
+    }
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -287,15 +740,20 @@ describe("a sort and conditions never become SQL text", () => {
     const code = read("packages/shared-types/src/connections.ts");
     expect(code).toMatch(/rowsRequestSchema = z\s*\.strictObject/);
     expect(code).toMatch(/rowSortSchema = z\s*\.strictObject/);
-    expect(code).toMatch(/rowFilterSchema = z\s*\.strictObject/);
-    // The operator is one of a fixed list, never free text.
-    expect(code).toMatch(/op: z\.enum\(ROW_FILTER_OPERATORS\)/);
+    // A condition: strict, and its operator one of a fixed list, never free text (`row-filters.ts`).
+    const filters = read("packages/shared-types/src/row-filters.ts");
+    expect(filters).toMatch(/rowFilterSchema = z\s*\.strictObject/);
+    expect(filters).toMatch(/op: z\.enum\(ROW_FILTER_OPERATORS\)/);
+    // Every list in a condition is bounded.
+    expect(filters).toMatch(/values: z\.array\(text\)\.max\(MAX_ROW_FILTER_VALUES\)/);
+    expect(filters).toMatch(/\.max\(MAX_ROW_FILTER_PATH\)/);
   });
 
   it("the service passes both to the adapter untouched: structured data, no text is built from them", () => {
     const code = stripComments(read("apps/web/lib/server/connection-service.ts"));
     const start = code.indexOf("getRows(id: string");
-    const end = code.indexOf("unlinkProfile(", start);
+    // Up to the next method (one cell, a validation, a pre-flight and an export follow, each with its own rules).
+    const end = code.indexOf("getCell(id: string", start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const body = code.slice(start, end);
@@ -308,12 +766,26 @@ describe("a sort and conditions never become SQL text", () => {
     const raw = read("packages/postgres-adapter/src/introspection/rows.ts");
     const code = stripComments(raw);
     // Own keys only: a plain object also answers to "toString" and "__proto__".
-    expect(code).toContain("Object.hasOwn(FILTER_SQL");
+    expect(code).toContain("Object.hasOwn(NONE_SQL");
+    expect(code).toContain("Object.hasOwn(ONE_SQL");
     // LIKE would make a % or _ in a value a wildcard; contains and starts with are strpos and starts_with.
     expect(code).not.toMatch(/\b(I?LIKE|SIMILAR TO)\b/i);
-    expect(code).not.toMatch(/~\*?\s/); // no regular-expression operator either
+    // The one regular-expression operator is `matches`, and its pattern is a bound parameter cast to text.
+    const regex = code.match(/~\*?\s/g) ?? [];
+    expect(regex).toHaveLength(1);
+    expect(code).toContain("~* CAST(${p} AS text)");
     // Every value of a condition goes through the parameter function.
-    expect(code).toMatch(/write\(column, param\(filter\.value\)\)/);
+    expect(code).toMatch(/ONE_SQL\[op\]!\(c, param\(filter\.value\)\)/);
+  });
+
+  it("no value, list or path of a condition is ever written into the statement's text", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    // A `${...}` that holds a request value would put it in the text; each must be inside `param(`.
+    for (const match of code.matchAll(
+      /\$\{[^}]*\b(?:filter\.(?:value|values|path)|values\[\d\])[^}]*\}/g,
+    )) {
+      expect(match[0], match[0]).toMatch(/param\(/);
+    }
   });
 
   it("keeps rows out of everything that is saved: workspaces, snapshots and profiles have no place for them", () => {
@@ -342,16 +814,20 @@ describe("rows in the browser live in component state only", () => {
     expect(dataFiles.length).toBeGreaterThan(5);
   });
 
-  it.each([
-    "localStorage",
-    "sessionStorage",
-    "indexedDB",
-    "document.cookie",
-    "caches.",
-    "persist(",
-  ])("the data viewer never touches %s", (api) => {
-    for (const file of dataFiles) expect(code(file), rel(file)).not.toContain(api);
+  it("only saved filter shapes may touch localStorage, and they keep no value", () => {
+    const users = dataFiles.filter((f) => code(f).includes("localStorage")).map(rel);
+    expect(users).toEqual([rel(path.join(web, "features/data/filter-shapes.ts"))]);
+    // A shape is the columns, conditions and groups; the filter's value, list and path are never read.
+    const shapes = code(path.join(web, "features/data/filter-shapes.ts"));
+    expect(shapes).not.toMatch(/\b(?:f|filter)\.(?:value|values|path)\b/);
   });
+
+  it.each(["sessionStorage", "indexedDB", "document.cookie", "caches.", "persist("])(
+    "the data viewer never touches %s",
+    (api) => {
+      for (const file of dataFiles) expect(code(file), rel(file)).not.toContain(api);
+    },
+  );
 
   it("only the rows hook asks for rows, and it holds them in React state", () => {
     const callers = walk(path.join(web, "features"))

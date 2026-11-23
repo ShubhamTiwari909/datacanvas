@@ -35,11 +35,13 @@ describe("buildRowsQuery with a sort", () => {
     expect(asc).toEqual({
       text:
         'SELECT 1 AS r, left(CAST("id" AS text), $1) AS c0, left(CAST("email" AS text), $1) AS c1, CAST("id" AS text) AS k0, ' +
-        'left(CAST("email" AS text), $2) AS s0 FROM "public"."users" ORDER BY "email" ASC NULLS LAST, "id" LIMIT $3',
+        'left(CAST("email" AS text), $2) AS s0 FROM "public"."users" ORDER BY "public"."users"."email" ASC NULLS LAST, "public"."users"."id" LIMIT $3',
       values: [CUT, SORT_CUT, 51],
     });
     const desc = buildRowsQuery(plan({ sort: { column: "email", direction: "desc" } }));
-    expect(desc.text).toContain('ORDER BY "email" DESC NULLS FIRST, "id" LIMIT $3');
+    expect(desc.text).toContain(
+      'ORDER BY "public"."users"."email" DESC NULLS FIRST, "public"."users"."id" LIMIT $3',
+    );
   });
 
   it("reads the sort value for the cursor, cut one character past what a cursor can carry", () => {
@@ -64,7 +66,7 @@ describe("buildRowsQuery with a sort", () => {
       const { text, values } = after("asc", "bob");
       expect(text).toContain(
         'WHERE ("email" > $5 OR ("email" = $5 AND ROW("a", "b") > ROW($3, $4)) OR "email" IS NULL) ' +
-          'ORDER BY "email" ASC NULLS LAST, "a", "b" LIMIT $6',
+          'ORDER BY "public"."users"."email" ASC NULLS LAST, "public"."users"."a", "public"."users"."b" LIMIT $6',
       );
       expect(values).toEqual([CUT, SORT_CUT, "7", "x", "bob", 3]);
     });
@@ -79,7 +81,7 @@ describe("buildRowsQuery with a sort", () => {
       const { text } = after("desc", "bob");
       expect(text).toContain(
         'WHERE ("email" < $5 OR ("email" = $5 AND ROW("a", "b") > ROW($3, $4))) ' +
-          'ORDER BY "email" DESC NULLS FIRST, "a", "b"',
+          'ORDER BY "public"."users"."email" DESC NULLS FIRST, "public"."users"."a", "public"."users"."b"',
       );
     });
 
@@ -111,7 +113,9 @@ describe("buildRowsQuery with a sort", () => {
 
   it("sorting by the key itself is valid, if redundant", () => {
     const { text } = buildRowsQuery(plan({ sort: { column: "id", direction: "desc" } }));
-    expect(text).toContain('ORDER BY "id" DESC NULLS FIRST, "id"');
+    expect(text).toContain(
+      'ORDER BY "public"."users"."id" DESC NULLS FIRST, "public"."users"."id"',
+    );
   });
 });
 
@@ -176,7 +180,9 @@ const FILTER_CONDITION = [
   `${ID} IS NOT NULL`,
 ].join("|");
 const WHERE = `WHERE (?:${FILTER_CONDITION}|${AFTER_CONDITION})(?: AND (?:${FILTER_CONDITION}|${AFTER_CONDITION}))*`;
-const ORDER = `ORDER BY (?:${ID} (?:ASC NULLS LAST|DESC NULLS FIRST), )?${idList}`;
+// In ORDER BY a column is qualified by its table, so that it can never be read as an output alias (`c0`, `r`).
+const QUALIFIED = `${ID}\\.${ID}\\.${ID}`;
+const ORDER = `ORDER BY (?:${QUALIFIED} (?:ASC NULLS LAST|DESC NULLS FIRST), )?${QUALIFIED}(?:, ${QUALIFIED})*`;
 const GRAMMAR = new RegExp(
   `^SELECT 1 AS r` +
     `(?:, left\\(CAST\\(${ID} AS text\\), ${P}\\) AS c\\d+)*` +
@@ -186,6 +192,22 @@ const GRAMMAR = new RegExp(
     `(?: ${WHERE})?` +
     `(?: ${ORDER})?` +
     ` LIMIT ${P}(?: OFFSET ${P})?$`,
+);
+
+/** The conditions this grammar was written for; the later operators have their own tests (`rows-filter.test.ts`). */
+const LEGACY_OPS = ROW_FILTER_OPS.filter((op) =>
+  [
+    "eq",
+    "neq",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "contains",
+    "starts_with",
+    "is_null",
+    "is_not_null",
+  ].includes(op),
 );
 
 describe("buildRowsQuery, generated", () => {
@@ -206,7 +228,7 @@ describe("buildRowsQuery, generated", () => {
       const continuing = next() < 0.6;
       const sortValue = next() < 0.25 ? null : pick(VALUES);
       const conditions = Array.from({ length: Math.floor(next() * 4) }, () => {
-        const op = pick(ROW_FILTER_OPS);
+        const op = pick(LEGACY_OPS);
         return op === "is_null" || op === "is_not_null"
           ? { column: pick(NAMES), op }
           : { column: pick(NAMES), op, value: pick(VALUES) };

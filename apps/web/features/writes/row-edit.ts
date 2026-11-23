@@ -20,6 +20,7 @@ import type {
   TableRef,
   UpdateRowChange,
 } from "@datacanvas/database-core";
+import { checkJson } from "@/features/json/json-text";
 
 // ------------------------------------------------------------- the words ---
 
@@ -126,10 +127,10 @@ export function checkValue(dataType: string, value: string): string | null {
   if (type === "boolean" && !/^\s*(t|f|true|false|yes|no|on|off|1|0|y|n)\s*$/i.test(value))
     return "This column takes true or false.";
   if (type === "json" || type === "jsonb") {
-    try {
-      JSON.parse(value);
-    } catch {
-      return "This column takes JSON, and this is not valid JSON.";
+    // Our own checker, not JSON.parse: the same answer in every browser, with the place it stopped.
+    const checked = checkJson(value, type === "jsonb");
+    if (!checked.ok) {
+      return `This column takes JSON. Line ${checked.error.line}, column ${checked.error.column}: ${checked.error.message}`;
     }
   }
   return null;

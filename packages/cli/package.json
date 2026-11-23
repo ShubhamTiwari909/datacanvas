@@ -1,6 +1,6 @@
 {
   "name": "@datacanvas/cli",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "private": true,
   "description": "The `datacanvas` command: starts the bundled web app on 127.0.0.1 and opens the browser.",
   "type": "module",

@@ -17,6 +17,8 @@ export * from "./structure.js";
 export * from "./objects.js";
 export * from "./sql-text.js";
 export * from "./rows.js";
+export * from "./rows-export.js";
+export * from "./validation.js";
 export * from "./diff.js";
 export * from "./changes.js";
 export * from "./sql-run.js";

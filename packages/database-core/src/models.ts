@@ -360,6 +360,8 @@ export const ROWS_MAX_PAGE_SIZE = 200;
 export const ROWS_MAX_COLUMNS = 100;
 /** Characters of one cell kept. Longer values are cut IN THE DATABASE and flagged. */
 export const ROWS_CELL_CHARS = 2000;
+/** The most characters of one `json` or `jsonb` value read whole, for the JSON editor (1 MB); a larger one is not sent. */
+export const CELL_EDIT_MAX_CHARS = 1_000_000;
 /** About 2 MB of cell text in one response; a page that would exceed it is cut. */
 export const ROWS_MAX_RESPONSE_CHARS = 2_000_000;
 /** A table without a usable key can only be read this deep (OFFSET gets slower with depth). */
@@ -371,17 +373,25 @@ export const ROWS_MAX_SORT_VALUE_CHARS = 1024;
 /** A read with a sort (or a filter) is stopped after this long, however long a plain page is allowed to take. */
 export const ROWS_SORT_FILTER_TIMEOUT_MS = 5000;
 
-/** The most conditions in one read; they are combined with AND. */
-export const ROWS_MAX_FILTERS = 3;
+/** The most conditions in one read. */
+export const ROWS_MAX_FILTERS = 10;
 /** The most characters in the value of a condition. */
 export const ROWS_MAX_FILTER_VALUE_CHARS = 200;
+/** The most values in the list of `in`, `not_in`, `array_contains` and `array_overlaps`. */
+export const ROWS_MAX_FILTER_VALUES = 50;
+/** The most steps in the path of `json_path_eq`, and the most characters of one. */
+export const ROWS_MAX_FILTER_PATH = 10;
+export const ROWS_MAX_FILTER_PATH_CHARS = 100;
+/** Conditions with the same group number match if ANY of them does; conditions without one are all required. */
+export const ROWS_MAX_FILTER_GROUPS = 3;
 
 export type RowSortDirection = "asc" | "desc";
 
 /**
- * What a condition can ask. `eq` and the comparisons are typed (the value must be valid for the column's
- * type); `neq` also matches NULL; `contains` and `starts_with` ignore case and treat every character of the
- * value as itself (there are no wildcards); `is_null` and `is_not_null` take no value.
+ * The filter operators. `eq` and the comparisons are typed (the value must be valid for the column's type); `neq`
+ * also matches NULL; `contains`, `starts_with`, `ends_with` and `not_contains` compare literal text
+ * (case-insensitive, no wildcards); `matches` is the one operator that reads its value as a case-insensitive
+ * regular expression; `is_null` and `is_not_null` take no value.
  */
 export const ROW_FILTER_OPS = [
   "eq",
@@ -392,23 +402,74 @@ export const ROW_FILTER_OPS = [
   "lte",
   "contains",
   "starts_with",
+  "ends_with",
+  "not_contains",
+  "matches",
+  "is_empty",
+  "in",
+  "not_in",
+  "between",
+  "today",
+  "last_7_days",
+  "last_30_days",
+  "this_month",
+  "has_key",
+  "json_contains",
+  "json_path_eq",
+  "array_contains",
+  "array_overlaps",
+  "array_is_empty",
   "is_null",
   "is_not_null",
 ] as const;
 export type RowFilterOp = (typeof ROW_FILTER_OPS)[number];
 
-/** One condition on a column. Conditions of a read are all required (AND). */
+/**
+ * How many values an operator takes: none (`is_null`, the date shortcuts, `is_empty`, `array_is_empty`),
+ * one (`value`), a list (`values`), exactly two (`between`: the two ends in `values`), or a path and a value
+ * (`json_path_eq`: the steps in `path`, what it should equal in `value`).
+ */
+export type RowFilterShape = "none" | "one" | "list" | "two" | "path";
+
+/**
+ * One condition on a column. Conditions of a read are all required (AND), except those that share a
+ * `group` number: of those, any one is enough (OR). So "A and (B or C)" is A, then B and C with the same group.
+ */
 export interface RowFilter {
   column: string;
   op: RowFilterOp;
-  /** Text, at most `ROWS_MAX_FILTER_VALUE_CHARS`; absent for `is_null` and `is_not_null`. */
+  /** Text, at most `ROWS_MAX_FILTER_VALUE_CHARS`; only for the operators that take one value. */
   value?: string;
+  /** Texts, each at most `ROWS_MAX_FILTER_VALUE_CHARS`, at most `ROWS_MAX_FILTER_VALUES`; for a list, or the two ends of `between`. */
+  values?: string[];
+  /** The steps of a path into a JSON document (`json_path_eq`), at most `ROWS_MAX_FILTER_PATH`. */
+  path?: string[];
+  /** 1 to `ROWS_MAX_FILTER_GROUPS`: conditions with the same number are OR-ed together. */
+  group?: number;
 }
 
 /** Sort by one column. The table's key always follows as the tie-breaker, so the order is total and stable. */
 export interface RowSort {
   column: string;
   direction: RowSortDirection;
+}
+
+/**
+ * One cell of one row, read WHOLE (`getCell`, for the JSON editor): the row is found by the table's own key,
+ * the column must be `json` or `jsonb`, and a column whose name looks sensitive is read only when named in
+ * `revealColumns`, as for a page of rows.
+ */
+export interface CellRequest {
+  column: string;
+  /** One entry per column of the table's row key (`getRows` says which), in any order. */
+  key: Array<{ column: string; value: string }>;
+  revealColumns: string[];
+}
+
+/** What `getCell` read: the text, or null for SQL NULL, or `tooLarge` (then the text is null and nothing was sent). */
+export interface CellRead {
+  value: string | null;
+  tooLarge: boolean;
 }
 
 export interface RowsOptions {
@@ -427,7 +488,7 @@ export interface RowsOptions {
    */
   sort?: RowSort | null;
   /**
-   * Up to `ROWS_MAX_FILTERS` conditions, all required. Only on columns that are read and not hidden,
+   * Up to `ROWS_MAX_FILTERS` conditions: ungrouped ones are all required, and ones that share a `group` match if any one does. Only on columns that are read and not hidden,
    * with an operator the column's kind allows (`filterOpsFor`). Works on a table without a key as well.
    */
   filters?: RowFilter[];
@@ -439,9 +500,11 @@ export interface RowsOptions {
  *  - "ordered": any other type with a default btree ordering (numbers, dates and times,
  *    booleans, uuid, enums, ranges; a domain counts as its base type), except `jsonb` and
  *    `bytea`, whose order is not meaningful to a person;
- *  - "other": everything else (json, xml, arrays, composites, geometric types, `jsonb`, `bytea`).
+ *  - "json": `json` and `jsonb` (can be searched by key, by what they contain and by a path, not sorted);
+ *  - "array": any array type (can be searched by what it contains, not sorted);
+ *  - "other": everything else (xml, composites, geometric types, `bytea`).
  */
-export type RowColumnKind = "text" | "ordered" | "other";
+export type RowColumnKind = "text" | "ordered" | "json" | "array" | "other";
 
 export interface RowColumn {
   name: string;

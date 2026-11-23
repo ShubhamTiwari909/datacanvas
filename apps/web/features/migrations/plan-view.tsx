@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { StepFinding } from "./preflight-findings";
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
@@ -60,15 +61,44 @@ const groupLabel = (s: MigrationStep): string =>
     ? `${s.object.of} ${s.object.name ?? ""}`.trim()
     : `${s.object.schema}.${s.object.table}`;
 
+const VERDICT_LABEL = {
+  ok: "Passes on your data",
+  fails: "Will fail on your data",
+  partly: "Partly checked",
+  unchecked: "Not checked",
+} as const;
+
+function Finding({ finding }: { finding: StepFinding }) {
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      <Badge
+        variant="outline"
+        className={`w-fit ${finding.verdict === "fails" ? DESTRUCTIVE : ""}`}
+      >
+        {VERDICT_LABEL[finding.verdict]}
+      </Badge>
+      <ul className="list-disc pl-5 text-muted-foreground">
+        {finding.lines.map((line, index) => (
+          // By position: two lines can be the same sentence, and the list never changes order.
+          <li key={index}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function StepRow({
   step,
   included,
   keptBecause,
   confirmed,
+  finding,
   onInclude,
   onConfirm,
 }: {
   step: MigrationStep;
+  /** What the pre-flight found for this step, when it was run. */
+  finding?: StepFinding | undefined;
   included: boolean;
   /** Set when the step is out only because a step it depends on is. */
   keptBecause: string | undefined;
@@ -94,6 +124,7 @@ function StepRow({
             <code className="font-mono text-xs text-muted-foreground">{step.id}</code> {step.note}
           </span>
           <Risks step={step} />
+          {finding ? <Finding finding={finding} /> : null}
           {keptBecause !== undefined ? (
             <span className="text-xs text-muted-foreground">
               Left out with {keptBecause}, which this step needs.
@@ -299,7 +330,10 @@ export function PlanView({
   onSelection,
   before,
   after,
+  findings,
 }: {
+  /** What the pre-flight found, per step id, when it was run. */
+  findings?: ReadonlyMap<string, StepFinding> | undefined;
   plan: MigrationPlan;
   suggestions: RenameSuggestion[];
   confirmedRenames: ReadonlySet<string>;
@@ -407,6 +441,7 @@ export function PlanView({
                       included={inSet.has(step.id)}
                       keptBecause={keptTogether.get(step.id)}
                       confirmed={selection.confirmed.has(step.id)}
+                      finding={findings?.get(step.id)}
                       onInclude={(include) => setLeftOut(step.id, include)}
                       onConfirm={(on) => setConfirmed(step.id, on)}
                     />

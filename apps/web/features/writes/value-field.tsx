@@ -10,7 +10,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Braces, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import type { FieldControlProps } from "@/components/ui/field";
@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { BLUR_CLASSES } from "@/features/data/blur-store";
+import { JsonEditorDialog } from "@/features/json/json-editor-dialog";
 import { cn } from "@/lib/utils";
 import { controlKind, isTrueText, type InsertMode } from "./row-edit";
 
@@ -43,6 +44,7 @@ export function ValueField({
   autoFocus = false,
   locked = false,
   blurred,
+  jsonOriginal,
   onChange,
 }: {
   /** From the surrounding `FormField`. */
@@ -60,6 +62,8 @@ export function ValueField({
   /** The database always fills this column: shown, never editable. */
   locked?: boolean;
   blurred: boolean;
+  /** For a JSON column: the value as it was loaded (the editor's Changes view compares with it); absent when adding a row. */
+  jsonOriginal?: string | null;
   onChange: (next: ValueState) => void;
 }) {
   const kind = controlKind(dataType);
@@ -68,6 +72,8 @@ export function ValueField({
   // shows all of it. Decided once, when the field first appears with a value; typing never collapses it.
   const [collapsed, setCollapsed] = useState(() => kind === "text" && active && isLong(state.text));
   const [opened, setOpened] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const isJson = /^jsonb?$/i.test(dataType.trim());
   const canCollapse = kind === "text" && active && isLong(state.text);
   const placeholder =
     state.mode === "null"
@@ -178,6 +184,32 @@ export function ValueField({
             {collapsed ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}
           </Button>
         </Tip>
+      ) : null}
+      {isJson && !locked ? (
+        <>
+          <Tip label="Edit as JSON">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label={`Edit ${column} as JSON`}
+              onClick={() => setJsonOpen(true)}
+            >
+              <Braces aria-hidden="true" />
+            </Button>
+          </Tip>
+          <JsonEditorDialog
+            open={jsonOpen}
+            onClose={() => setJsonOpen(false)}
+            column={column}
+            text={active ? state.text : ""}
+            original={jsonOriginal}
+            onApply={(text) => {
+              type(text);
+              setJsonOpen(false);
+            }}
+          />
+        </>
       ) : null}
       {offers.default || offers.null ? (
         <div className="flex shrink-0 items-start gap-1.5">

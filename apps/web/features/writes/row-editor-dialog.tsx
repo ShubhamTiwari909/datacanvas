@@ -25,18 +25,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FIELD_HINT, FormField, FormStack } from "@/components/ui/field";
+import { getCell } from "@/features/data/api";
 import { useBlurStore } from "@/features/data/blur-store";
+import { JsonEditorDialog } from "@/features/json/json-editor-dialog";
 import type { ChangeRequest } from "./change-dialog";
 import {
   buildUpdate,
   cellEditBlock,
   changedFields,
+  columnEditBlock,
   checkValue,
   focusTarget,
   typeHint,
   updateBeforeAfter,
   type FieldEdit,
 } from "./row-edit";
+import { useValidation, ValidationPanel } from "./validation-panel";
+import { validateRequestFor } from "./validation";
 import { ValueField, type ValueState } from "./value-field";
 
 /** A row as it was on screen when the editor opened. */
@@ -49,12 +54,14 @@ export interface RowSnapshot {
 }
 
 export function RowEditorDialog({
+  connectionId,
   table,
   info,
   row,
   onClose,
   onPreview,
 }: {
+  connectionId: string;
   table: TableRef;
   info: TableEditInfo;
   row: RowSnapshot | null;
@@ -68,6 +75,7 @@ export function RowEditorDialog({
           // Keyed so a new row starts from its own values.
           <RowForm
             key={row.key.map((k) => k.value).join("\u0000")}
+            connectionId={connectionId}
             table={table}
             info={info}
             row={row}
@@ -81,12 +89,14 @@ export function RowEditorDialog({
 }
 
 function RowForm({
+  connectionId,
   table,
   info,
   row,
   onClose,
   onPreview,
 }: {
+  connectionId: string;
   table: TableRef;
   info: TableEditInfo;
   row: RowSnapshot;
@@ -103,10 +113,16 @@ function RowForm({
     ),
   );
   const stateOf = (name: string): ValueState => fields[name] ?? { mode: "null", text: "" };
+  // A JSON value that a page cut short can be read whole in the JSON editor; from then on it is the cell.
+  const [whole, setWhole] = useState<Record<string, string>>({});
+  const [readingWhole, setReadingWhole] = useState<string | null>(null);
 
   const editable = row.columns.flatMap((column, index) => {
-    const cell = row.cells[index];
-    if (!cell) return [];
+    const read = row.cells[index];
+    if (!read) return [];
+    // An own property only: a column called `constructor` must not read the object's own method.
+    const full = Object.hasOwn(whole, column.name) ? whole[column.name] : undefined;
+    const cell: RowCell = full === undefined ? read : { value: full, truncated: false };
     const columnInfo = info.columns.find((c) => c.name === column.name);
     return [{ column, cell, columnInfo, block: cellEditBlock(column, cell, columnInfo) }];
   });
@@ -123,6 +139,7 @@ function RowForm({
     });
   const change = buildUpdate(table, row.key, edits);
   const changedNames = new Set(changedFields(edits).map((f) => f.column));
+  const validation = useValidation(connectionId, change ? validateRequestFor(change) : null);
   const focus = focusTarget(
     row.focus,
     editable.map((e) => ({
@@ -203,9 +220,23 @@ function RowForm({
             >
               {(field) =>
                 block !== null ? (
-                  <p id={field.id} className={FIELD_HINT}>
-                    {block}
-                  </p>
+                  <div className="flex flex-col items-start gap-2">
+                    <p id={field.id} className={FIELD_HINT}>
+                      {block}
+                    </p>
+                    {column.kind === "json" &&
+                    cell.truncated &&
+                    columnEditBlock(column, columnInfo) === null ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setReadingWhole(column.name)}
+                      >
+                        Read it whole in the JSON editor
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : (
                   <ValueField
                     field={field}
@@ -215,6 +246,7 @@ function RowForm({
                     offers={{ null: columnInfo?.nullable ?? false, default: false }}
                     autoFocus={focus === column.name}
                     blurred={blurred}
+                    jsonOriginal={cell.value}
                     onChange={(next) =>
                       setFields((current) => ({ ...current, [column.name]: next }))
                     }
@@ -226,9 +258,43 @@ function RowForm({
         })}
       </FormStack>
 
+      {readingWhole !== null ? (
+        <JsonEditorDialog
+          open
+          column={readingWhole}
+          onClose={() => setReadingWhole(null)}
+          load={() =>
+            getCell(connectionId, {
+              schema: table.schema,
+              table: table.name,
+              column: readingWhole,
+              key: row.key,
+              revealColumns: [readingWhole],
+            })
+          }
+          onApply={(text, original) => {
+            const name = readingWhole;
+            // The value as it was read becomes what the change is checked against.
+            setWhole((current) => ({ ...current, [name]: original ?? "" }));
+            setFields((current) => ({ ...current, [name]: { mode: "value", text } }));
+            setReadingWhole(null);
+          }}
+        />
+      ) : null}
+
+      <ValidationPanel validation={validation} />
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={change === null || validation.busy}
+          onClick={validation.run}
+        >
+          Validate
         </Button>
         <Button type="submit" disabled={change === null}>
           Preview

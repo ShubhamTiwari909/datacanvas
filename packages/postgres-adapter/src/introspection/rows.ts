@@ -1,4 +1,5 @@
 import {
+  CELL_EDIT_MAX_CHARS,
   DatabaseError,
   ROWS_CELL_CHARS,
   ROWS_MAX_COLUMNS,
@@ -11,6 +12,8 @@ import {
   normalizeRowsOptions,
   quoteIdentifier,
   quoteQualified,
+  type CellRead,
+  type CellRequest,
   type RawRow,
   type RowColumn,
   type RowColumnKind,
@@ -102,9 +105,9 @@ export async function findRowKey(db: Queryable, ref: TableRef): Promise<RowOrder
  * catalog. A domain is followed down to its base type. "text" is the string
  * category; "ordered" is a type with a default btree operator class (enums and
  * ranges have one through a pseudo-type, so they are named), except `jsonb` and
- * `bytea`, whose order means nothing to a person; everything else is "other".
- * Arrays and composites have a btree class too, but over `anyarray` and
- * `anyrecord`, which this test does not match, so they stay "other".
+ * `bytea`, whose order means nothing to a person. `json` and `jsonb` are "json" and arrays are
+ * "array": they can be searched but not sorted. Composites have a btree class too, but over
+ * `anyrecord`, which this test does not match, so they stay "other", with everything else.
  */
 const COLUMN_KINDS_SQL = `
   WITH RECURSIVE cols AS (
@@ -124,7 +127,9 @@ const COLUMN_KINDS_SQL = `
     b.name,
     CASE
       WHEN t.typcategory = 'S' THEN 'text'
-      WHEN t.oid IN ('pg_catalog.bytea'::regtype, 'pg_catalog.jsonb'::regtype) THEN 'other'
+      WHEN t.oid = 'pg_catalog.bytea'::regtype THEN 'other'
+      WHEN t.oid IN ('pg_catalog.json'::regtype, 'pg_catalog.jsonb'::regtype) THEN 'json'
+      WHEN t.typcategory = 'A' THEN 'array'
       WHEN t.typtype IN ('e', 'r', 'm') THEN 'ordered'
       WHEN EXISTS (
         SELECT 1
@@ -200,11 +205,15 @@ export interface RowsQueryPlan {
   /** The sort column's value in the last row of the previous page (null value: SQL NULL); present exactly when `sort` and `after` are. */
   afterSort?: { value: string | null } | null;
   /** Conditions on columns, all required (AND). Already checked against the columns that were read. */
-  filters?: ReadonlyArray<{ column: string; op: RowFilterOp; value?: string | undefined }>;
+  filters?: readonly FilterInput[];
+  /** The type of each column read, as `format_type` prints it (for the conditions that need it). */
+  columnTypes?: ReadonlyMap<string, string>;
   /** Where to start (tables without a key). */
   offset: number;
   /** How many rows to fetch: the page size plus one, to learn whether there is more. */
   limit: number;
+  /** The characters of a cell kept (a page keeps `ROWS_CELL_CHARS`; an export keeps more). */
+  cellChars?: number;
 }
 
 /**
@@ -222,35 +231,151 @@ export interface RowsQueryPlan {
  * (`k0`...): the paging position must be the real key, not a shortened copy of
  * it. `1 AS r` keeps the select list from being empty when every column is masked.
  */
+/** What a condition needs to know about its column, from the catalog (never from the request). */
+interface ConditionColumn {
+  /** The type as `format_type` prints it, valid SQL: used to cast a list into an array of the column's own type. */
+  dataType: string;
+}
+
 /**
  * One condition. The operator text comes from this table, chosen by the operator's name; the column is a
- * quoted catalog name; the value, when there is one, is a bound parameter. `contains` and `starts with`
- * avoid LIKE so that `%`, `_` and `\` in the value are ordinary characters and need no escaping.
+ * quoted catalog name; every value is a bound parameter. `contains` and `starts with` avoid LIKE so that
+ * `%`, `_` and `\` in the value are ordinary characters and need no escaping. A value that is used twice is
+ * cast to text, so that PostgreSQL never has to guess which function `length($1)` means.
  */
-const FILTER_SQL: Record<RowFilterOp, (column: string, value: string | null) => string> = {
+const TEXT_OF = (c: string): string => `CAST(${c} AS text)`;
+
+const ONE_SQL: Partial<Record<RowFilterOp, (column: string, p: string) => string>> = {
   eq: (c, p) => `${c} = ${p}`,
   neq: (c, p) => `${c} IS DISTINCT FROM ${p}`,
   gt: (c, p) => `${c} > ${p}`,
   gte: (c, p) => `${c} >= ${p}`,
   lt: (c, p) => `${c} < ${p}`,
   lte: (c, p) => `${c} <= ${p}`,
-  contains: (c, p) => `strpos(lower(CAST(${c} AS text)), lower(${p})) > 0`,
-  starts_with: (c, p) => `starts_with(lower(CAST(${c} AS text)), lower(${p}))`,
+  contains: (c, p) => `strpos(lower(${TEXT_OF(c)}), lower(${p})) > 0`,
+  starts_with: (c, p) => `starts_with(lower(${TEXT_OF(c)}), lower(${p}))`,
+  ends_with: (c, p) =>
+    `right(lower(${TEXT_OF(c)}), length(CAST(${p} AS text))) = lower(CAST(${p} AS text))`,
+  not_contains: (c, p) =>
+    `COALESCE(strpos(lower(${TEXT_OF(c)}), lower(CAST(${p} AS text))), 0) = 0`,
+  matches: (c, p) => `${TEXT_OF(c)} ~* CAST(${p} AS text)`,
+  has_key: (c, p) => `CAST(${c} AS jsonb) ? CAST(${p} AS text)`,
+  json_contains: (c, p) => `CAST(${c} AS jsonb) @> CAST(${p} AS jsonb)`,
+};
+
+const NONE_SQL: Partial<Record<RowFilterOp, (column: string) => string>> = {
   is_null: (c) => `${c} IS NULL`,
   is_not_null: (c) => `${c} IS NOT NULL`,
+  is_empty: (c) => `(${c} IS NOT NULL AND ${TEXT_OF(c)} = '')`,
+  array_is_empty: (c) => `(${c} IS NOT NULL AND cardinality(${c}) = 0)`,
+};
+
+/** The date shortcuts, written for the column's own type so that no time zone is guessed. */
+function shortcutSql(op: RowFilterOp, c: string, dataType: string): string {
+  if (/^date\b/.test(dataType)) {
+    const today = "CURRENT_DATE";
+    const month = `CAST(date_trunc('month', ${today}) AS date)`;
+    switch (op) {
+      case "today":
+        return `${c} = ${today}`;
+      case "last_7_days":
+        return `(${c} >= ${today} - 6 AND ${c} <= ${today})`;
+      case "last_30_days":
+        return `(${c} >= ${today} - 29 AND ${c} <= ${today})`;
+      default:
+        return `(${c} >= ${month} AND ${c} < CAST(${month} + interval '1 month' AS date))`;
+    }
+  }
+  const now =
+    /with time zone/.test(dataType) && !/without time zone/.test(dataType)
+      ? "now()"
+      : "localtimestamp";
+  const day = `date_trunc('day', ${now})`;
+  const month = `date_trunc('month', ${now})`;
+  switch (op) {
+    case "today":
+      return `(${c} >= ${day} AND ${c} < ${day} + interval '1 day')`;
+    case "last_7_days":
+      return `(${c} >= ${day} - interval '6 days' AND ${c} < ${day} + interval '1 day')`;
+    case "last_30_days":
+      return `(${c} >= ${day} - interval '29 days' AND ${c} < ${day} + interval '1 day')`;
+    default:
+      return `(${c} >= ${month} AND ${c} < ${month} + interval '1 month')`;
+  }
+}
+
+type FilterInput = {
+  column: string;
+  op: RowFilterOp;
+  value?: string | undefined;
+  values?: readonly string[] | undefined;
+  path?: readonly string[] | undefined;
+  group?: number | undefined;
 };
 
 function filterCondition(
-  filter: { column: string; op: RowFilterOp; value?: string | undefined },
+  filter: FilterInput,
   param: (value: unknown) => string,
+  column: ConditionColumn | undefined,
 ): string {
+  const op = filter.op;
+  const c = quoteIdentifier(filter.column);
+  const bad = () => new DatabaseError("invalid_request");
   // Own keys only: a plain object also answers to "toString", "constructor" and "__proto__".
-  if (!Object.hasOwn(FILTER_SQL, filter.op)) throw new DatabaseError("invalid_request");
-  const write = FILTER_SQL[filter.op];
-  const column = quoteIdentifier(filter.column);
-  if (filter.op === "is_null" || filter.op === "is_not_null") return write(column, null);
-  if (typeof filter.value !== "string") throw new DatabaseError("invalid_request");
-  return write(column, param(filter.value));
+  if (Object.hasOwn(NONE_SQL, op)) {
+    if (filter.value !== undefined || filter.values !== undefined) throw bad();
+    return NONE_SQL[op]!(c);
+  }
+  if (op === "today" || op === "last_7_days" || op === "last_30_days" || op === "this_month") {
+    if (!column) throw bad();
+    return shortcutSql(op, c, column.dataType);
+  }
+  if (Object.hasOwn(ONE_SQL, op)) {
+    if (typeof filter.value !== "string") throw bad();
+    return ONE_SQL[op]!(c, param(filter.value));
+  }
+  const values = filter.values;
+  switch (op) {
+    case "in":
+      if (!values || values.length === 0) throw bad();
+      return `${c} IN (${values.map((v) => param(v)).join(", ")})`;
+    case "not_in":
+      if (!values || values.length === 0) throw bad();
+      return `(${values.map((v) => `${c} IS DISTINCT FROM ${param(v)}`).join(" AND ")})`;
+    case "between":
+      if (!values || values.length !== 2) throw bad();
+      return `${c} BETWEEN ${param(values[0])} AND ${param(values[1])}`;
+    case "array_contains":
+    case "array_overlaps": {
+      if (!values || values.length === 0 || !column) throw bad();
+      const list = values.map((v) => `CAST(${param(v)} AS text)`).join(", ");
+      return `${c} ${op === "array_contains" ? "@>" : "&&"} CAST(ARRAY[${list}] AS ${column.dataType})`;
+    }
+    case "json_path_eq":
+      if (!filter.path || filter.path.length === 0 || typeof filter.value !== "string") throw bad();
+      return `(CAST(${c} AS jsonb) #>> CAST(${param([...filter.path])} AS text[])) = CAST(${param(filter.value)} AS text)`;
+    default:
+      throw bad();
+  }
+}
+
+/** The person's conditions as one expression list: each ungrouped one alone, each group as `(a OR b)`. */
+function filterConditions(
+  filters: readonly FilterInput[],
+  param: (value: unknown) => string,
+  columnOf: (name: string) => ConditionColumn | undefined,
+): string[] {
+  const alone: string[] = [];
+  const groups = new Map<number, string[]>();
+  for (const filter of filters) {
+    const sql = filterCondition(filter, param, columnOf(filter.column));
+    if (filter.group === undefined) {
+      alone.push(sql);
+    } else {
+      groups.set(filter.group, [...(groups.get(filter.group) ?? []), `(${sql})`]);
+    }
+  }
+  return [...alone, ...[...groups.values()].map((list) => `(${list.join(" OR ")})`)];
 }
 
 export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unknown[] } {
@@ -264,7 +389,7 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   // The cell limit is a parameter only when some column uses it: PostgreSQL refuses a
   // statement with a parameter that is never referenced (42P18), which is what a table
   // whose every column is masked would otherwise be.
-  const cut = plan.shown.length > 0 ? param(ROWS_CELL_CHARS + 1) : null;
+  const cut = plan.shown.length > 0 ? param((plan.cellChars ?? ROWS_CELL_CHARS) + 1) : null;
   for (const column of plan.shown) {
     select.push(
       `left(CAST(${quoteIdentifier(column.name)} AS text), ${cut}) AS c${column.position}`,
@@ -283,9 +408,20 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
 
   const parts = [`SELECT ${select.join(", ")}`, `FROM ${quoteQualified(plan.schema, plan.table)}`];
   const keyList = plan.keyColumns.map(quoteIdentifier).join(", ");
+  // In ORDER BY a bare name means an output column first: a table column called `c0`, `k0`, `r` or `s0` would be
+  // read as the alias of the select list. Qualified by the table, it is always the table's column.
+  const inTable = (column: string): string =>
+    `${quoteQualified(plan.schema, plan.table)}.${column}`;
+  // Each name is quoted on its own: a name with a comma in it is not split.
+  const keyOrder = plan.keyColumns.map((c) => inTable(quoteIdentifier(c))).join(", ");
   // Every condition is required: the person's conditions first, then "after the last row" of the paging.
   const conditions: string[] = [];
-  for (const filter of plan.filters ?? []) conditions.push(filterCondition(filter, param));
+  conditions.push(
+    ...filterConditions(plan.filters ?? [], param, (name) => {
+      const dataType = plan.columnTypes?.get(name);
+      return dataType === undefined ? undefined : { dataType };
+    }),
+  );
   if (keyed && plan.after) {
     const marks = plan.after.map((value) => param(value));
     const afterKey = `ROW(${keyList}) > ROW(${marks.join(", ")})`;
@@ -311,8 +447,8 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   if (keyed) {
     parts.push(
       sort
-        ? `ORDER BY ${sortName} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyList}`
-        : `ORDER BY ${keyList}`,
+        ? `ORDER BY ${inTable(sortName)} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyOrder}`
+        : `ORDER BY ${keyOrder}`,
     );
   }
   parts.push(`LIMIT ${param(plan.limit)}`);
@@ -413,6 +549,7 @@ export async function readRows(
     sort,
     afterSort,
     filters,
+    columnTypes: new Map(columns.map((c) => [c.name, c.dataType])),
     offset,
     limit: effectiveSize + 1,
   });
@@ -444,4 +581,73 @@ export async function readRows(
     sort,
     filters,
   });
+}
+
+// ---------------------------------------------------------------- one cell ---
+
+/**
+ * One `json` or `jsonb` value of one row, whole, for the JSON editor. The statement is one fixed shape:
+ *
+ *   SELECT char_length(CAST("c" AS text)) AS n,
+ *          CASE WHEN char_length(CAST("c" AS text)) <= $1 THEN CAST("c" AS text) END AS v
+ *   FROM "s"."t" WHERE "k0" = $2 AND "k1" = $3 LIMIT 2
+ *
+ * The column and the key columns are catalog names (the request's names are only compared with them),
+ * every value is bound, a value over the limit is measured in the database and never sent, and a
+ * request that names anything but the table's whole row key is refused.
+ */
+export async function readCell(
+  db: Queryable,
+  ref: TableRef,
+  request: CellRequest,
+): Promise<CellRead> {
+  const bad = () => new DatabaseError("invalid_request");
+  const [table] = await listTablesByRef(db, [ref]);
+  if (!table) throw new DatabaseError("not_found");
+  if (table.kind === "foreign_table") throw new DatabaseError("not_supported");
+
+  const columns = await listColumns(db, ref.schema, ref.name);
+  const column = columns.find((c) => c.name === request.column);
+  if (!column) throw bad();
+  const kinds = await findColumnKinds(db, ref);
+  if (kinds.get(column.name) !== "json") throw bad();
+  // A hidden column would be an oracle: it is read only when it was revealed, as a page of rows does.
+  if (isSensitiveColumnName(column.name) && !request.revealColumns.includes(column.name)) {
+    throw bad();
+  }
+
+  const order = await findRowKey(db, ref);
+  if (order.kind === "none" || request.key.length !== order.columns.length) throw bad();
+  // A hidden key column would let a guess be tested: the right value answers, a wrong one is `not_found`.
+  if (order.columns.some((c) => isSensitiveColumnName(c) && !request.revealColumns.includes(c))) {
+    throw bad();
+  }
+  const given = new Map<string, string>();
+  for (const part of request.key) {
+    if (given.has(part.column) || !order.columns.includes(part.column)) throw bad();
+    given.set(part.column, part.value);
+  }
+
+  const values: unknown[] = [CELL_EDIT_MAX_CHARS];
+  const text = `CAST(${quoteIdentifier(column.name)} AS text)`;
+  const where = order.columns.map((name) => {
+    values.push(given.get(name));
+    return `${quoteIdentifier(name)} = $${values.length}`;
+  });
+  const statement =
+    `SELECT char_length(${text}) AS n, CASE WHEN char_length(${text}) <= $1 THEN ${text} END AS v ` +
+    `FROM ${quoteQualified(ref.schema, ref.name)} WHERE ${where.join(" AND ")} LIMIT 2`;
+
+  let result: { rows: Array<{ n: string | number | null; v: string | null }> };
+  try {
+    result = await db.query(statement, values);
+  } catch (error) {
+    // A key value that does not fit the key's type: a fixed message, never the database's (it holds the value).
+    if (isDataException(error)) throw new DatabaseError("invalid_request", { cause: error });
+    throw error;
+  }
+  const row = result.rows[0];
+  if (!row || result.rows.length > 1) throw new DatabaseError("not_found");
+  if (row.n === null) return { value: null, tooLarge: false };
+  return row.v === null ? { value: null, tooLarge: true } : { value: row.v, tooLarge: false };
 }

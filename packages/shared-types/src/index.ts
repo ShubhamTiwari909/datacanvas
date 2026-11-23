@@ -13,6 +13,7 @@ export * from "./health.js";
 export * from "./api-error.js";
 export * from "./postgres-connection.js";
 export * from "./metadata.js";
+export * from "./row-filters.js";
 export * from "./connections.js";
 export * from "./ids.js";
 export * from "./versioned-file.js";

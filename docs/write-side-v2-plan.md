@@ -1,6 +1,6 @@
 # Plan: 1.11.0, the write side, second part (import and bulk editing, finished)
 
-Status: **proposed (2026-11-23), waiting for the owner's decisions in section 11.** It finishes what 1.9.0 deliberately left out (`docs/advanced-data-workspace-plan.md`, sections 19 and 20; decisions 159 and 160). It follows `docs/insight-release-plan.md` (1.10.0, nothing in it writes) and, like 1.9.0, **ends with its own independent review of the write side**, because every item here changes data in a way the earlier releases did not.
+Status: **proposed 2026-11-23; the decisions of section 11 were taken by the owner on 2026-11-23 (every recommendation accepted, decision 162).** It finishes what 1.9.0 deliberately left out (`docs/advanced-data-workspace-plan.md`, sections 19 and 20; decisions 159 and 160). It follows `docs/insight-release-plan.md` (1.10.0, nothing in it writes) and, like 1.9.0, **ends with its own independent review of the write side**, because every item here changes data in a way the earlier releases did not.
 
 ## 1. What we promise
 
@@ -140,7 +140,7 @@ E1 to E4 are independent after E0 and can be done in any order; the order above 
 
 README (what you can do), `docs/getting-started.md` (the import modes, the rejects file, the encoding menu, "all matching rows", the editing grid), `SECURITY.md` (new write operations, the held keys, what the preview counts), `docs/threat-model.md` (a section for the new operations and the review table), `docs/decisions.md` (the decisions below), `docs/advanced-data-workspace-plan.md` (sections 19 and 20 point here), `CHANGELOG.md`, the version in the root and `packages/cli` `package.json` and the three places in `package-lock.json`.
 
-## 11. Decisions to take (recommendations; none is taken until the owner says so)
+## 11. Decisions taken (2026-11-23): every recommendation accepted
 
 1. **Scope of 1.11.0.** _Recommend_ all of section 1. If it must be smaller: E1 and E2 (the import, finished), then E4; E3 last, because it is the largest risk.
 2. **"All rows matching this filter"** (section 6) **by keys resolved at preview**, never a `WHERE` in a write, with the count typed to confirm, 100,000 at most, an empty filter refused. _Recommend_ exactly this. The alternative (a `WHERE` built from the conditions at apply) is simpler and is the thing the project has refused since 1.4.

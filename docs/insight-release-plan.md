@@ -1,6 +1,6 @@
 # Plan: 1.10.0, the insight and housekeeping release (nothing in it writes a row)
 
-Status: **proposed (2026-11-23), waiting for the owner's decisions in section 11.** Written from the state of `main` at 1.9.0 (`d0d75e0`), after the independent reviews of 1.8.0 and 1.9.0 and the lists of known limits in `SECURITY.md` and `docs/threat-model.md`. The write side's next steps are in `docs/write-side-v2-plan.md` (1.11.0); the split follows the rule of 1.8.0 and 1.9.0: **a release that adds no way to change a database does not need the review a release that does need.**
+Status: **proposed 2026-11-23; the decisions of section 12 were taken by the owner on 2026-11-23 (every recommendation accepted, decision 161).** Written from the state of `main` at 1.9.0 (`d0d75e0`), after the independent reviews of 1.8.0 and 1.9.0 and the lists of known limits in `SECURITY.md` and `docs/threat-model.md`. The write side's next steps are in `docs/write-side-v2-plan.md` (1.11.0); the split follows the rule of 1.8.0 and 1.9.0: **a release that adds no way to change a database does not need the review a release that does need.**
 
 ## 1. What we promise
 
@@ -151,7 +151,7 @@ INSERT INTO "public"."people" ("id", "full_name") VALUES
 | #      | Work                                                                                                                                                                                                                                                                                                                                                     | Ends with                                                                        |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | **V0** | Housekeeping (section 9) and the patch updates; the whole gate                                                                                                                                                                                                                                                                                           | A commit with no behaviour change except the small fixes                         |
-| **V1** | CSP spike in report-only through the whole suite; the list of what must be allowed; the test that fails on a violation; then the enforcing header, nonce tests, decision 161                                                                                                                                                                             | A green suite with the policy enforced                                           |
+| **V1** | CSP spike in report-only through the whole suite; the list of what must be allowed; the test that fails on a violation; then the enforcing header, nonce tests, its own decision                                                                                                                                                                         | A green suite with the policy enforced                                           |
 | **V2** | Plan viewer: `FORMAT JSON` in the runner, the parser, the tree, the marks, the text switch; privacy rule                                                                                                                                                                                                                                                 | Unit tests of the parser (hostile plans), an end-to-end test, axe in both themes |
 | **V3** | Statistics: the adapter read, the route, the Table details view, the rule test for the forbidden columns                                                                                                                                                                                                                                                 | Adapter tests on PostgreSQL 17 here and 12 to 18 in CI                           |
 | **V4** | Documentation and diagram exports with their golden and hostile-name tests; the dialogs                                                                                                                                                                                                                                                                  | Four formats, four test files, the export dialog                                 |
@@ -160,14 +160,14 @@ INSERT INTO "public"."people" ("id", "full_name") VALUES
 
 V1 goes first because it is the only item that can change how every screen loads; V2 to V5 are independent of each other and of V1 and can be done in any order.
 
-## 12. Decisions to take (recommendations; none is taken until the owner says so)
+## 12. Decisions taken (2026-11-23): every recommendation accepted
 
 1. **Scope of 1.10.0.** _Recommend_ all of section 1. If the release must be smaller, the order of value for the cost is V1, V0, V4, V2, V3, V5.
 2. **CSP style policy.** _Recommend_ `style-src 'unsafe-inline'` with a nonce for scripts only; the alternative (no inline styles at all) means replacing every `style` attribute of React Flow and the menus, which is not a change of a release like this one.
 3. **Do the statistics need "Allow viewing table data"?** _Recommend_ no (they read no row and no value, like the row-count estimate). Say yes if you would rather a connection that is "structure only" stay structure only: it is one check in the route.
 4. **Export of chosen rows by key list**, not in the browser. _Recommend_ the server route (section 8.1), because a value cut by the grid must never end up in a file.
 5. **The `INSERT` script format.** _Recommend_ include it, with the round trip in CI, and all values as quoted text literals (no casts). The alternative is to leave it out again.
-6. **The Monaco/dompurify advisory.** _Recommend_ an `overrides` entry if a fixed `dompurify` exists, otherwise record it as accepted with the reason.
+6. **The Monaco/dompurify advisory.** _Default, not asked:_ an `overrides` entry if a fixed `dompurify` exists, otherwise recorded as accepted with the reason.
 7. **A lighter independent review** of the CSP and the quoting of the exported texts, with fresh eyes, before the PR. _Recommend_ yes: the 1.8.0 and 1.9.0 reviews both found real faults.
 
 ## 13. Risks of the release itself

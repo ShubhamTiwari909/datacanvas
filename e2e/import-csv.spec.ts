@@ -37,6 +37,17 @@ async function sql<Row extends Record<string, unknown> = Record<string, unknown>
 async function axeInDialog(page: Page, name: string): Promise<void> {
   // A dialog that is still fading in has colours blended with the page behind it: wait for the end of the animation.
   await expect(page.locator('[role="dialog"]').first()).toHaveCSS("opacity", "1");
+  // A colour that is still moving (a button changing with the theme, or towards its hover colour under a mouse that was
+  // left where the last click was) gives a contrast that is not the resting one, and on a slow machine the check can
+  // land in the middle: stop the transitions, move the mouse away and let two frames paint before axe looks.
+  await page.mouse.move(0, 0);
+  await page.addStyleTag({
+    content: "*,*::before,*::after{transition:none!important;animation:none!important}",
+  });
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+  );
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async () => {
     const axe = (

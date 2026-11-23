@@ -92,4 +92,16 @@ describe("apiRequest and the size of a body", () => {
     if (!result.ok) expect(result.error.code).toBe("payload_too_large");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("answers bad_request, without sending, for a body that cannot be serialised", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const body of [circular, { n: 1n }]) {
+      const result = await apiRequest("/api/x", schema, { method: "POST", body });
+      expect(result).toMatchObject({ ok: false, error: { code: "bad_request" } });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

@@ -91,10 +91,12 @@ function Report({
   const clean = report.issues.length === 0;
   const many = report.rows > 1;
   const n = (count: number) => count.toLocaleString("en-US");
-  // A rule that counts more rows than it lists: the number of rows that pass is then a lower bound ("at least").
-  const overflow =
-    report.issues.some((i) => i.count > i.rows.length) ||
-    report.notChecked.includes("stopped_early");
+  // A rule that counts more rows than it lists: the unlisted ones are counted as failed, so the number of rows that
+  // pass is then a lower bound ("at least"). A search that stopped early did not look at every row, so more rows
+  // may fail than were found: the number is then an upper bound ("at most").
+  const stoppedEarly = report.notChecked.includes("stopped_early");
+  const overflow = report.issues.some((i) => i.count > i.rows.length);
+  const bound = stoppedEarly ? "At most " : overflow ? "At least " : "";
   return (
     <div className="flex flex-col gap-1.5 rounded-md border p-3">
       {clean ? (
@@ -114,7 +116,7 @@ function Report({
             <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
             <span>
               {many
-                ? `${overflow ? "At least " : ""}${n(report.passed)} of ${n(report.rows)} rows pass. Problems found:`
+                ? `${bound}${n(report.passed)} of ${n(report.rows)} rows pass. Problems found:`
                 : "The database would refuse this. Problems found:"}
             </span>
           </p>

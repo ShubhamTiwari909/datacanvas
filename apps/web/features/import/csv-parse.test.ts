@@ -114,6 +114,11 @@ describe("parseCsv", () => {
     expect(parsed.ok && parsed.lines).toEqual([1, 3, 6]);
   });
 
+  it("counts a lone carriage return, and a CRLF as one, inside a quoted field", () => {
+    const parsed = parseCsv('a,b\r"x\ry\r\nz",1\r3,4\r', ",");
+    expect(parsed.ok && parsed.lines).toEqual([1, 2, 5]);
+  });
+
   it("reads one column, where an empty line is not a row but a quoted empty value is", () => {
     expect(rowsOf('a\nx\n""\ny\n')).toEqual([["a"], ["x"], [""], ["y"]]);
   });

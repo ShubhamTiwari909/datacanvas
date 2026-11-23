@@ -168,11 +168,14 @@ function Body({
   // What is chosen, checked and turned into the change once (it can hold 100,000 rows), not on every render.
   const built = useMemo(() => {
     if (!rows) return { blocked: "Choose a file.", change: null, preview: null };
+    // The NULL word is still being typed: acting now would use the previous word.
+    if (custom !== deferredCustom)
+      return { blocked: "Updating the NULL word…", change: null, preview: null };
     const blocked = mappingProblem(info, mapping, dataRows);
     if (blocked !== null) return { blocked, change: null, preview: null };
     const input = { rows, header, mapping, rule };
     return { blocked: null, change: buildImport(table, input), preview: previewRows(input, 8) };
-  }, [rows, header, mapping, rule, info, table, dataRows]);
+  }, [rows, header, mapping, rule, info, table, dataRows, custom, deferredCustom]);
   const { blocked, change, preview } = built;
   const validation = useValidation(
     connectionId,
@@ -437,7 +440,7 @@ function Body({
           {validation.outcome?.status === "done" ? (
             <p className="text-xs text-muted-foreground">
               Row numbers are the file&apos;s lines, as a text editor counts them
-              {header ? " (the first line, the names, is line 1)" : ""}.
+              {header ? " (the names are the first row)" : ""}.
             </p>
           ) : null}
         </>

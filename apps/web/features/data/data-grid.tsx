@@ -202,7 +202,10 @@ const GridRow = memo(function GridRow({
         <td className="px-2 py-0 align-middle">
           <input
             type="checkbox"
-            className="size-4 align-middle accent-primary"
+            className={cn(
+              "size-4 align-middle accent-primary",
+              block !== null && "cursor-not-allowed opacity-40",
+            )}
             aria-label={`Select row ${r + 1}`}
             title={block ?? undefined}
             checked={selected}

@@ -204,7 +204,8 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
           }
         }
         if (!closed) return { ok: false, refusal: "quote_open", row: startRow };
-        for (const c of value) if (c === "\n") rowNumber += 1;
+        // \r\n, a lone \r and a lone \n are one line break each, as everywhere else in this parser.
+        rowNumber += value.match(/\r\n|\r|\n/g)?.length ?? 0;
         const next = text[i];
         if (i < n && next !== delimiter && next !== "\n" && next !== "\r") {
           return { ok: false, refusal: "after_quote", row: startRow };

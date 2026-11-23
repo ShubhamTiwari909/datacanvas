@@ -97,6 +97,19 @@ describe("the columns of the table", () => {
 });
 
 describe("mappingProblem", () => {
+  it("names a required column that an import cannot give a value to", () => {
+    const withBlob = {
+      ...info,
+      columns: [
+        ...info.columns,
+        column("blob", { dataType: "bytea", nullable: false, editable: false }),
+      ],
+    };
+    expect(mappingProblem(withBlob, ["full_name"], 3)).toMatch(
+      /blob needs a value .* cannot be given one by an import/,
+    );
+  });
+
   it("is null when the choices can be imported", () => {
     expect(mappingProblem(info, ["full_name", "Email Address"], 3)).toBeNull();
   });

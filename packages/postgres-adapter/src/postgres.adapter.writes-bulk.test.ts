@@ -144,7 +144,8 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
       const text = statementText(plan);
       expect(text.match(/UPDATE/g)).toHaveLength(1);
       expect(text).toContain("the same statement runs for each of 4 rows");
-      expect(text).not.toContain("done");
+      // The value is bound, not written into the statement.
+      expect(text).not.toMatch(/'x'|\bx\b/);
     });
 
     it("refuses at the preview a value too long for a varchar(n), instead of cutting it in the check and failing at apply", async () => {
@@ -267,6 +268,8 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
       );
       const error = await failure(adapter.applyChange(plan));
       expect(error.code).toBe("check_violation");
+      // A fixed sentence: the database's own text ("violates", the row's detail, the value) is not repeated.
+      expect(error.message).not.toMatch(/violates|Failing row|-1/);
       expect(await q("SELECT id, qty FROM b_items WHERE id <= 3 ORDER BY id")).toEqual([
         { id: 1, qty: 1 },
         { id: 2, qty: 2 },

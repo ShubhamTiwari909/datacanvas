@@ -244,7 +244,7 @@ export const columnDefaultSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("none") }),
   z.strictObject({
     kind: z.literal("literal"),
-    value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS),
+    value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).refine(wellFormed, WELL_FORMED),
   }),
   z.strictObject({ kind: z.literal("now") }),
   z.strictObject({ kind: z.literal("current_date") }),

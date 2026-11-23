@@ -11,7 +11,7 @@ For a table you may read (and, where writes are unlocked, change), from inside D
 3. **Edit many rows at once**: select rows and set a column or delete them, each row still checked against what you saw (editing several cells together was deferred, section 19).
 4. **Filter with more than "all of these"**: groups with OR, more operators (in a list, between, ends with, matches a pattern, JSON and array operators), date shortcuts, and "filter by this cell".
 5. **Edit JSON** in a real editor: formatted, validated as you type, with a tree for large documents.
-6. **Know a value is valid before it is written**: every form, import and bulk edit can be **validated** against the table (types, NOT NULL, CHECK, domains, uniqueness, foreign keys) without writing a row, and each failure says which row and which column.
+6. **Know a value is valid before it is written**: every form and import can be **validated** against the table (types, NOT NULL, CHECK, domains, uniqueness, foreign keys) without writing a row, and each failure says which row and which column.
 
 What we do not promise: undo (a committed change is committed), spreadsheets (`.xlsx`), or a streaming ETL tool. Rows move one file at a time, with limits.
 
@@ -173,7 +173,7 @@ Each is red-first, ends with every check green, and is a commit on one branch. *
 | D3  | **Validation**                    | The temporary-table check and the read-only uniqueness and foreign-key queries, the report with row numbers and no values, the route, tests for every rule and for "never a trigger, never the real table", wired into the single-row edit and insert forms ("Validate" beside "Preview"), and the pre-flight of section 6.3 in the Migrations tab |
 | D4  | **Export**                        | The route and the cursor, the four formats, masking, defusing, the limits and cancel, the dialog with progress; tests with hostile values and with a table of 100,000 rows; e2e that reads the file. **Release 1.8.0 here** if decision 13.1 is "two": independent review of the validation first                                                  |
 | D5  | **Bulk editing**                  | Selection in the grid, `update_rows`, `delete_rows` (`edit_cells` deferred, section 19) through the write path, per-row conflicts reported before writing, the review diff, validation, tests (conflict, limits, triggers named, rollback on a count mismatch), e2e                                                                                |
-| D6  | **Import**                        | The browser parser (delimiters, quotes, line breaks, BOM, header), the mapping screen, the validation of the whole file, the `insert_rows` operation in batches in one transaction, progress and cancel, the rejects file; tests with hostile files and a 100,000-row file; e2e                                                                    |
+| D6  | **Import**                        | The browser parser (delimiters, quotes, line breaks, BOM, header), the mapping screen, the validation of the whole file, the `insert_rows` operation in batches in one transaction, progress and cancel (the rejects file was not built, see section 20); tests with hostile files and a 100,000-row file; e2e                                     |
 | D7  | **Polish, docs, review, release** | README, the guide, `SECURITY.md`, the threat model, decisions, CHANGELOG; the independent review of the write side (D5 and D6); fixes; version; a PR. **Release 1.9.0 here** if "two"                                                                                                                                                              |
 
 Rough size: D0 2 days, D1 4, D2 3, D3 4, D4 3, D5 4, D6 5, D7 3. About 28 days, most of it in D3, D5 and D6, because the tests are the work.
@@ -274,7 +274,7 @@ Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 1
 
 - **No new statement.** A bulk change is one single-row statement per row, in one transaction; the plan's `affected = previewed` is the existing one-row check of each statement.
 - **`edit_cells` and the editing grid are not in 1.9.0.** The choosing of rows, "Set a value" and "Delete N rows" are. Spreadsheet-style editing and its review of differences would be a third operation and a second way to write; they come later.
-- **No Validate for a bulk change.** Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
+- **No Validate for a bulk change** (so item 6 of section 1 covers forms and imports only). Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
 - **The conflicts come at preview.** The rows that changed since they were loaded are left out and counted there; a row that changes after is a rollback.
 - A key column is not offered in "Set a value" (the same key on several rows would be refused).
 

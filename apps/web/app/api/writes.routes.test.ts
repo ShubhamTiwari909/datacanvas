@@ -551,6 +551,7 @@ describe("requests are strict JSON with no SQL anywhere", () => {
     const id = await unlocked();
     const long = await preview(id, updateEmail("x".repeat(1024 * 1024)));
     expect(long.status).toBe(400);
+    expect(long.body).toMatchObject({ error: { code: "validation_error" } });
   });
 });
 

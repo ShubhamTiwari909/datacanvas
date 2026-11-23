@@ -79,6 +79,29 @@ describe("apiRequest and the size of a body", () => {
     expect(!result.ok && result.error.message).toMatch(/more than DataCanvas can send/);
   });
 
+  it("sends a body of exactly the most bytes it may", async () => {
+    const body = { v: "x".repeat(100) };
+    const exact = new TextEncoder().encode(JSON.stringify(body)).length;
+    const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body,
+      maxBodyBytes: exact,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    // One byte less is refused, not sent.
+    fetchSpy.mockClear();
+    const refused = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body,
+      maxBodyBytes: exact - 1,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(refused).toMatchObject({ ok: false, error: { code: "payload_too_large" } });
+  });
+
   it("measures bytes, not characters", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

@@ -99,7 +99,8 @@ function Form({
         </DialogTitle>
         <DialogDescription>
           The same value is written to the column you choose, on each chosen row, only if the row
-          still holds what you saw. All of them are changed or none is.
+          still holds what you saw. The rows that can be checked are changed all together or not at
+          all; a row left out is not changed.
         </DialogDescription>
       </DialogHeader>
 

@@ -287,6 +287,9 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
   async applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange> {
     const pool = this.pool;
     if (!pool) throw new DatabaseError("not_connected");
+    // A cancel that has already happened must not take a connection and a table lock first.
+    if (signal?.aborted)
+      throw new DatabaseError("unexpected", { message: "The change was cancelled." });
     const statementTimeoutMs =
       plan.category === "row" ? ROW_CHANGE_TIMEOUT_MS : STRUCTURE_CHANGE_TIMEOUT_MS;
     try {

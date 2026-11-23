@@ -152,6 +152,12 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
       expect(report).toMatchObject({ rows: 1, passed: 1, issues: [] });
     });
 
+    it("takes an import's worth of rows, more than the 1,000 it took before 1.9.0", async () => {
+      const rows = Array.from({ length: 1500 }, (_, i) => [`name ${i}`]);
+      const report = await adapter.validateRows(insert("target", ["name"], rows));
+      expect(report).toMatchObject({ rows: 1500, passed: 1500, issues: [] });
+    });
+
     it("says which column may not be NULL, and keeps the rule when NULL is given on purpose", async () => {
       expect(await one(insert("target", ["name"], [[null]]))).toEqual([
         { rule: "not_null", column: "name", constraint: null, count: 1, rows: [1] },

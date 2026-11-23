@@ -48,13 +48,22 @@ export function suggestMapping(
   const names = importableColumns(info).map((c) => c.name);
   const taken = new Set<string>();
   const loose = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, "");
-  return header.map((h) => {
+  const result: Array<string | null> = header.map(() => null);
+  // Exact names over the whole header first, so a looser match never takes the column an exact one is waiting for.
+  header.forEach((h, i) => {
     const exact = names.find((n) => n === h && !taken.has(n));
-    const found = exact ?? names.find((n) => loose(n) === loose(h) && !taken.has(n));
-    if (found === undefined) return null;
-    taken.add(found);
-    return found;
+    if (exact === undefined) return;
+    taken.add(exact);
+    result[i] = exact;
   });
+  header.forEach((h, i) => {
+    if (result[i] !== null || h === "") return;
+    const found = names.find((n) => loose(n) === loose(h) && !taken.has(n));
+    if (found === undefined) return;
+    taken.add(found);
+    result[i] = found;
+  });
+  return result;
 }
 
 /** The columns the table needs a value for (NOT NULL, no default, not filled by the database) that are not mapped. */

@@ -155,7 +155,7 @@ function Body({
   // The choices belong to the file, its separator and its header: another of them starts again from a suggestion.
   const mappingKey = loaded ? `${loaded.id}|${delimiter}|${header}` : "";
   const suggested = useMemo(
-    () => (rows ? suggestMapping(header ? rows[0]! : names, info) : []),
+    () => (rows ? suggestMapping(header ? rows[0]! : names.map(() => ""), info) : []),
     [rows, header, names, info],
   );
   const mapping = picked && picked.key === mappingKey ? picked.values : suggested;
@@ -183,25 +183,26 @@ function Body({
     change ? `${mappingKey}|${JSON.stringify(mapping)}|${JSON.stringify(rule)}` : undefined,
   );
 
-  async function choose(file: File | undefined) {
+  async function choose(file: File | undefined): Promise<boolean> {
     // A later choice (or a cleared one) makes an earlier file's slow read stale: only the latest is used.
     counter.current += 1;
     const mine = counter.current;
     setLoaded(null);
     setProblem(null);
     setPicked(null);
-    if (!file) return;
+    if (!file) return false;
     if (file.size > IMPORT_MAX_FILE_BYTES) {
       setProblem(`The file is larger than ${IMPORT_MAX_FILE_BYTES / (1024 * 1024)} MB.`);
-      return;
+      return false;
     }
     const decoded = decodeUtf8(await file.arrayBuffer());
-    if (counter.current !== mine) return;
+    if (counter.current !== mine) return true;
     if (!decoded.ok) {
       setProblem(refusalText("not_utf8"));
-      return;
+      return false;
     }
     setLoaded({ text: decoded.text, name: file.name, size: file.size, id: mine });
+    return true;
   }
 
   // Shown with the refusals too: "choose the separator it uses" needs the control to choose it with.
@@ -248,7 +249,14 @@ function Body({
           type="file"
           accept=".csv,.tsv,.txt,text/csv,text/plain"
           className="text-sm file:mr-3 file:rounded-md file:border file:bg-muted file:px-3 file:py-1 file:text-sm"
-          onChange={(event) => void choose(event.target.files?.[0])}
+          onChange={(event) => {
+            const input = event.currentTarget;
+            // A refused file leaves the input empty, so choosing the corrected file (even under the same name) fires
+            // a change again.
+            void choose(input.files?.[0]).then((accepted) => {
+              if (!accepted) input.value = "";
+            });
+          }}
         />
         {problem ? (
           <p role="alert" className="text-sm text-destructive">

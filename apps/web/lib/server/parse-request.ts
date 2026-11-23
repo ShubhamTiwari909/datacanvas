@@ -95,8 +95,8 @@ export async function parseJsonBody<S extends z.ZodType>(
   const read = await readTextWithLimit(request, maxBytes);
   if (read === null) return { ok: false, response: tooLarge(maxBytes) };
   const { text, bytes } = read;
-  // A body shorter than the client said it was has been cut on the way (the framework keeps a limited part of a large
-  // body): say so, rather than "not valid JSON" about a request that was fine.
+  // A body shorter than the client said it was was sent short (the framework's own cut cannot reach here: it is
+  // refused by the declared length above): say so, rather than "not valid JSON" about a request that was fine.
   // (The bytes counted as they were read: re-encoding the text would miss a BOM the decoder strips.)
   if (Number.isFinite(declared) && declared > 0 && bytes < declared) {
     return { ok: false, response: tooLarge(maxBytes) };

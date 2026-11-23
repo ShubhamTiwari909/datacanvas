@@ -22,6 +22,7 @@ import {
   EMPTY_SELECTION,
   buildDeleteRows,
   bulkDeleteBeforeAfter,
+  rowSignature,
   pageSelectable,
   pageState,
   toggleRow,
@@ -171,11 +172,7 @@ export function useRowEditing({
     return {
       isSelected: (r) => {
         const row = selectable[r];
-        return (
-          row !== null &&
-          row !== undefined &&
-          selected.has(JSON.stringify(row.key.map((k) => [k.column, k.value])))
-        );
+        return row !== null && row !== undefined && selected.has(rowSignature(row.key));
       },
       onToggle: (r, extend) => {
         const anchor = chosen.anchorPage === page ? chosen.anchor : null;

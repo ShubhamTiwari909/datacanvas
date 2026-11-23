@@ -143,6 +143,13 @@ export interface BuiltUpdate {
   leftOut: number;
 }
 
+/** The chosen rows a bulk update can write: those whose value in this column was seen whole (a cut one cannot be compared). */
+const writableRows = (rows: readonly SelectedRow[], column: string): SelectedRow[] =>
+  rows.filter((r) => {
+    const cell = r.cells[column];
+    return cell !== undefined && !cell.truncated;
+  });
+
 /** Set one column to one value on the chosen rows, each checked against the value it was seen holding. */
 export function buildUpdateRows(
   table: TableRef,
@@ -150,10 +157,7 @@ export function buildUpdateRows(
   column: string,
   value: string | null,
 ): BuiltUpdate | null {
-  const usable = rows.filter((r) => {
-    const cell = r.cells[column];
-    return cell !== undefined && !cell.truncated;
-  });
+  const usable = writableRows(rows, column);
   if (usable.length === 0) return null;
   return {
     leftOut: rows.length - usable.length,
@@ -190,11 +194,7 @@ export function bulkUpdateBeforeAfter(
   value: string | null,
 ): BeforeAfterRow[] {
   // The rows that will be written (a value that was cut cannot be compared), then the first of them.
-  return rows
-    .filter((r) => {
-      const cell = r.cells[column];
-      return cell !== undefined && !cell.truncated;
-    })
+  return writableRows(rows, column)
     .slice(0, BULK_PREVIEW_ROWS)
     .map((r) => ({
       column: r.key.map((k) => `${k.column} ${k.value}`).join(", "),

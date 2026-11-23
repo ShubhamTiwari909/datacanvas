@@ -96,6 +96,21 @@ describe("the columns of the table", () => {
   });
 });
 
+describe("suggestMapping, with names that differ only loosely", () => {
+  it("gives an exact name its column even when a looser header comes first", () => {
+    const two = {
+      ...info,
+      columns: [...info.columns, column("fullName")],
+    };
+    expect(suggestMapping(["full_name", "fullName"], two)).toEqual(["full_name", "fullName"]);
+    expect(suggestMapping(["fullName", "full_name"], two)).toEqual(["fullName", "full_name"]);
+  });
+
+  it("suggests nothing for a header that is empty", () => {
+    expect(suggestMapping(["", ""], info)).toEqual([null, null]);
+  });
+});
+
 describe("mappingProblem", () => {
   it("names a required column that an import cannot give a value to", () => {
     const withBlob = {

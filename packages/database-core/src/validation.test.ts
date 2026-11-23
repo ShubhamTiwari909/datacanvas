@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseError } from "./errors.js";
+import { IMPORT_MAX_ROWS } from "./changes.js";
 import {
   IssueCollector,
   NOTE_TEXT,
@@ -47,6 +48,13 @@ describe("checkValidateRequest", () => {
         key: [{ column: "id", value: "1" }],
       }),
     ).toBe(false);
+  });
+
+  it("accepts as many rows as one import takes", () => {
+    expect(
+      refused(insert({ rows: Array.from({ length: VALIDATE_MAX_ROWS }, () => ["1", "2"]) })),
+    ).toBe(false);
+    expect(VALIDATE_MAX_ROWS).toBeGreaterThanOrEqual(IMPORT_MAX_ROWS);
   });
 
   it.each([

@@ -317,10 +317,13 @@ export interface WritableAdapter {
    * a short lock timeout and a statement timeout. A row change must affect
    * exactly one row, or everything rolls back (`row_changed` for none).
    *
+   * A `signal` that is aborted (before or during the run) rolls the change back and throws `unexpected`
+   * ("The change was cancelled.").
+   *
    * @throws DatabaseError `row_changed`, `unique_violation`,
    *   `foreign_key_violation`, `not_null_violation`, `check_violation`,
    *   `invalid_value`, `locked`, `retry`, `write_denied`, `has_dependents`,
-   *   `already_exists`, `timeout`. Never the database's own message.
+   *   `already_exists`, `timeout`, `unexpected`. Never the database's own message.
    */
   applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange>;
 }

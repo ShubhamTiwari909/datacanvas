@@ -794,12 +794,12 @@ describe("bulk row changes are many single-row changes in one transaction, never
     expect(bulk).toMatch(/if \(change\.rows\.length > MAX_BULK_ROWS\) throw invalidChange/);
     expect(bulk).toContain("distinctRows(keys)");
     // The strictness of the other operations: strict objects, no field that holds SQL.
-    const bulkSchemas = schema.slice(
-      schema.indexOf("const bulkRowSchema"),
-      schema.indexOf("// ---- column definitions") > -1
-        ? schema.indexOf("// ---- column definitions")
-        : undefined,
-    );
+    // From the bulk row schema to the insert schema that follows it (comments are stripped, so no marker is used).
+    const bulkStart = schema.indexOf("const bulkRowSchema");
+    const bulkEnd = schema.indexOf('z.literal("insert_rows")', bulkStart);
+    expect(bulkStart).toBeGreaterThan(-1);
+    expect(bulkEnd).toBeGreaterThan(bulkStart);
+    const bulkSchemas = schema.slice(bulkStart, bulkEnd);
     expect(bulkSchemas).not.toMatch(/\b(sql|where|expression|using|returning)\b/);
     expect((bulkSchemas.match(/z\s*\.strictObject/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
@@ -896,7 +896,7 @@ describe("an import is batches of one fixed statement with every value bound, an
     expect(rows).toContain("tableoid::text || ':' || ctid::text AS row_id");
     expect(rows).toContain('if (repeated) throw invalidChange("A row is listed twice.")');
     const schema = read("packages/shared-types/src/writes.ts");
-    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(3);
+    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(4);
   });
 
   it("the preview store keeps at most two imports per connection", () => {

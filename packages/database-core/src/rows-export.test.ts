@@ -72,9 +72,10 @@ describe("CSV and TSV", () => {
     expect(marked).toBe("id,note\r\n2,NULL\r\n3,\r\n");
   });
 
-  it("defuses a formula but not the word the person chose for NULL", () => {
+  it("defuses a formula, in a value or in the word chosen for NULL, but leaves a lone dash", () => {
     expect(run(options(), [[["1", "=HYPERLINK(1)"]]])).toContain("1,'=HYPERLINK(1)");
     expect(run(options({ nullText: "-" }), [[["1", null]]])).toContain("1,-\r\n");
+    expect(run(options({ nullText: "=1+1" }), [[["1", null]]])).toContain("1,'=1+1\r\n");
   });
 
   it("uses a semicolon or a tab, and can leave the header out", () => {

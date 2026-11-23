@@ -60,14 +60,12 @@ export function buildJsonTree(text: string): JsonTree | null {
     const t: JsonToken = tokens[at]!;
     at += 1;
     if (t.kind === "string") {
-      const decoded = decode(t.text) ?? t.text;
-      const cut = decoded.length > TREE_STRING_CHARS;
+      // The token as written, escapes and all: a decoded \u202E would be a raw control character on screen.
+      const cut = t.text.length > TREE_STRING_CHARS + 2;
       return {
         step,
         kind: "string",
-        preview:
-          JSON.stringify(cut ? `${decoded.slice(0, TREE_STRING_CHARS)}` : decoded) +
-          (cut ? "…" : ""),
+        preview: cut ? `${t.text.slice(0, TREE_STRING_CHARS + 1)}"…` : t.text,
         cut,
         text: t.text,
         children: [],

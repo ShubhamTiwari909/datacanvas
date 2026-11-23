@@ -548,7 +548,12 @@ async function run(
       continue;
     }
     // A key column the row does not give is filled by the database (or NULL): nothing to compare.
-    if (unique.columns.length === 0 || !unique.columns.every((c) => given.has(c))) continue;
+    if (unique.columns.length === 0) continue;
+    if (!unique.columns.every((c) => given.has(c))) {
+      // A default that is a constant can still make the real insert collide: the report says it was not judged.
+      notes.push("defaults_not_applied");
+      continue;
+    }
     // "Does a row with this value exist?" asked of a hidden column is a way to read it one guess at a time.
     if (unique.columns.some(isSensitiveColumnName)) {
       notes.push("hidden_columns");
@@ -570,7 +575,10 @@ async function run(
 
   // ---- 3. foreign keys, by read-only queries on the referenced tables.
   for (const fk of prepared.foreignKeys) {
-    if (!fk.columns.every((c) => given.has(c))) continue;
+    if (!fk.columns.every((c) => given.has(c))) {
+      notes.push("defaults_not_applied");
+      continue;
+    }
     if (fk.columns.some(isSensitiveColumnName) || fk.refColumns.some(isSensitiveColumnName)) {
       notes.push("hidden_columns");
       continue;

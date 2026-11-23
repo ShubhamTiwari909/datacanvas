@@ -53,7 +53,7 @@ export default function JsonCodeEditor({
         if (disposed || !host.current) return;
         registerJsonLanguage(api);
         const model = api.editor.createModel(latest.current.value, JSON_LANGUAGE_ID);
-        model.setEOL(api.editor.EndOfLineSequence.LF);
+        // The line endings are kept as they came (the checker's offsets count them): no silent rewrite to LF.
         editor = api.editor.create(host.current, {
           model,
           ariaLabel,

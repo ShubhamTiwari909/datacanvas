@@ -172,7 +172,8 @@ export async function exportRows(
     if (out.length > 0 && !(await proceed({ kind: "rows", rows: out, cellsCut: batchCut }))) {
       // The consumer is full. Say "cut" only if the table really has more.
       const { rows: more } = await db.query("FETCH 1 FROM dc_export");
-      cut = more.length > 0 ? "bytes" : null;
+      // A cut by rows stays a cut by rows.
+      if (cut === null) cut = more.length > 0 ? "bytes" : null;
       stop = true;
     }
   }

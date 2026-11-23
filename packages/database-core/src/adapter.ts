@@ -13,10 +13,11 @@
  * One adapter instance is bound to ONE database (the connection details are
  * given to the adapter's constructor, not to its methods).
  *
- * All methods are READ-ONLY (writes are a separate interface,
+ * All methods are READ-ONLY, except that `validateRows` briefly opens a read-write transaction
+ * to make a temporary copy (writes are a separate interface,
  * `WritableAdapter`, below). Almost all return STRUCTURE (names, types, keys,
- * definitions, counters). `getRows` is the one method that returns table ROWS: it
- * exists for the opt-in data viewer, and it is the caller's job (the service
+ * definitions, counters). `getRows`, `getCell` and `exportRows` are the methods that return table
+ * ROWS: they exist for the opt-in data viewer, and it is the caller's job (the service
  * layer) to call it only when the person has switched data viewing on for that
  * connection. There is deliberately no method on THIS interface that runs arbitrary SQL: running a statement the person typed is a separate, read-only capability (`SqlRunnerAdapter`, `sql-run.ts`), as changing data is (`WritableAdapter`).
  */
@@ -168,7 +169,7 @@ export interface DatabaseAdapter {
 
   /**
    * One page of the ROWS of a table, view or materialized view, read-only and
-   * bounded. This is the only method that returns table data.
+   * bounded. `getCell` and `exportRows` also return table data, behind the same check.
    *
    * - Every value is read as text, and cut in the database to `ROWS_CELL_CHARS`
    *   (flagged `truncated`); SQL NULL stays distinct from the empty string.

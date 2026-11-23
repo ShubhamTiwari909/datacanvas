@@ -337,12 +337,12 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL getRows with the newer condition
     });
 
     it("never repeats a value or a pattern in the error", async () => {
-      try {
-        await ids([{ column: "name", op: "matches", value: "SECRET-PATTERN(" }]);
-        expect.unreachable();
-      } catch (error) {
-        expect(String((error as Error).message)).not.toContain("SECRET-PATTERN");
-      }
+      const failure = await ids([{ column: "name", op: "matches", value: "SECRET-PATTERN(" }]).then(
+        () => null,
+        (error: unknown) => error as Error,
+      );
+      expect(failure).not.toBeNull();
+      expect(String(failure!.message)).not.toContain("SECRET-PATTERN");
     });
   });
 });

@@ -10,18 +10,9 @@ Written 2026-11-20 for whoever continues this work (a person or a fresh Claude s
 
 - 1.5.x, 1.6.0 (SQL tab), 1.7.0 (Migrations tab, PR #24, `393fc1e`), 1.7.1 (hardening, PR #25, `dc65e76`).
 
-**In progress: branch `feat/data-workspace-1.8.0`** (cut from `main` at `dc65e76`, **not pushed, no PR yet**). Commits on it:
+**1.8.0 is built and in review: branch `feat/data-workspace-1.8.0`** (cut from `main` at `dc65e76`; PR #26). It holds the plan and decisions (153), **D0** (spikes, decision 154), **D1** (advanced filters, decision 155), **D2** (JSON editor, decision 156), **D3** (validation and the Migrations pre-flight, decision 157), **D4** (export, decision 158), the release docs and version 1.8.0, and the fixes of the independent review (threat model section 10b). Nothing in it writes a row. `docs/advanced-data-workspace-plan.md` section 11 has the milestones D0 to D7; **D0 to D4 are done**. The branch `docs/advanced-data-workspace-plan` is an older copy of the two plan commits; ignore it (it can be deleted).
 
-| Commit    | What                                                                                                         |
-| --------- | ------------------------------------------------------------------------------------------------------------ |
-| `e82dc09` | the Phase 4 plan (`docs/advanced-data-workspace-plan.md`)                                                    |
-| `ec394db` | the 12 decisions accepted, decision 153                                                                      |
-| `a40c15b` | **D0**: spikes (validation in a temp table, JSON text tools, streamed export), decision 154, plan section 15 |
-| `c4714f5` | **D1**: advanced filters (groups, operators, filter by cell, saved shapes), decision 155, plan section 16    |
-
-`docs/advanced-data-workspace-plan.md` section 11 has the milestones D0 to D7. **D0 and D1 are done.** The branch `docs/advanced-data-workspace-plan` is an older copy of the two plan commits; ignore it (it can be deleted).
-
-**All checks were green at `c4714f5`:** prettier, eslint, `npm run typecheck`, 2,880 vitest tests, `verify:package`, and the full Playwright suite (110 tests). PostgreSQL 17 only locally; the 12 to 18 matrix runs in CI.
+**The gate** (prettier, eslint, `npm run typecheck`, vitest, `verify:package`, the Playwright suite) is run before each push. PostgreSQL 17 only locally; the 12 to 18 matrix runs in CI.
 
 ## 2. The task, in the owner's words and decisions
 
@@ -32,18 +23,11 @@ The owner asked for "Phase 4, Advanced Data Workspace": CSV import/export, bulk 
 
 ## 3. What is left
 
-### 1.8.0 (continue on `feat/data-workspace-1.8.0`)
+### 1.8.0 (done: PR #26)
 
-| Milestone   | Work                                                                                                                                                                                                                                                                                                             | Starting points                                                                                                                                                                                                                                            |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **D2**      | **JSON editor** (plan section 5). A dialog from the cell, the edit form and the insert form: colours, error position, Format/Minify, tree for big documents, diff against the loaded value, 1 MB edit cap.                                                                                                       | `apps/web/features/json/json-text.ts` (**done in D0**: `checkJson`, `formatJson`, `layoutJson`, 28 tests); `features/sql/monaco-setup.ts` (lazy Monaco, curated imports); `features/writes/value-field.tsx` and `row-edit.ts` (where JSON is edited today) |
-| **D3**      | **Validation** (plan section 6). `POST .../rows/validate`; the temp-table check, uniqueness and foreign keys by read-only queries, report with row numbers and no values; "Validate" next to "Preview" in the single-row edit and insert forms; the **pre-flight in the Migrations tab** (section 6.3).          | `postgres.adapter.validation-spike.test.ts` (the pinned facts: no defaults, no indexes, relax NOT NULL for default/identity columns, bisect failing rows, cast cells one by one to find the column); `apps/web/features/migrations/plan-view.tsx`          |
-| **D4**      | **Export** (plan section 8). `POST .../rows/export`, a cursor read in batches of 1,000 streamed to the browser, CSV/TSV/JSON/NDJSON, masked columns left out unless revealed, formula defusing, 100k rows / 64 MB, cancel; dialog with progress.                                                                 | `postgres.adapter.export-spike.test.ts` (0.5 s for 100k rows); `features/sql/export.ts` (the existing result export with the apostrophe defusing); `features/sql/` runner (cursor, deadline, cancel)                                                       |
-| **Release** | README, `docs/getting-started.md`, `SECURITY.md`, `docs/threat-model.md` (a section for export and validation, plus the independent review of the validation), `docs/decisions.md`, `CHANGELOG.md`, version **1.8.0** (root and `packages/cli` `package.json`, and the three places in `package-lock.json`), PR. | Copy how 1.7.0 and 1.7.1 did it (`git show 393fc1e --stat`, `git show dc65e76 --stat`).                                                                                                                                                                    |
+D2 (JSON editor, a 100,000-character edit cap with reads up to 1 MB), D3 (validation, the pre-flight), D4 (export), the release docs and the independent review are all in the branch. What is left of 1.8.0 is the merge, and publishing to npm, which is the owner's step.
 
-**Do the independent review before the 1.8.0 PR** (section 6 of this file says how). Its target is D3 (the temp table, its read-only queries, what it can touch) and D4 (what leaves the machine).
-
-### 1.9.0 (a new branch from `main` after 1.8.0 merges)
+### 1.9.0 (a new branch from `main` after 1.8.0 merges; the only work still pending)
 
 | Milestone | Work                                                                                                                                                                                                                                                                                                                                                                             |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -98,12 +82,9 @@ The owner asked for "Phase 4, Advanced Data Workspace": CSV import/export, bulk 
 
 ## 6. Suggested next moves, in order
 
-1. `git checkout feat/data-workspace-1.8.0`; run the full gate once to confirm the starting point is green.
-2. **D2** (JSON editor). Start from `features/json/json-text.ts`; register a Monarch tokenizer with `setMonarchTokensProvider` from `editor.api` (no JSON language service: see decision 154); reuse `loadMonaco` and `applyAppTheme`. Add a unit test for the tokenizer rules where possible and an e2e for the dialog (axe, dark, phone). Remember `jsonb` conflicts compare as `jsonb`, `json` as text (plan section 5).
-3. **D3** (validation), the part where the facts from the spike matter most; build it as a pure core function plus one adapter method plus one route; add rule tests ("never the real table", "no triggers", "no sequence advanced").
-4. **D4** (export), then the 1.8.0 release docs, the **independent review**, the PR.
-5. Ask the owner whether to push `feat/data-workspace-1.8.0` earlier for CI (the PostgreSQL 12 to 18 matrix runs only in CI, and it is the only place the D0 spike facts are checked on versions other than 17).
-6. After 1.8.0 merges, branch from `main` for 1.9.0 and follow section 3.
+1. Wait for PR #26 (1.8.0) to merge, then branch from `main` for 1.9.0 and run the full gate once to confirm the starting point is green.
+2. **D5** (bulk editing), then **D6** (import), following section 3 and the plan's sections 7 and 9; extend `tests/security.test.ts` and `tests/architecture.test.ts` in the same commits as the code.
+3. **D7**: polish, docs, the independent review of the write side, version 1.9.0, PR.
 
 ## 7. Things that are decided but easy to forget
 

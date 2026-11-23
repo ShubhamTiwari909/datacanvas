@@ -104,7 +104,9 @@ describe("ConnectionService.exportRows", () => {
     script(context, async () => {
       throw Object.assign(new Error("x"), { name: "DatabaseError", code: "invalid_request" });
     });
-    await expect(context.connections.exportRows(id, request())).rejects.toBeDefined();
+    await expect(context.connections.exportRows(id, request())).rejects.toMatchObject({
+      code: "invalid_request",
+    });
     script(context, async (sink) => {
       await sink({ kind: "start", columns, leftOut: [] });
       await sink({ kind: "end", rows: 0, cut: null, cellsCut: 0 });
@@ -142,14 +144,20 @@ describe("ConnectionService.exportRows", () => {
     let answers: unknown[] = [];
     script(context, async (sink) => {
       await sink({ kind: "start", columns, leftOut: [] });
-      const rows = Array.from({ length: 70 }, (_, i) => [String(i), big]);
-      answers = [await sink({ kind: "rows", rows, cellsCut: 0 })];
-      await sink({ kind: "end", rows: 70, cut: "bytes", cellsCut: 0 });
+      const rows = Array.from({ length: 40 }, (_, i) => [String(i), big]);
+      // The first batch fits; the second would pass the limit, so it is left out whole and the answer is "stop".
+      answers = [
+        await sink({ kind: "rows", rows, cellsCut: 0 }),
+        await sink({ kind: "rows", rows, cellsCut: 0 }),
+      ];
+      await sink({ kind: "end", rows: 40, cut: "bytes", cellsCut: 0 });
     });
     const { stream } = await context.connections.exportRows(id, request({ format: "ndjson" }));
     const file = await text(stream);
-    expect(answers).toEqual([false]);
-    expect(file.length).toBeGreaterThan(EXPORT_MAX_BYTES);
+    expect(answers).toEqual([true, false]);
+    // The file never grows past the limit by a batch.
+    expect(file.length).toBeLessThanOrEqual(EXPORT_MAX_BYTES);
+    expect(file.length).toBeGreaterThan(40_000_000);
     expect(JSON.parse(file.trimEnd().split("\n").pop()!)._meta.cut).toBe("bytes");
   }, 60_000);
 

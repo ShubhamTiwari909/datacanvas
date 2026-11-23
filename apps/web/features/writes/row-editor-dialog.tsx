@@ -120,7 +120,8 @@ function RowForm({
   const editable = row.columns.flatMap((column, index) => {
     const read = row.cells[index];
     if (!read) return [];
-    const full = whole[column.name];
+    // An own property only: a column called `constructor` must not read the object's own method.
+    const full = Object.hasOwn(whole, column.name) ? whole[column.name] : undefined;
     const cell: RowCell = full === undefined ? read : { value: full, truncated: false };
     const columnInfo = info.columns.find((c) => c.name === column.name);
     return [{ column, cell, columnInfo, block: cellEditBlock(column, cell, columnInfo) }];

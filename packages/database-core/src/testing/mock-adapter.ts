@@ -41,7 +41,11 @@ import type {
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
 import type { ExportEvent, ExportRowsOptions, ExportSignal } from "../rows-export.js";
-import type { PreflightCheck, PreflightResult } from "../migration/preflight.js";
+import {
+  PREFLIGHT_MAX_CHECKS,
+  type PreflightCheck,
+  type PreflightResult,
+} from "../migration/preflight.js";
 import type { ValidateRequest, ValidationReport } from "../validation.js";
 import {
   checkStatementText,
@@ -302,9 +306,10 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
     throw new DatabaseError("not_supported");
   }
 
-  /** The mock has no rows to check a migration against. */
+  /** The mock has no rows to check a migration against: every check answers "missing". The cap is the real one. */
   async preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {
     this.requireConnection();
+    if (checks.length > PREFLIGHT_MAX_CHECKS) throw new DatabaseError("invalid_request");
     return checks.map(() => ({ status: "missing" as const, count: 0 }));
   }
 

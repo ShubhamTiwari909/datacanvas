@@ -3,11 +3,13 @@
  *
  * Responsibilities, in one place:
  *   - own the connection pool and its lifecycle,
- *   - run every query inside a read-only transaction (`withReadOnlyTransaction`),
+ *   - run every query inside a read-only transaction (`withReadOnlyTransaction`); the one exception is
+ *     `validateRows`, which is read-write until its temporary copy is made (`checking-transaction.ts`),
  *   - translate every failure into a safe `DatabaseError` (`mapPgError`),
  *   - delegate the actual catalog queries to the `introspection/` modules.
  *
- * Apart from `getRows` (the opt-in data viewer, in `introspection/rows.ts`),
+ * Apart from `getRows`, `getCell` and `exportRows` (the opt-in data viewer, in `introspection/`),
+ * and `validateRows` (which reads the rows it is given),
  * nothing here reads table rows, and there is no way to run caller-supplied
  * SQL: every query is a fixed string, or a fixed shape built from catalog
  * names, with bound parameters.
@@ -82,7 +84,7 @@ import { listIndexUsage } from "./introspection/index-usage.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
 import { readCell, readRows } from "./introspection/rows.js";
-import { exportRows, type ExportSink } from "./introspection/export-rows.js";
+import { exportRows, EXPORT_MAX_MS, type ExportSink } from "./introspection/export-rows.js";
 import { runPreflight } from "./introspection/preflight.js";
 import { validateRows } from "./validation/validate-rows.js";
 import { listRelationships } from "./introspection/relationships.js";
@@ -235,7 +237,8 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
     sink: ExportSink,
     signal?: ExportSignal,
   ): Promise<void> {
-    return this.read((db) => exportRows(db, table, options, sink, signal));
+    // Each statement may take as long as the export itself: the default limit is for a page, not for a file.
+    return this.read((db) => exportRows(db, table, options, sink, signal), EXPORT_MAX_MS);
   }
 
   preflight(checks: PreflightCheck[]): Promise<PreflightResult[]> {

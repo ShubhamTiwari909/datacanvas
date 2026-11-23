@@ -3,14 +3,7 @@
  * and what is said about it. The name has the table and the moment, and nothing else: no connection name, no
  * database, no value.
  */
-import type { ExportRowsFormat } from "@datacanvas/database-core";
-
-const EXTENSION: Record<ExportRowsFormat, string> = {
-  csv: "csv",
-  tsv: "tsv",
-  json: "json",
-  ndjson: "ndjson",
-};
+import { EXPORT_MEDIA, type ExportRowsFormat } from "@datacanvas/database-core";
 
 /** `orders-20261121-143005.csv`: the table's name reduced to letters, digits, `-` and `_`, then the moment. */
 export function exportFileName(table: string, format: ExportRowsFormat, at: Date): string {
@@ -23,12 +16,13 @@ export function exportFileName(table: string, format: ExportRowsFormat, at: Date
   const pad = (n: number) => String(n).padStart(2, "0");
   const day = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`;
   const time = `${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
-  return `${safe}-${day}-${time}.${EXTENSION[format]}`;
+  return `${safe}-${day}-${time}.${EXPORT_MEDIA[format].extension}`;
 }
 
 /** A size for people: `1.4 MB`. */
 export function sizeText(bytes: number): string {
   if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  // The unit is chosen after rounding: 1,048,000 bytes is "1.0 MB", not "1023.4 KB" turning into "1024.0 KB".
+  if (Number((bytes / 1024).toFixed(1)) < 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

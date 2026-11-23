@@ -209,13 +209,13 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL getCell", () => {
       ask({ column: SECRET }),
     ];
     for (const attempt of attempts) {
-      let message = "";
-      try {
-        await adapter.getCell(docs, attempt);
-      } catch (error) {
-        message = String((error as Error).message);
-        expect((error as { code?: string }).code).toBe("invalid_request");
-      }
+      const failure = await adapter.getCell(docs, attempt).then(
+        () => null,
+        (error: unknown) => error as Error & { code?: string },
+      );
+      expect(failure).not.toBeNull();
+      expect(failure!.code).toBe("invalid_request");
+      const message = String(failure!.message);
       expect(message).not.toContain(SECRET);
       expect(message).not.toContain("99999999999999999999");
     }

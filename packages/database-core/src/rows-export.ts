@@ -159,8 +159,9 @@ function delimitedFormatter(
   let single = false;
   const field = (value: string | null): string => {
     const text = value === null ? options.nullText : value;
-    // The word standing for NULL is the person's own; it is not a formula to defuse.
-    const safe = value === null ? text : defuse(text);
+    // The word standing for NULL is defused too (a word that starts with "=" would be a formula in a spreadsheet),
+    // except a lone dash, the usual word for "nothing" in a column of numbers.
+    const safe = value === null && text === "-" ? text : defuse(text);
     const quote =
       safe.includes(delimiter) ||
       /["\r\n]/.test(safe) ||

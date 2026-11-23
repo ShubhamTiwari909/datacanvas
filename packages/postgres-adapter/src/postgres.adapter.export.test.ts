@@ -175,14 +175,15 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL exportRows", () => {
     });
     expect(hostile.rows).toEqual([]);
     expect((await client.query("SELECT count(*)::int AS n FROM people")).rows[0].n).toBe(4);
-    let message = "";
-    try {
-      await read("people", { filters: [{ column: "score", op: "eq", value: `abc-${SECRET}` }] });
-    } catch (error) {
-      message = String((error as Error).message);
-      expect((error as { code?: string }).code).toBe("invalid_request");
-    }
-    expect(message).not.toContain(SECRET);
+    const failure = await read("people", {
+      filters: [{ column: "score", op: "eq", value: `abc-${SECRET}` }],
+    }).then(
+      () => null,
+      (error: unknown) => error as Error & { code?: string },
+    );
+    expect(failure).not.toBeNull();
+    expect(failure!.code).toBe("invalid_request");
+    expect(String(failure!.message)).not.toContain(SECRET);
   });
 
   it("reads a value whole beyond a page's cell limit, and counts the ones it had to cut", async () => {

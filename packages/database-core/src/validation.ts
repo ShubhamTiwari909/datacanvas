@@ -15,8 +15,8 @@ import { DatabaseError } from "./errors.js";
 import type { KeyValue } from "./changes.js";
 import type { TableRef } from "./models.js";
 
-/** The most rows in one validation: the most an import can carry (a form checks one). */
-export const VALIDATE_MAX_ROWS = 100_000;
+/** The most rows in one validation. (1.9.0's import raises it, with its own review.) */
+export const VALIDATE_MAX_ROWS = 1000;
 /** The most columns in one validation (a function takes at most 100 arguments, and each column is one array). */
 export const VALIDATE_MAX_COLUMNS = 50;
 /** The most characters of one value. */
@@ -141,6 +141,8 @@ export function checkValidateRequest(request: ValidateRequest): void {
 export class IssueCollector {
   private readonly byKey = new Map<string, ValidationIssue>();
   private readonly failed = new Set<number>();
+  /** Rows a query counted but did not list: they may be rows no other rule named. */
+  private unseen = 0;
 
   add(rule: ValidationRule, column: string | null, constraint: string | null, row: number): void {
     const key = JSON.stringify([rule, column, constraint]);
@@ -163,6 +165,7 @@ export class IssueCollector {
     rows: readonly number[],
   ): void {
     if (count <= 0) return;
+    this.unseen += Math.max(0, count - rows.length);
     const key = JSON.stringify([rule, column, constraint]);
     let issue = this.byKey.get(key);
     if (!issue) {
@@ -175,6 +178,11 @@ export class IssueCollector {
         issue.rows.push(row);
       this.failed.add(row);
     }
+  }
+
+  /** The most rows that can have failed: the rows named, plus every row a query counted without naming. */
+  get mostFailedRows(): number {
+    return this.failed.size + this.unseen;
   }
 
   /** The most rows any one issue counts. */
@@ -203,9 +211,9 @@ export function buildReport(
 ): ValidationReport {
   return {
     rows,
-    // A search stops after the first failures it found: when an issue counts more rows than it lists, more rows fail
-    // than were counted here, so `passed` is an UPPER bound (the screen says "at most" then).
-    passed: Math.max(0, rows - Math.max(collector.failedRows, collector.largestCount)),
+    // A query lists only the first rows it found. The rows it counted without naming may be rows no other rule
+    // named, so they are all counted as failed: `passed` is a lower bound (and the screen says "at least" then).
+    passed: Math.max(0, rows - collector.mostFailedRows),
     issues: collector.issues(),
     notChecked: [...new Set(notChecked)],
   };
@@ -251,7 +259,7 @@ export const NOTE_TEXT: Record<ValidationNote, string> = {
     "A foreign key was not checked, because this role cannot read the table it points to.",
   stopped_early: "The search for failing rows stopped early, so there may be more than are listed.",
   defaults_not_applied:
-    "A rule of this table reads several columns, and a column that was not given takes its default only when the change is applied. The rule may be judged differently then.",
+    "A rule of this table (a check, a unique key or a foreign key) reads a column that was not given. That column takes its default only when the change is applied, so the rule may be judged differently then, or was not checked.",
   exclusion_constraints:
     "This table has an exclusion constraint. It was not checked, and it can refuse a row that this check accepted.",
   partition_bounds:

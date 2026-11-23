@@ -78,8 +78,9 @@ function Finding({ finding }: { finding: StepFinding }) {
         {VERDICT_LABEL[finding.verdict]}
       </Badge>
       <ul className="list-disc pl-5 text-muted-foreground">
-        {finding.lines.map((line) => (
-          <li key={line}>{line}</li>
+        {finding.lines.map((line, index) => (
+          // By position: two lines can be the same sentence, and the list never changes order.
+          <li key={index}>{line}</li>
         ))}
       </ul>
     </div>

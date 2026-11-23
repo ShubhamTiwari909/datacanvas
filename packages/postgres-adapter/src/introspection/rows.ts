@@ -412,6 +412,8 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   // read as the alias of the select list. Qualified by the table, it is always the table's column.
   const inTable = (column: string): string =>
     `${quoteQualified(plan.schema, plan.table)}.${column}`;
+  // Each name is quoted on its own: a name with a comma in it is not split.
+  const keyOrder = plan.keyColumns.map((c) => inTable(quoteIdentifier(c))).join(", ");
   // Every condition is required: the person's conditions first, then "after the last row" of the paging.
   const conditions: string[] = [];
   conditions.push(
@@ -445,8 +447,8 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
   if (keyed) {
     parts.push(
       sort
-        ? `ORDER BY ${inTable(sortName)} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyList.split(", ").map(inTable).join(", ")}`
-        : `ORDER BY ${keyList.split(", ").map(inTable).join(", ")}`,
+        ? `ORDER BY ${inTable(sortName)} ${sort.direction === "asc" ? "ASC NULLS LAST" : "DESC NULLS FIRST"}, ${keyOrder}`
+        : `ORDER BY ${keyOrder}`,
     );
   }
   parts.push(`LIMIT ${param(plan.limit)}`);

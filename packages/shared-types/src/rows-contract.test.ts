@@ -6,6 +6,10 @@ import {
   FILTER_SHAPE,
   ROWS_MAX_FILTERS,
   ROWS_MAX_FILTER_VALUE_CHARS,
+  ROWS_MAX_FILTER_VALUES,
+  ROWS_MAX_FILTER_PATH,
+  ROWS_MAX_FILTER_PATH_CHARS,
+  ROWS_MAX_FILTER_GROUPS,
   ROW_FILTER_OPS,
 } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
@@ -18,6 +22,10 @@ import {
 import {
   MAX_ROW_FILTERS,
   MAX_ROW_FILTER_VALUE_CHARS,
+  MAX_ROW_FILTER_VALUES,
+  MAX_ROW_FILTER_PATH,
+  MAX_ROW_FILTER_PATH_CHARS,
+  MAX_ROW_FILTER_GROUPS,
   ROW_FILTER_OPERATORS,
   ROW_FILTER_SHAPE,
 } from "./row-filters.js";
@@ -209,6 +217,10 @@ describe("a sort and conditions in the rows request", () => {
     expect(ROW_FILTER_SHAPE).toEqual(FILTER_SHAPE);
     expect(MAX_ROW_FILTERS).toBe(ROWS_MAX_FILTERS);
     expect(MAX_ROW_FILTER_VALUE_CHARS).toBe(ROWS_MAX_FILTER_VALUE_CHARS);
+    expect(MAX_ROW_FILTER_VALUES).toBe(ROWS_MAX_FILTER_VALUES);
+    expect(MAX_ROW_FILTER_PATH).toBe(ROWS_MAX_FILTER_PATH);
+    expect(MAX_ROW_FILTER_PATH_CHARS).toBe(ROWS_MAX_FILTER_PATH_CHARS);
+    expect(MAX_ROW_FILTER_GROUPS).toBe(ROWS_MAX_FILTER_GROUPS);
     for (const op of ROW_FILTER_OPS) {
       const shape = ROW_FILTER_SHAPE[op];
       const filter =

@@ -96,6 +96,38 @@ function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & 
                 ) as JsonCheck & { ok: false },
               };
             }
+            const unit = parseInt(text.slice(j + 2, j + 6), 16);
+            if (unit === 0) {
+              return {
+                error: fail(
+                  text,
+                  j,
+                  "PostgreSQL does not accept \\u0000 in a JSON value.",
+                ) as JsonCheck & { ok: false },
+              };
+            }
+            if (unit >= 0xd800 && unit <= 0xdbff) {
+              // A high surrogate must be followed by the escape of a low one.
+              const low = /^\\u([dD][c-fC-F][0-9a-fA-F]{2})/.exec(text.slice(j + 6, j + 12));
+              if (!low) {
+                return {
+                  error: fail(
+                    text,
+                    j,
+                    "This escape is half of a character: it needs a second \\u escape after it.",
+                  ) as JsonCheck & { ok: false },
+                };
+              }
+              j += 6;
+            } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+              return {
+                error: fail(
+                  text,
+                  j,
+                  "This escape is half of a character: it must follow another \\u escape.",
+                ) as JsonCheck & { ok: false },
+              };
+            }
             j += 6;
             continue;
           }
@@ -144,6 +176,14 @@ function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & 
   return { tokens };
 }
 
+/** What a token is, in words: never the text of a value, which can be long or secret. */
+function describeToken(t: JsonToken): string {
+  if (t.kind === "punct") return `"${t.text}"`;
+  if (t.kind === "string") return "a string";
+  if (t.kind === "number") return "a number";
+  return "a word";
+}
+
 /** Check a document: one value, nothing after it. The first problem is returned with its place. */
 export function checkJson(text: string): JsonCheck {
   const lexed = tokenize(text);
@@ -157,7 +197,9 @@ export function checkJson(text: string): JsonCheck {
     return fail(
       text,
       t ? t.start : text.length,
-      t ? `Expected ${what}, found ${t.text}.` : `The text ends where ${what} was expected.`,
+      t
+        ? `Expected ${what}, found ${describeToken(t)}.`
+        : `The text ends where ${what} was expected.`,
     );
   };
 

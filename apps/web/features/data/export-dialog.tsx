@@ -247,7 +247,8 @@ export function ExportDialog({
         <ul className="list-disc pl-5 text-xs text-muted-foreground">
           <li>
             Columns whose names look sensitive (a password, a token, a key) are left out unless you
-            showed them in the grid. The notes name them.
+            showed them in the grid. The notes name them when they are written (always in a JSON
+            file; for the other formats, when you add notes or the file was cut).
           </li>
           <li>
             A value a spreadsheet would run as a formula gets a leading apostrophe, so opening the

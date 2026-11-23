@@ -112,6 +112,15 @@ export function planPreflight(
             { kind: "duplicates", schema, table, columns: found.columns },
           ]),
         );
+      } else if (
+        found.kind === "unique" &&
+        /\bNULLS\s+NOT\s+DISTINCT\b/i.test(found.definition ?? "")
+      ) {
+        // NULLs count as equal here: the check below skips NULL rows, so it would call a failing step fine.
+        out.push(none("other"));
+      } else if (found.kind === "foreign_key" && /\bMATCH\s+FULL\b/i.test(found.definition ?? "")) {
+        // MATCH FULL fails on a key that is only partly NULL, which the check below leaves out.
+        out.push(none("other"));
       } else if (found.kind === "unique") {
         out.push(some([{ kind: "duplicates", schema, table, columns: found.columns }]));
       } else if (found.kind === "foreign_key") {

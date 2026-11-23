@@ -3,7 +3,7 @@
  * a strict body, the file as the answer with its headers, and no value in any error or log. (The reader of rows is tested against PostgreSQL in the adapter's tests.)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExportEvent } from "@datacanvas/database-core";
+import { DatabaseError, type ExportEvent } from "@datacanvas/database-core";
 import { setServerContextForTests } from "@/lib/server/context";
 import { createTestContext, fieldsInput, type TestContext } from "@/lib/server/test-support";
 import { POST as createConnection } from "./connections/route";
@@ -115,6 +115,20 @@ describe("POST /connections/:id/rows/export", () => {
     );
     expect(result.status).toBe(400);
     expect(result.body.error.code).toBe("not_supported");
+    expect(result.text).not.toContain(secret);
+    expect(JSON.stringify(logged)).not.toContain(secret);
+  });
+
+  it("does not repeat a value the database named in its error, in the answer or a log", async () => {
+    const id = await connect({ dataAccess: true });
+    const secret = "hunter2-SECRET-IN-ERROR";
+    script(async () => {
+      throw new DatabaseError("invalid_request", {
+        cause: new Error(`invalid input syntax: "${secret}"`),
+      });
+    });
+    const result = await call(post(id, ask));
+    expect(result.status).toBe(400);
     expect(result.text).not.toContain(secret);
     expect(JSON.stringify(logged)).not.toContain(secret);
   });

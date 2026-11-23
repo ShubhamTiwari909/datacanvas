@@ -103,5 +103,15 @@ describe("POST /connections/:id/rows/preflight", () => {
     expect(r.headers.get("cache-control")).toBe("no-store");
     expect(await r.text()).not.toContain(secret);
     expect(JSON.stringify(logged)).not.toContain(secret);
+    // A request that is refused (a kind that does not exist) also never repeats what it held.
+    const refused = await preflight(
+      json(`${BASE}/connections/x/rows/preflight`, "POST", {
+        checks: [{ kind: secret, schema: "public", table: "t", column: "c" }],
+      }),
+      params({ id }),
+    );
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).not.toContain(secret);
+    expect(JSON.stringify(logged)).not.toContain(secret);
   });
 });

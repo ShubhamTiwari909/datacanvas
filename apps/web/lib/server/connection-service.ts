@@ -376,9 +376,11 @@ export class ConnectionService {
     let bytes = 0;
     let leftOut: string[] = [];
     /** Write a piece; false when the file has reached its size limit. */
-    const write = async (text: string): Promise<boolean> => {
+    const write = async (text: string, limited = false): Promise<boolean> => {
       if (text === "") return true;
       const chunk = encoder.encode(text);
+      // A batch of rows that would pass the limit is left out whole, so the file never grows past it by a batch.
+      if (limited && bytes + chunk.byteLength > EXPORT_MAX_BYTES) return false;
       bytes += chunk.byteLength;
       // A write waits for the reader of the stream. A reader that stopped (a closed laptop, a stalled socket) would
       // hold the connection, its transaction and the one export slot for ever: after a minute it is given up.
@@ -423,7 +425,7 @@ export class ConnectionService {
               );
               return undefined;
             }
-            if (event.kind === "rows") return write(formatter.rows(event.rows));
+            if (event.kind === "rows") return write(formatter.rows(event.rows), true);
             await write(formatter.end({ ...event, leftOut }));
             return undefined;
           },
@@ -432,6 +434,8 @@ export class ConnectionService {
       )
       .then(
         () => {
+          // An export that ended before it began (the request was already cancelled) must not leave the caller waiting.
+          began();
           // The read is over: the slot is free now, while the browser may still be draining what was written.
           void writer.close().catch(() => undefined);
         },

@@ -168,7 +168,8 @@ function JsonButton({
                   table: source.table.name,
                   column: column.name,
                   key,
-                  revealColumns: [column.name],
+                  // A key column the person revealed is read by name too, or the row cannot be found.
+                  revealColumns: [...new Set([column.name, ...key.map((k) => k.column)])],
                 })
             : undefined
         }

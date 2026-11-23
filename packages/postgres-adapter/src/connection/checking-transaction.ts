@@ -3,7 +3,10 @@
  *
  * A validation makes a temporary copy of a table and puts the rows to be checked into it. PostgreSQL
  * refuses `CREATE TEMP TABLE` in a read-only transaction, so the transaction starts read-write, and
- * three things keep that from ever changing real data:
+ * three things keep that from changing real data, with one limit. EVENT TRIGGERS fire on the
+ * `CREATE TEMP TABLE` while the transaction is still read-write, and what one does can write; and an
+ * effect outside this transaction (a `dblink` or foreign-table write from a CHECK function) is not undone by
+ * the rollback. Neither is stopped here; both are accepted risks in `docs/threat-model.md`:
  *
  *  1. the only statements that run before the switch are `CREATE TEMP TABLE ... (LIKE ...)` and `ALTER`
  *     of that temporary table (built by `prepare`, from catalog names);

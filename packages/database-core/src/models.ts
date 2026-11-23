@@ -392,6 +392,10 @@ export type RowSortDirection = "asc" | "desc";
  * type); `neq` also matches NULL; `contains` and `starts_with` ignore case and treat every character of the
  * value as itself (there are no wildcards); `is_null` and `is_not_null` take no value.
  */
+/**
+ * The filter operators. `contains`, `starts_with`, `ends_with` and `not_contains` compare literal text
+ * (case-insensitive); `matches` is the one operator that reads its value as a case-insensitive regular expression.
+ */
 export const ROW_FILTER_OPS = [
   "eq",
   "neq",
@@ -487,7 +491,7 @@ export interface RowsOptions {
    */
   sort?: RowSort | null;
   /**
-   * Up to `ROWS_MAX_FILTERS` conditions, all required. Only on columns that are read and not hidden,
+   * Up to `ROWS_MAX_FILTERS` conditions: ungrouped ones are all required, and ones that share a `group` match if any one does. Only on columns that are read and not hidden,
    * with an operator the column's kind allows (`filterOpsFor`). Works on a table without a key as well.
    */
   filters?: RowFilter[];

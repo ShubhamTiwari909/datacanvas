@@ -182,13 +182,8 @@ describe("the words", () => {
   });
 
   it("has a sentence for every note", () => {
-    const notes: ValidationNote[] = [
-      "triggers",
-      "row_level_security",
-      "other_unique_indexes",
-      "foreign_key_unreadable",
-      "stopped_early",
-    ];
+    const notes = Object.keys(NOTE_TEXT) as ValidationNote[];
+    expect(notes.length).toBeGreaterThanOrEqual(10);
     for (const note of notes) expect(NOTE_TEXT[note].length).toBeGreaterThan(20);
   });
 });

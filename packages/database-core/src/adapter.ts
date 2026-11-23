@@ -25,7 +25,14 @@ import type { DdlDetail } from "./ddl.js";
 import type { ExportEvent, ExportRowsOptions, ExportSignal } from "./rows-export.js";
 import type { PreflightCheck, PreflightResult } from "./migration/preflight.js";
 import type { ValidateRequest, ValidationReport } from "./validation.js";
-import type { AppliedChange, Change, PlannedChange, RoleInfo, TableEditInfo } from "./changes.js";
+import type {
+  AppliedChange,
+  CancelSignal,
+  Change,
+  PlannedChange,
+  RoleInfo,
+  TableEditInfo,
+} from "./changes.js";
 import type {
   ColumnInfo,
   ConstraintInfo,
@@ -310,12 +317,15 @@ export interface WritableAdapter {
    * a short lock timeout and a statement timeout. A row change must affect
    * exactly one row, or everything rolls back (`row_changed` for none).
    *
+   * A `signal` that is aborted (before or during the run) rolls the change back and throws `unexpected`
+   * ("The change was cancelled.").
+   *
    * @throws DatabaseError `row_changed`, `unique_violation`,
    *   `foreign_key_violation`, `not_null_violation`, `check_violation`,
    *   `invalid_value`, `locked`, `retry`, `write_denied`, `has_dependents`,
-   *   `already_exists`, `timeout`. Never the database's own message.
+   *   `already_exists`, `timeout`, `unexpected`. Never the database's own message.
    */
-  applyChange(plan: PlannedChange): Promise<AppliedChange>;
+  applyChange(plan: PlannedChange, signal?: CancelSignal): Promise<AppliedChange>;
 }
 
 /** Does this adapter also implement the write capability? */

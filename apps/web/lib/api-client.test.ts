@@ -64,3 +64,67 @@ describe("apiRequest and an abort", () => {
     expect(seen).toBe(controller.signal);
   });
 });
+
+describe("apiRequest and the size of a body", () => {
+  it("refuses a body larger than the server takes, in plain words, without sending it", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body: { rows: "x".repeat(2000) },
+      maxBodyBytes: 1000,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, error: { code: "payload_too_large" } });
+    expect(!result.ok && result.error.message).toMatch(/more than DataCanvas can send/);
+  });
+
+  it("sends a body of exactly the most bytes it may", async () => {
+    const body = { v: "x".repeat(100) };
+    const exact = new TextEncoder().encode(JSON.stringify(body)).length;
+    const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body,
+      maxBodyBytes: exact,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    // One byte less is refused, not sent.
+    fetchSpy.mockClear();
+    const refused = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body,
+      maxBodyBytes: exact - 1,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(refused).toMatchObject({ ok: false, error: { code: "payload_too_large" } });
+  });
+
+  it("measures bytes, not characters", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    // 400 emoji are 800 characters (UTF-16) but 1,600 bytes.
+    const result = await apiRequest("/api/x", schema, {
+      method: "POST",
+      body: { v: "😀".repeat(400) },
+      maxBodyBytes: 1500,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("payload_too_large");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("answers bad_request, without sending, for a body that cannot be serialised", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const body of [circular, { n: 1n }]) {
+      const result = await apiRequest("/api/x", schema, { method: "POST", body });
+      expect(result).toMatchObject({ ok: false, error: { code: "bad_request" } });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

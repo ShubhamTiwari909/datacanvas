@@ -29,6 +29,17 @@ export const MAX_COMMENT_CHARS = 2000;
 /** Unique constraints, foreign keys or index columns in one change. */
 export const MAX_CHANGE_PARTS = 32;
 
+/** Rows in one bulk change (`update_rows`, `delete_rows`): the rows are chosen one by one, by key. */
+export const MAX_BULK_ROWS = 500;
+
+/** Limits of an import (`insert_rows`): rows, columns, characters in one cell, and rows in one statement. */
+export const IMPORT_MAX_ROWS = 100_000;
+export const IMPORT_MAX_COLUMNS = 50;
+export const IMPORT_MAX_CELL_CHARS = 10_000;
+export const IMPORT_BATCH_ROWS = 500;
+/** The largest file an import reads (the browser parses it; the server gets the rows). */
+export const IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
 /** How long a preview can be applied, and how long a lock may be waited for. */
 export const PREVIEW_TTL_MS = 5 * 60 * 1000;
 export const WRITE_LOCK_TIMEOUT_MS = 3_000;
@@ -78,7 +89,52 @@ export interface DeleteRowChange {
   key: KeyValue[];
 }
 
-export type RowChange = UpdateRowChange | InsertRowChange | DeleteRowChange;
+/** One row of a bulk change: its key, and (for an update) what the person saw in each column that is set. */
+export interface BulkRow {
+  key: KeyValue[];
+  /** The value the person saw in each column that is set, as text; empty for a delete. */
+  expected: ColumnValue[];
+}
+
+/**
+ * Set the SAME values on several rows (at most `MAX_BULK_ROWS`), each found by its key. Each row carries what the
+ * person saw in the columns that are set, and a row that no longer holds it is left out (and reported at preview,
+ * before anything is written). At apply, every row must be changed exactly once or nothing is.
+ */
+export interface UpdateRowsChange {
+  kind: "update_rows";
+  table: TableRef;
+  set: ColumnValue[];
+  rows: BulkRow[];
+}
+
+/** Delete several rows (at most `MAX_BULK_ROWS`), each found by its key. Each must be deleted exactly once or none is. */
+export interface DeleteRowsChange {
+  kind: "delete_rows";
+  table: TableRef;
+  rows: Array<{ key: KeyValue[] }>;
+}
+
+/**
+ * Add many rows from an import (`docs/advanced-data-workspace-plan.md`, section 9; decision 160): the columns that
+ * are given, and one list of values per row, each as long as `columns` (`null` is SQL NULL). The rows go in
+ * batches of `IMPORT_BATCH_ROWS`, one statement each, in one transaction: every batch inserts exactly the rows it
+ * was planned for or nothing is added. A column that is left out gets its default.
+ */
+export interface InsertRowsChange {
+  kind: "insert_rows";
+  table: TableRef;
+  columns: string[];
+  rows: Array<Array<string | null>>;
+}
+
+export type RowChange =
+  | UpdateRowChange
+  | InsertRowChange
+  | DeleteRowChange
+  | UpdateRowsChange
+  | DeleteRowsChange
+  | InsertRowsChange;
 
 // ------------------------------------------------------- column definitions ---
 
@@ -296,7 +352,14 @@ export type StructureChange =
 export type Change = RowChange | StructureChange;
 export type ChangeKind = Change["kind"];
 
-export const ROW_CHANGE_KINDS = ["update_row", "insert_row", "delete_row"] as const;
+export const ROW_CHANGE_KINDS = [
+  "update_row",
+  "insert_row",
+  "delete_row",
+  "update_rows",
+  "delete_rows",
+  "insert_rows",
+] as const;
 export const STRUCTURE_CHANGE_KINDS = [
   "create_table",
   "add_column",
@@ -318,6 +381,7 @@ export const STRUCTURE_CHANGE_KINDS = [
 /** Changes that destroy something: the person must tick that they read the preview. */
 export const DESTRUCTIVE_CHANGE_KINDS: readonly ChangeKind[] = [
   "delete_row",
+  "delete_rows",
   "drop_constraint",
   "drop_index",
   "drop_column",
@@ -347,6 +411,12 @@ export function changeColumns(change: Change): string[] {
       return change.values.map((v) => v.column);
     case "delete_row":
       return change.key.map((k) => k.column);
+    case "update_rows":
+      return change.set.map((v) => v.column);
+    case "delete_rows":
+      return (change.rows[0]?.key ?? []).map((k) => k.column);
+    case "insert_rows":
+      return [...change.columns];
     case "create_table":
       return change.columns.map((c) => c.name);
     case "add_column":
@@ -428,7 +498,15 @@ export interface ChangeWarning {
 /** A statement and its parameters, exactly as it will run. */
 export interface PlannedStatement {
   text: string;
-  values: (string | null)[];
+  /** Each value is a text, `null`, or (for an import) a list of them: one list per column of a batch. */
+  values: (string | null | Array<string | null>)[];
+  /** When set, the statement must report exactly this many rows or the whole change is rolled back. */
+  expectRows?: number;
+}
+
+/** The part of an `AbortSignal` that applying a change looks at between statements (no DOM types here). */
+export interface CancelSignal {
+  readonly aborted: boolean;
 }
 
 /** A column a plan was made against: its name and its position in the table (`attnum`) at that time. */
@@ -479,11 +557,33 @@ export interface PlannedChange {
   destructive: boolean;
   /** The identity of what the plan was checked against, verified again at apply. */
   guard?: PlanGuard;
+  /**
+   * For a bulk change: the positions (0-based, in the request) of rows that no longer hold what the person saw,
+   * or no longer exist. They are NOT in `statements`: the plan changes the other rows only.
+   */
+  skipped?: number[];
 }
 
 /** The statement texts as shown to the person (values are `$1`, `$2`, ...). */
 export function statementText(plan: Pick<PlannedChange, "statements">): string {
-  return plan.statements.map((s) => `${s.text.trim()};`).join("\n");
+  // A bulk change is the same statement for many rows: it is shown once, with how many times it runs.
+  const lines: string[] = [];
+  for (let i = 0; i < plan.statements.length;) {
+    const text = plan.statements[i]!.text.trim();
+    let same = 1;
+    while (plan.statements[i + same]?.text.trim() === text) same += 1;
+    lines.push(`${text};`);
+    const batch = plan.statements[i]!.expectRows;
+    if (same > 1) {
+      lines.push(
+        batch === undefined
+          ? `-- the same statement runs for each of ${same} rows (the values differ)`
+          : `-- the same statement runs for each of ${same} batches of up to ${batch} rows (the values differ)`,
+      );
+    }
+    i += same;
+  }
+  return lines.join("\n");
 }
 
 export interface AppliedChange {

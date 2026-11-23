@@ -16,6 +16,18 @@ async function errorOf(response: Response) {
   return { status: response.status, body: await response.json() };
 }
 
+describe("parseJsonBody and a body cut on the way", () => {
+  it("answers 413, not invalid JSON, when the body is shorter than the client said", async () => {
+    const full = JSON.stringify({ name: "x".repeat(500) });
+    const request = jsonRequest(full.slice(0, 100), { "Content-Length": String(full.length) });
+    const result = await parseJsonBody(request, schema);
+    expect(!result.ok && (await errorOf(result.response))).toMatchObject({
+      status: 413,
+      body: { error: { code: "payload_too_large" } },
+    });
+  });
+});
+
 describe("parseJsonBody", () => {
   it("returns typed data for a valid body", async () => {
     const result = await parseJsonBody(jsonRequest('{"name":"a"}'), schema);

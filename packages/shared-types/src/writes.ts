@@ -17,10 +17,22 @@ export const WRITE_MAX_CHANGE_COLUMNS = 100;
 export const WRITE_MAX_CHANGE_VALUE_CHARS = 100_000;
 export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
+/** Rows in one bulk change. */
+export const WRITE_MAX_BULK_ROWS = 500;
+/** Limits of an import (mirrored from the core): rows, columns, characters in a cell. */
+export const WRITE_MAX_IMPORT_ROWS = 100_000;
+export const WRITE_MAX_IMPORT_COLUMNS = 50;
+export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
+/**
+ * The largest body of a preview or a validation: an import carries its rows as JSON (a file of up to 20 MB, and every
+ * field gets two quotes, so 100,000 rows of 50 short fields is about 30 MB). A file of 20 MB can still come to more
+ * than 32 MB as JSON when it is full of characters JSON escapes (backslashes, tabs, control characters, line breaks
+ * inside quotes): it is then refused, in plain words, before anything is sent. `next.config.ts` lets the proxy buffer more
+ * than this (a rule test pins it): Next keeps only the first 10 MB of a body unless told otherwise.
+ */
+export const IMPORT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
-/** The largest preview request body: a row change can carry long values. */
-export const WRITE_MAX_BODY_BYTES = 1024 * 1024;
 
 function utf8Bytes(name: string): number {
   let bytes = 0;
@@ -46,11 +58,22 @@ export const newIdentifierSchema = z
   .refine((name) => name.trim() === name, "A name cannot start or end with a space.");
 
 const tableSchema = z.strictObject({ schema: identifierSchema, name: identifierSchema });
-const valueSchema = z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).nullable();
+/**
+ * A half of a surrogate pair on its own is not text: PostgreSQL would store it as U+FFFD without a word. A browser's
+ * UTF-8 decoder never produces one, so only a request made by hand meets this.
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const wellFormed = (s: string): boolean => !LONE_SURROGATE.test(s);
+const WELL_FORMED = "A value must be valid text (a lone half of a surrogate pair is not).";
+const valueSchema = z
+  .string()
+  .max(WRITE_MAX_CHANGE_VALUE_CHARS)
+  .refine(wellFormed, WELL_FORMED)
+  .nullable();
 const columnValueSchema = z.strictObject({ column: identifierSchema, value: valueSchema });
 const keyValueSchema = z.strictObject({
   column: identifierSchema,
-  value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS),
+  value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).refine(wellFormed, WELL_FORMED),
 });
 const columnListSchema = z.array(identifierSchema).min(1).max(WRITE_MAX_CHANGE_PARTS);
 
@@ -93,6 +116,82 @@ export const deleteRowChangeSchema = z
     key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
   })
   .refine((c) => uniqueColumns(c.key, (k) => k.column), "A key column is listed twice.");
+
+/** Each row of a bulk change is named once: the same key twice would change one row twice. */
+function distinctKeys(
+  rows: ReadonlyArray<{ key: Array<{ column: string; value: string }> }>,
+): boolean {
+  const named = (r: { key: Array<{ column: string; value: string }> }) =>
+    JSON.stringify(
+      r.key
+        .map((k): [string, string] => [k.column, k.value])
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
+  return new Set(rows.map(named)).size === rows.length;
+}
+
+const bulkRowSchema = z
+  .strictObject({
+    key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
+    expected: z.array(columnValueSchema).max(WRITE_MAX_CHANGE_COLUMNS),
+  })
+  .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice.");
+
+export const updateRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("update_rows"),
+    table: tableSchema,
+    set: z.array(columnValueSchema).min(1).max(WRITE_MAX_CHANGE_COLUMNS),
+    rows: z.array(bulkRowSchema).min(1).max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => uniqueColumns(c.set, (v) => v.column), "A column is changed twice.")
+  .refine(
+    (c) =>
+      c.rows.every(
+        (r) =>
+          r.expected.length === c.set.length &&
+          c.set.every((v) => r.expected.some((e) => e.column === v.column)),
+      ),
+    "Every row needs the value that was seen in each changed column.",
+  )
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
+
+export const deleteRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("delete_rows"),
+    table: tableSchema,
+    rows: z
+      .array(
+        z
+          .strictObject({ key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS) })
+          .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice."),
+      )
+      .min(1)
+      .max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
+
+export const insertRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("insert_rows"),
+    table: tableSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: z
+      .array(
+        z
+          .array(
+            z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).refine(wellFormed, WELL_FORMED).nullable(),
+          )
+          .max(WRITE_MAX_IMPORT_COLUMNS),
+      )
+      .min(1)
+      .max(WRITE_MAX_IMPORT_ROWS),
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  );
 
 // ------------------------------------------------------- column definitions ---
 
@@ -145,7 +244,7 @@ export const columnDefaultSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("none") }),
   z.strictObject({
     kind: z.literal("literal"),
-    value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS),
+    value: z.string().max(WRITE_MAX_CHANGE_VALUE_CHARS).refine(wellFormed, WELL_FORMED),
   }),
   z.strictObject({ kind: z.literal("now") }),
   z.strictObject({ kind: z.literal("current_date") }),
@@ -296,6 +395,9 @@ export const changeSchema = z.discriminatedUnion("kind", [
   updateRowChangeSchema,
   insertRowChangeSchema,
   deleteRowChangeSchema,
+  updateRowsChangeSchema,
+  deleteRowsChangeSchema,
+  insertRowsChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,
@@ -383,6 +485,11 @@ export const changePreviewSchema = z.object({
   category: z.enum(["row", "structure"]),
   /** ISO time after which the preview can no longer be applied. */
   expiresAt: z.string(),
+  /**
+   * For a bulk change: the positions (0-based, in the request) of the rows that no longer hold what the person
+   * saw, or are gone. They are left out of the change, which does the other rows only.
+   */
+  skipped: z.array(z.number().int()).default([]),
 });
 export type ChangePreview = z.infer<typeof changePreviewSchema>;
 export const previewChangeResponseSchema = z.object({ preview: changePreviewSchema });

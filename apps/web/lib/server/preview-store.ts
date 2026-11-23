@@ -18,6 +18,12 @@ import { randomBytes } from "node:crypto";
 /** At most this many previews wait per connection; the oldest goes first. */
 export const MAX_PREVIEWS_PER_CONNECTION = 20;
 
+/**
+ * At most this many IMPORT previews wait per connection. An import holds up to 100,000 rows (about 90 MB as a plan), and a
+ * person has one import dialog open: a count of 20 alone could have held gigabytes.
+ */
+export const MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2;
+
 interface Stored {
   connectionId: string;
   plan: PlannedChange;
@@ -57,6 +63,18 @@ export class PreviewStore {
     const mine = [...this.previews].filter(([, stored]) => stored.connectionId === connectionId);
     for (const [id] of mine.slice(0, Math.max(0, mine.length - MAX_PREVIEWS_PER_CONNECTION + 1))) {
       this.previews.delete(id);
+    }
+    if (plan.change.kind === "insert_rows") {
+      const imports = [...this.previews].filter(
+        ([, stored]) =>
+          stored.connectionId === connectionId && stored.plan.change.kind === "insert_rows",
+      );
+      for (const [id] of imports.slice(
+        0,
+        Math.max(0, imports.length - MAX_IMPORT_PREVIEWS_PER_CONNECTION + 1),
+      )) {
+        this.previews.delete(id);
+      }
     }
     const id = this.generateId();
     const expiresAt = this.now() + this.ttlMs;

@@ -145,12 +145,12 @@ export const cellRequestSchema = z.strictObject({
 export type CellRequestBody = z.input<typeof cellRequestSchema>;
 export type ParsedCellRequest = z.output<typeof cellRequestSchema>;
 
-/** The largest body of a validation (it carries the values to be checked): 1 MB, as a change does. */
-export const VALIDATE_MAX_BODY_BYTES = 1024 * 1024;
+/** The largest body of a validation (it carries the values to be checked): what an import can carry. */
+export const VALIDATE_MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 /**
  * `POST /api/connections/:id/rows/validate`: would the database accept these values? Answered without
- * writing a row (decision 157). `insert` checks up to 1,000 rows; `update` checks one row, found by its key.
+ * writing a row (decision 157). `insert` checks up to 100,000 rows (an import); `update` checks one row, found by its key.
  * Strict, and bounded in every list. The values are values: never logged, saved or echoed.
  */
 export const validateRequestSchema = z.strictObject({
@@ -161,7 +161,7 @@ export const validateRequestSchema = z.strictObject({
   rows: z
     .array(z.array(z.string().max(100_000).nullable()).max(50))
     .min(1)
-    .max(1000),
+    .max(100_000),
   key: z
     .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
     .min(1)

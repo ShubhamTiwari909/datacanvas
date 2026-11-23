@@ -5,6 +5,7 @@
  * should not be in, or a log.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { IMPORT_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import type { MockDatabaseAdapter } from "@datacanvas/database-core/testing";
 import { MOCK_ROLE } from "@datacanvas/database-core/testing";
 import { setServerContextForTests } from "@/lib/server/context";
@@ -541,8 +542,16 @@ describe("requests are strict JSON with no SQL anywhere", () => {
 
   it("refuses a body that is too large (413)", async () => {
     const id = await unlocked();
-    const huge = await preview(id, updateEmail("x".repeat(1024 * 1024)));
+    // The preview takes the size of an import, so a body past that is what is refused as too large.
+    const huge = await preview(id, updateEmail("x".repeat(IMPORT_MAX_BODY_BYTES + 1)));
     expect(huge.status).toBe(413);
+  });
+
+  it("still refuses one value past the limit of a change, below the size of the body", async () => {
+    const id = await unlocked();
+    const long = await preview(id, updateEmail("x".repeat(1024 * 1024)));
+    expect(long.status).toBe(400);
+    expect(long.body).toMatchObject({ error: { code: "validation_error" } });
   });
 });
 

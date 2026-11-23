@@ -32,14 +32,35 @@ export async function apiRequest<S extends z.ZodType>(
     body?: unknown;
     /** Aborting it stops the request (and, for a running statement, the server cancels it). */
     signal?: AbortSignal;
+    /** The most the server takes in a body; a larger request is refused here, in plain words, instead of sent. */
+    maxBodyBytes?: number;
   } = {},
 ): Promise<ApiResult<z.output<S>>> {
+  let body: string | undefined;
+  try {
+    body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  } catch {
+    return failure(
+      "bad_request",
+      "This request holds something that cannot be sent (a value that is not plain data).",
+    );
+  }
+  if (
+    body !== undefined &&
+    options.maxBodyBytes !== undefined &&
+    new TextEncoder().encode(body).byteLength > options.maxBodyBytes
+  ) {
+    return failure(
+      "payload_too_large",
+      `This is more than DataCanvas can send in one request (${Math.round(options.maxBodyBytes / (1024 * 1024))} MB as it is sent, which is more than the data itself because every value is quoted and escaped). Send fewer rows or columns; for an import, split the file.`,
+    );
+  }
   let response: Response;
   try {
     response = await fetch(path, {
       method: options.method ?? "GET",
-      headers: options.body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body,
       cache: "no-store",
       signal: options.signal,
     });

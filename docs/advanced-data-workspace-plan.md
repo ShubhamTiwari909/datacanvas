@@ -1,6 +1,6 @@
 # Plan: the advanced data workspace
 
-Status: **planned, not started. The twelve decisions of section 13 were settled on 2026-11-20: every recommendation was accepted (two releases, 1.8.0 then 1.9.0).** This is "Phase 4" of the roadmap: CSV import and export, bulk editing, advanced filters, a JSON editor and data validation. It builds on the data viewer (`docs/data-viewer-plan.md`, 1.2.0), sorting and filtering (`docs/data-sort-filter-plan.md`, 1.3.0), row and table editing (`docs/data-editing-plan.md`, 1.4.0), the SQL tab (`docs/sql-workspace-plan.md`, 1.6.0) and the Migrations tab (`docs/migration-studio-plan.md`, 1.7.0). It is the first work since 1.4.0 that **moves many rows at once**, in both directions, so it is the riskiest of the phases: the plan is organized around what could go wrong.
+Status: **built: 1.8.0 (export, advanced filters, JSON editor, validation, migration pre-flight) and 1.9.0 (bulk editing and CSV import; sections 18 to 20 record what was found). The twelve decisions of section 13 were settled on 2026-11-20: every recommendation was accepted (two releases, 1.8.0 then 1.9.0).** This is "Phase 4" of the roadmap: CSV import and export, bulk editing, advanced filters, a JSON editor and data validation. It builds on the data viewer (`docs/data-viewer-plan.md`, 1.2.0), sorting and filtering (`docs/data-sort-filter-plan.md`, 1.3.0), row and table editing (`docs/data-editing-plan.md`, 1.4.0), the SQL tab (`docs/sql-workspace-plan.md`, 1.6.0) and the Migrations tab (`docs/migration-studio-plan.md`, 1.7.0). It is the first work since 1.4.0 that **moves many rows at once**, in both directions, so it is the riskiest of the phases: the plan is organized around what could go wrong.
 
 ## 1. What we promise
 
@@ -8,10 +8,10 @@ For a table you may read (and, where writes are unlocked, change), from inside D
 
 1. **Export** the rows you are looking at (all of them, with the filter and the sort you chose) as CSV, TSV, JSON or NDJSON.
 2. **Import** a CSV file into a table you may write to: map its columns, see what is wrong **before anything is written**, and then insert it in one transaction, all or nothing.
-3. **Edit many rows at once**: select rows and set a column, delete them, or edit several cells and apply them together, each row still checked against what you saw.
+3. **Edit many rows at once**: select rows and set a column or delete them, each row still checked against what you saw (editing several cells together was deferred, section 19).
 4. **Filter with more than "all of these"**: groups with OR, more operators (in a list, between, ends with, matches a pattern, JSON and array operators), date shortcuts, and "filter by this cell".
 5. **Edit JSON** in a real editor: formatted, validated as you type, with a tree for large documents.
-6. **Know a value is valid before it is written**: every form, import and bulk edit can be **validated** against the table (types, NOT NULL, CHECK, domains, uniqueness, foreign keys) without writing a row, and each failure says which row and which column.
+6. **Know a value is valid before it is written**: every form and import can be **validated** against the table (types, NOT NULL, CHECK, domains, uniqueness, foreign keys) without writing a row, and each failure says which rows, and names the column or the constraint where the database gives one.
 
 What we do not promise: undo (a committed change is committed), spreadsheets (`.xlsx`), or a streaming ETL tool. Rows move one file at a time, with limits.
 
@@ -100,11 +100,11 @@ The Migrations tab marks steps `may_fail` (`SET NOT NULL`, a unique constraint, 
 
 **Operations** (added to the write path of 1.4, same layers, same preview-then-apply, one transaction):
 
-| Operation     | Meaning                                                                                                                      | Limit                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `update_rows` | the same column values set on a list of rows, each found by its key, each with the `expected` values it showed               | 500 rows                   |
-| `edit_cells`  | several cells of several rows, each cell its own new value, each row its own `expected` (the "edit like a spreadsheet" case) | 500 rows, 50 cells per row |
-| `delete_rows` | a list of rows by key, after a confirmation that shows the count and what references them                                    | 500 rows                   |
+| Operation     | Meaning                                                                                                                                                                    | Limit                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `update_rows` | the same column values set on a list of rows, each found by its key, each with the `expected` values it showed                                                             | 500 rows                   |
+| `edit_cells`  | **Deferred to a later release (section 19).** Several cells of several rows, each cell its own new value, each row its own `expected` (the "edit like a spreadsheet" case) | 500 rows, 50 cells per row |
+| `delete_rows` | a list of rows by key, after a confirmation that shows the count and what references them                                                                                  | 500 rows                   |
 
 - **The conflict check stays per row.** A row that changed since it was loaded is **reported and skipped before anything is written**: the preview lists "3 of 120 rows changed since you loaded them" and the person decides (apply to the rest, or reload). The apply asserts `affected = number previewed` and rolls back otherwise.
 - **Selecting.** Checkboxes in the grid (a row, a page, with shift-click for a range), a count in the toolbar, the keyboard model of the shared grid hook. Selection is by key and lives in memory; changing the filter or the page keeps it, changing the table clears it. **"Select all rows matching the filter" is not in the first version** (decision 13.4).
@@ -172,8 +172,8 @@ Each is red-first, ends with every check green, and is a commit on one branch. *
 | D2  | **JSON editor**                   | The dialog with the tokenizer, format, minify, tree, diff, error position; the size cap; `jsonb` and `json` conflict checks; used from the cell, the edit form and the insert form; e2e; axe, dark, phone                                                                                                                                          |
 | D3  | **Validation**                    | The temporary-table check and the read-only uniqueness and foreign-key queries, the report with row numbers and no values, the route, tests for every rule and for "never a trigger, never the real table", wired into the single-row edit and insert forms ("Validate" beside "Preview"), and the pre-flight of section 6.3 in the Migrations tab |
 | D4  | **Export**                        | The route and the cursor, the four formats, masking, defusing, the limits and cancel, the dialog with progress; tests with hostile values and with a table of 100,000 rows; e2e that reads the file. **Release 1.8.0 here** if decision 13.1 is "two": independent review of the validation first                                                  |
-| D5  | **Bulk editing**                  | Selection in the grid, `update_rows`, `edit_cells`, `delete_rows` through the write path, per-row conflicts reported before writing, the review diff, validation, tests (conflict, limits, triggers named, rollback on a count mismatch), e2e                                                                                                      |
-| D6  | **Import**                        | The browser parser (delimiters, quotes, line breaks, BOM, header), the mapping screen, the validation of the whole file, the `insert_rows` operation in batches in one transaction, progress and cancel, the rejects file; tests with hostile files and a 100,000-row file; e2e                                                                    |
+| D5  | **Bulk editing**                  | Selection in the grid, `update_rows`, `delete_rows` (`edit_cells` deferred, section 19) through the write path, per-row conflicts reported before writing, the review diff, validation, tests (conflict, limits, triggers named, rollback on a count mismatch), e2e                                                                                |
+| D6  | **Import**                        | The browser parser (delimiters, quotes, line breaks, BOM, header), the mapping screen, the validation of the whole file, the `insert_rows` operation in batches in one transaction, a spinner and cancel (the rejects file was not built, see section 20); tests with hostile files and a 100,000-row file; e2e                                    |
 | D7  | **Polish, docs, review, release** | README, the guide, `SECURITY.md`, the threat model, decisions, CHANGELOG; the independent review of the write side (D5 and D6); fixes; version; a PR. **Release 1.9.0 here** if "two"                                                                                                                                                              |
 
 Rough size: D0 2 days, D1 4, D2 3, D3 4, D4 3, D5 4, D6 5, D7 3. About 28 days, most of it in D3, D5 and D6, because the tests are the work.
@@ -267,3 +267,24 @@ The JSON editor of section 5 is built. Where the build differs from the plan:
 - The conditions in the notes are words with no value (`status equals`).
 - There is no per-export setting for the limits.
 - The cell limit of an export is 1,000,000 characters, and the file counts the values it had to cut.
+
+## 19. What D5 found (2026-11-22)
+
+Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 159). Where it differs from the plan:
+
+- **No new statement.** A bulk change is one single-row statement per row, in one transaction; the plan's `affected = previewed` is the existing one-row check of each statement.
+- **`edit_cells` and the editing grid are not in 1.9.0.** The choosing of rows, "Set a value" and "Delete N rows" are. Spreadsheet-style editing and its review of differences would be a third operation and a second way to write; they come later.
+- **No Validate for a bulk change** (so item 6 of section 1 covers forms and imports only). Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
+- **The conflicts come at preview.** The rows that changed since they were loaded are left out and counted there; a row that changes after is a rollback.
+- A key column is not offered in "Set a value" (the same key on several rows would be refused).
+
+## 20. What D6 found (2026-11-22)
+
+CSV import (section 9) is built as `insert_rows` (decision 160). Where it differs from the plan:
+
+- **No "skip the failing rows" choice and no rejects file.** The validation lists at most 20 failing rows and counts 100, so it cannot name every row a file would lose. An import is all or nothing; the report names the first rows so the file can be fixed.
+- **Batched `INSERT`, not `COPY`.** Measured: 100,000 rows in about 0.73 s against about 0.2 s (3.6 times), under the line of five times.
+- **Validation was raised** to 100,000 rows and a 32 MB body for the whole file, so a file is checked whole before any row is written. The body is JSON, so a file of 20 MB that is full of characters JSON escapes (backslashes, tabs, line breaks inside quotes) can pass 32 MB and is then refused, in plain words, before it is sent.
+- **A spinner and "Cancel and roll back", not a progress bar.** The server answers once, at the end; closing the dialog stops the import between batches and rolls back.
+- **The notice counts use thousands separators** ("100,000 rows were added."); the 100,000-row end-to-end test found the bulk notices printed `100000`.
+- Limits: 100,000 rows, 50 columns, 10,000 characters a cell, 20 MB a file. UTF-8 only, with or without a byte order mark.

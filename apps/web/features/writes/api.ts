@@ -9,6 +9,7 @@
  */
 import type { Change, TableEditInfo } from "@datacanvas/database-core";
 import {
+  IMPORT_MAX_BODY_BYTES,
   applyChangeResponseSchema,
   editInfoResponseSchema,
   historyResponseSchema,
@@ -86,7 +87,7 @@ export async function requestPreview(
   const result = await apiRequest(
     `${base(connectionId)}/writes/preview`,
     previewChangeResponseSchema,
-    { method: "POST", body: { change } },
+    { method: "POST", body: { change }, maxBodyBytes: IMPORT_MAX_BODY_BYTES },
   );
   return unwrap(result, (d) => d.preview);
 }
@@ -95,10 +96,17 @@ export async function requestPreview(
 export async function requestApply(
   connectionId: string,
   previewId: string,
+  /**
+   * Aborting it cancels a change of several statements (an import, a bulk change) between them, and everything is
+   * rolled back. A change of one statement may still commit on the server after the abort: the client drops the
+   * answer, so reload the table to see it.
+   */
+  signal?: AbortSignal,
 ): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {
   const result = await apiRequest(`${base(connectionId)}/writes/apply`, applyChangeResponseSchema, {
     method: "POST",
     body: { previewId },
+    ...(signal ? { signal } : {}),
   });
   return unwrap(result, (d) => d.result);
 }

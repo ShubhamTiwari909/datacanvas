@@ -8,6 +8,7 @@ import {
   STRUCTURE_CHANGE_KINDS,
   isRowChange,
   type AppliedChange,
+  type CancelSignal,
   type Change,
   type PlannedChange,
 } from "@datacanvas/database-core";
@@ -37,18 +38,34 @@ export function planChange(db: Queryable, change: Change): Promise<PlannedChange
  * cannot happen with a key and is treated as a failure. Throwing here makes
  * the transaction roll back, so nothing is written in either case.
  */
-export async function runPlan(db: WriteClient, plan: PlannedChange): Promise<AppliedChange> {
+export async function runPlan(
+  db: WriteClient,
+  plan: PlannedChange,
+  signal?: CancelSignal,
+): Promise<AppliedChange> {
   // Lock what the plan is about and check it is still the same table, before anything runs.
   await verifyGuard(db, plan);
   let rowCount = 0;
   for (const statement of plan.statements) {
+    // A cancel (the person closed the import) stops between statements: the transaction rolls back.
+    if (signal?.aborted)
+      throw new DatabaseError("unexpected", { message: "The change was cancelled." });
     const result = await db.query(statement.text, statement.values);
     const count = result.rowCount ?? 0;
+    // A statement that was planned for a number of rows must report exactly that many, or nothing is kept.
+    if (statement.expectRows !== undefined && count !== statement.expectRows) {
+      // "A loaded row changed" is about a row the person saw: an insert (an import batch) has none.
+      const inserting = /^\s*INSERT\b/i.test(statement.text);
+      throw new DatabaseError(count === 0 && !inserting ? "row_changed" : "unexpected");
+    }
     if (plan.expect === "one_row") {
       if (count === 0) throw new DatabaseError("row_changed");
       if (count !== 1) throw new DatabaseError("unexpected");
     }
     rowCount += count;
   }
+  // A cancel that came during the last statement is still honoured: the caller commits only when this returns.
+  if (signal?.aborted)
+    throw new DatabaseError("unexpected", { message: "The change was cancelled." });
   return { rowCount };
 }

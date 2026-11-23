@@ -3,11 +3,22 @@
  * the database accept this?" is made from the very change the form would preview, so what is checked is
  * what would be written. Pure functions, no React.
  */
-import type { InsertRowChange, UpdateRowChange } from "@datacanvas/database-core";
+import type { InsertRowChange, InsertRowsChange, UpdateRowChange } from "@datacanvas/database-core";
 import type { ValidateRequestBody } from "@datacanvas/shared-types";
 
 /** The validation of an insert (a row of the values given) or of an update (one row, found by its key). */
-export function validateRequestFor(change: InsertRowChange | UpdateRowChange): ValidateRequestBody {
+export function validateRequestFor(
+  change: InsertRowChange | InsertRowsChange | UpdateRowChange,
+): ValidateRequestBody {
+  if (change.kind === "insert_rows") {
+    return {
+      schema: change.table.schema,
+      table: change.table.name,
+      mode: "insert",
+      columns: change.columns,
+      rows: change.rows,
+    };
+  }
   if (change.kind === "insert_row") {
     return {
       schema: change.table.schema,

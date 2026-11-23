@@ -37,8 +37,11 @@ export type ParsedBody<T> = { ok: true; data: T } | { ok: false; response: Respo
  * because a client can omit or lie about Content-Length and stream gigabytes.
  * Returns null when the limit is exceeded.
  */
-async function readTextWithLimit(request: Request, maxBytes: number): Promise<string | null> {
-  if (!request.body) return "";
+async function readTextWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<{ text: string; bytes: number } | null> {
+  if (!request.body) return { text: "", bytes: 0 };
   const reader = request.body.getReader();
   const decoder = new TextDecoder();
   let total = 0;
@@ -53,7 +56,7 @@ async function readTextWithLimit(request: Request, maxBytes: number): Promise<st
     }
     text += decoder.decode(value, { stream: true });
   }
-  return text + decoder.decode();
+  return { text: text + decoder.decode(), bytes: total };
 }
 
 /** Convert Zod issues into the API's `{ path, message }` list. Messages never echo the input. */
@@ -89,8 +92,15 @@ export async function parseJsonBody<S extends z.ZodType>(
     return { ok: false, response: tooLarge(maxBytes) };
   }
 
-  const text = await readTextWithLimit(request, maxBytes);
-  if (text === null) return { ok: false, response: tooLarge(maxBytes) };
+  const read = await readTextWithLimit(request, maxBytes);
+  if (read === null) return { ok: false, response: tooLarge(maxBytes) };
+  const { text, bytes } = read;
+  // A body shorter than the client said it was was sent short (the framework's own cut cannot reach here: it is
+  // refused by the declared length above): say so, rather than "not valid JSON" about a request that was fine.
+  // (The bytes counted as they were read: re-encoding the text would miss a BOM the decoder strips.)
+  if (Number.isFinite(declared) && declared > 0 && bytes < declared) {
+    return { ok: false, response: tooLarge(maxBytes) };
+  }
 
   let json: unknown;
   try {
@@ -120,7 +130,7 @@ export async function parseJsonBody<S extends z.ZodType>(
 function tooLarge(maxBytes: number): Response {
   return errorResponse(
     "payload_too_large",
-    `The request body is larger than the ${Math.round(maxBytes / 1024)} KB limit.`,
+    `The request body is larger than the ${maxBytes >= 1024 * 1024 ? `${Math.round((maxBytes / (1024 * 1024)) * 10) / 10} MB` : `${Math.round(maxBytes / 1024)} KB`} limit, or was cut short on the way.`,
     413,
   );
 }

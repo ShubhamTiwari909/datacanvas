@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
 
   images: { unoptimized: true },
 
+  // Next.js buffers a request body for the proxy (`proxy.ts`) and keeps only the first 10 MB of it by default, so a
+  // larger body reached a route cut short. An import is sent as JSON (up to IMPORT_MAX_BODY_BYTES, 32 MB), so the
+  // buffer is a little larger. The route still refuses a body over its own limit; a rule test pins that this value is
+  // at least the largest limit.
+  experimental: { proxyClientMaxBodySize: "36mb" },
+
   // NOTE: even with `images.unoptimized`, the standalone tracer still copies
   // `sharp` (native image library) and a platform-specific binary. Next.js'
   // outputFileTracingExcludes cannot remove it (it only affects per-route

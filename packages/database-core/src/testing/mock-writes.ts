@@ -123,6 +123,19 @@ function renderColumn(column: ColumnDefinition): string {
 
 const columnList = (names: readonly string[]): string => names.map(quoteIdentifier).join(", ");
 
+/** The sample database changes one row at a time: a bulk change is refused (the real adapter does it). */
+type SingleRowChange = Exclude<RowChange, { kind: "update_rows" | "delete_rows" | "insert_rows" }>;
+function oneRow(change: RowChange): SingleRowChange {
+  if (
+    change.kind === "update_rows" ||
+    change.kind === "delete_rows" ||
+    change.kind === "insert_rows"
+  ) {
+    throw invalidChange("The sample database changes one row at a time.");
+  }
+  return change;
+}
+
 export class MockWrites {
   /** Structure changes that were applied but do not change the sample data. */
   readonly appliedStructure: StructureChange[] = [];
@@ -188,10 +201,11 @@ export class MockWrites {
   // ---------------------------------------------------------------- preview ---
 
   previewChange(change: Change): PlannedChange {
-    return isRowChange(change) ? this.previewRow(change) : this.previewStructure(change);
+    if (isRowChange(change)) return this.previewRow(oneRow(change));
+    return this.previewStructure(change);
   }
 
-  private previewRow(change: RowChange): PlannedChange {
+  private previewRow(change: SingleRowChange): PlannedChange {
     const info = this.describeForEdit(change.table);
     if (!info.editable) throw new DatabaseError("not_editable");
     const column = (name: string) => {
@@ -496,12 +510,12 @@ export class MockWrites {
 
   applyChange(plan: PlannedChange): AppliedChange {
     const change = plan.change;
-    if (isRowChange(change)) return { rowCount: this.applyRow(change) };
+    if (isRowChange(change)) return { rowCount: this.applyRow(oneRow(change)) };
     this.applyStructure(change);
     return { rowCount: 0 };
   }
 
-  private applyRow(change: RowChange): number {
+  private applyRow(change: SingleRowChange): number {
     const mapKey = mapKeyOf(change.table);
     const columns = this.columnsOf(change.table);
     const rows = (this.data.rows[mapKey] ??= []);

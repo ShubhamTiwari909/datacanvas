@@ -152,6 +152,12 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
       expect(report).toMatchObject({ rows: 1, passed: 1, issues: [] });
     });
 
+    it("takes an import's worth of rows, more than the 1,000 it took before 1.9.0", async () => {
+      const rows = Array.from({ length: 1500 }, (_, i) => [`name ${i}`]);
+      const report = await adapter.validateRows(insert("target", ["name"], rows));
+      expect(report).toMatchObject({ rows: 1500, passed: 1500, issues: [] });
+    });
+
     it("says which column may not be NULL, and keeps the rule when NULL is given on purpose", async () => {
       expect(await one(insert("target", ["name"], [[null]]))).toEqual([
         { rule: "not_null", column: "name", constraint: null, count: 1, rows: [1] },
@@ -320,12 +326,10 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
 
     it("finds every failing row of a large request by halving it, and says which", async () => {
       const bad = new Set([77, 500, 501, 999]);
-      const rows = Array.from({ length: VALIDATE_MAX_ROWS }, (_, i) => [
-        `n${i}`,
-        bad.has(i) ? "-1" : "1.00",
-      ]);
+      const total = 1000;
+      const rows = Array.from({ length: total }, (_, i) => [`n${i}`, bad.has(i) ? "-1" : "1.00"]);
       const report = await adapter.validateRows(insert("target", ["name", "price"], rows));
-      expect(report.passed).toBe(VALIDATE_MAX_ROWS - bad.size);
+      expect(report.passed).toBe(total - bad.size);
       expect(report.issues).toEqual([
         {
           rule: "check",
@@ -588,7 +592,7 @@ describe.skipIf(!testDatabaseUrl())("PostgreSQL validateRows", () => {
       ).not.toContain("partition_bounds");
     });
 
-    it("reports a lower bound of the rows that pass when more rows fail than a rule lists", async () => {
+    it("reports an upper bound of the rows that pass when more rows fail than a rule lists", async () => {
       const rows = Array.from({ length: 50 }, (_, i) => [`n${i}`, "99"]);
       const report = await adapter.validateRows(insert("target", ["name", "parent_id"], rows));
       expect(report.issues[0]).toMatchObject({ rule: "foreign_key", count: 50 });

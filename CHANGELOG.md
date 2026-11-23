@@ -4,6 +4,26 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-22
+
+### Added
+
+- **Change several rows together.** With writes unlocked, rows of an editable table can be chosen in the Data section (a checkbox on each row, Shift for a range, a box for the page; the choice is kept across pages and filters). **Set a value** puts one value in one column of all of them and **Delete rows** removes them, up to 500 at a time. Each row is the single-row statement, the whole change is one transaction, and if any row does not change exactly one row, nothing is written. A row that changed since you loaded it is left out and counted at the preview, without its values. Decision 159.
+- **Import a CSV file.** **Import CSV** reads a file in the browser (UTF-8; comma, semicolon, tab or pipe; with or without a header; up to 100,000 rows, 50 columns and 20 MB), lets you choose a column of the table for each column of the file, say how empty fields and words such as `NULL` are read, and **Validate the file** against the table's rules without writing. **Apply** adds every row in one transaction in batches of 500, or none if any fails; **Cancel and roll back** stops it. A name in the file is never used as a name in a statement. Decision 160.
+
+### Security
+
+The write side was read by a second reviewer before this release (docs/threat-model.md, section 11b). It found no way to turn a file into a statement, to put a value in an error, a preview or a report, or to get past the three layers, and reproduced eleven findings, none a hole, all fixed:
+
+- An import larger than 10 MB could not be sent: the framework cut the body and the page said it was not valid JSON. The limit now works (32 MB as JSON, 20 MB as a file), a cut body gets a clear answer, and the dialog says when an import is too large before sending it.
+- A validation of many rows said "At least N rows pass" where N is an upper bound; it now says "At most".
+- A bulk delete says plainly that it finds a row by its key and compares no values; a row named twice in different spellings of its key (`1` and `01`) is refused at the preview; a cancel during the last batch rolls back; a trigger that runs once for each statement is described as such; a lone half of a surrogate pair is refused; Shift-click no longer chooses a range from another page; an import with values for an identity column warns that the sequence does not move; a blank line in a one-column file is an empty value; at most two import previews are kept per connection.
+
+### Changed
+
+- Validation takes up to 100,000 rows (from 1,000) so that a file is checked whole, and the preview and the validation accept a request of up to 32 MB (a file of 20 MB is about 30 MB as JSON).
+- The counts in the notices of a change use thousands separators ("100,000 rows were added.").
+
 ## [1.8.0] - 2026-11-21
 
 ### Security

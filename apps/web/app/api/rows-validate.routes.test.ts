@@ -2,6 +2,7 @@
  * Route tests for validation (`POST /connections/:id/rows/validate`): the same opt-in as a page of rows,
  * a strict body, and no value in any error or log. (The checks themselves are in the adapter's tests.)
  */
+import { VALIDATE_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setServerContextForTests } from "@/lib/server/context";
 import { createTestContext, fieldsInput, type TestContext } from "@/lib/server/test-support";
@@ -81,7 +82,7 @@ describe("POST /connections/:id/rows/validate", () => {
 
   it.each([
     ["no rows", { ...ask, rows: [] }],
-    ["more than 1,000 rows", { ...ask, rows: Array(1001).fill(["x"]) }],
+    ["more than 100,000 rows", { ...ask, rows: Array(100_001).fill(["x"]) }],
     ["more than 50 values in a row", { ...ask, rows: [Array(51).fill("x")] }],
     ["a mode that does not exist", { ...ask, mode: "delete" }],
     ["a where clause", { ...ask, where: "id > 0" }],
@@ -99,7 +100,11 @@ describe("POST /connections/:id/rows/validate", () => {
 
   it("refuses a body that is too large with 413", async () => {
     const id = await connect({ dataAccess: true });
-    const big = { ...ask, rows: Array(30).fill(["x".repeat(50_000)]) };
+    // Past the limit of a validation (the size of an import), in rows of 100,000 characters.
+    const big = {
+      ...ask,
+      rows: Array(Math.ceil(VALIDATE_MAX_BODY_BYTES / 100_000) + 5).fill(["x".repeat(100_000)]),
+    };
     expect((await check(id, big)).status).toBe(413);
   });
 

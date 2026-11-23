@@ -51,7 +51,10 @@ const fail = (text: string, offset: number, message: string): JsonCheck => ({
 });
 
 /** Split the text into tokens, or say where it stops being JSON. */
-function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & { ok: false } } {
+function tokenize(
+  text: string,
+  jsonb: boolean,
+): { tokens: JsonToken[] } | { error: JsonCheck & { ok: false } } {
   const tokens: JsonToken[] = [];
   let i = 0;
   while (i < text.length) {
@@ -97,7 +100,8 @@ function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & 
               };
             }
             const unit = parseInt(text.slice(j + 2, j + 6), 16);
-            if (unit === 0) {
+            // Only jsonb refuses these: a json column keeps the text as written.
+            if (jsonb && unit === 0) {
               return {
                 error: fail(
                   text,
@@ -106,7 +110,7 @@ function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & 
                 ) as JsonCheck & { ok: false },
               };
             }
-            if (unit >= 0xd800 && unit <= 0xdbff) {
+            if (jsonb && unit >= 0xd800 && unit <= 0xdbff) {
               // A high surrogate must be followed by the escape of a low one.
               const low = /^\\u([dD][c-fC-F][0-9a-fA-F]{2})/.exec(text.slice(j + 6, j + 12));
               if (!low) {
@@ -119,7 +123,7 @@ function tokenize(text: string): { tokens: JsonToken[] } | { error: JsonCheck & 
                 };
               }
               j += 6;
-            } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+            } else if (jsonb && unit >= 0xdc00 && unit <= 0xdfff) {
               return {
                 error: fail(
                   text,
@@ -185,8 +189,8 @@ function describeToken(t: JsonToken): string {
 }
 
 /** Check a document: one value, nothing after it. The first problem is returned with its place. */
-export function checkJson(text: string): JsonCheck {
-  const lexed = tokenize(text);
+export function checkJson(text: string, jsonb = false): JsonCheck {
+  const lexed = tokenize(text, jsonb);
   if ("error" in lexed) return lexed.error;
   const { tokens } = lexed;
   if (tokens.length === 0) return fail(text, text.length, "This is empty. JSON needs a value.");

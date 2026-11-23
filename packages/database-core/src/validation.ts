@@ -84,7 +84,7 @@ export type ValidationNote =
   | "foreign_key_unreadable"
   /** The search for failing rows stopped after `VALIDATE_MAX_FAILURES_FOUND`. */
   | "stopped_early"
-  /** A CHECK that reads several columns was judged without the defaults of the columns the row did not give. */
+  /** A rule (a CHECK over several columns, a unique key or a foreign key) was judged without the defaults of the columns the row did not give. */
   | "defaults_not_applied"
   /** The table has an exclusion constraint, which the copy does not carry. */
   | "exclusion_constraints"

@@ -16,6 +16,31 @@ describe("checkJson", () => {
     }
   });
 
+  it.each([
+    ['"\\u0000"', "\\u0000"],
+    ['"\\ud800"', "half of a character"],
+    ['"\\ud800x"', "half of a character"],
+    ['"\\udc00"', "half of a character"],
+  ])("refuses %s for jsonb only", (text, words) => {
+    expect(checkJson(text).ok, "json").toBe(true);
+    const result = checkJson(text, true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain(words);
+  });
+
+  it("accepts a valid surrogate pair in jsonb", () => {
+    expect(checkJson('"\\ud83d\\ude00"', true).ok).toBe(true);
+  });
+
+  it("names a token by its kind, never its text", () => {
+    const result = checkJson('{"secret" "x"}');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toMatch(/found a string/);
+      expect(result.error.message).not.toContain("secret");
+    }
+  });
+
   it("says where it stops, in lines and columns", () => {
     const result = checkJson('{\n  "a": 1,\n  "b": }\n');
     expect(result).toMatchObject({ ok: false, error: { line: 3, column: 8 } });

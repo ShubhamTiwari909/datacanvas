@@ -128,7 +128,7 @@ export function checkValue(dataType: string, value: string): string | null {
     return "This column takes true or false.";
   if (type === "json" || type === "jsonb") {
     // Our own checker, not JSON.parse: the same answer in every browser, with the place it stopped.
-    const checked = checkJson(value);
+    const checked = checkJson(value, type === "jsonb");
     if (!checked.ok) {
       return `This column takes JSON. Line ${checked.error.line}, column ${checked.error.column}: ${checked.error.message}`;
     }

@@ -244,7 +244,7 @@ test.describe("import", () => {
     await expect(report).toContainText("qty_not_negative");
     await expect(report).toContainText("Row 3");
     await expect(report).toContainText("Rows 2, 5");
-    await expect(dialog.getByText(/Row numbers are the file's rows/)).toBeVisible();
+    await expect(dialog.getByText(/Row numbers are the file's lines/)).toBeVisible();
 
     // Applying it anyway adds nothing: all or nothing.
     await dialog.getByRole("button", { name: "Preview the import" }).click();

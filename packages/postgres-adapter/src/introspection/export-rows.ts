@@ -129,13 +129,6 @@ export async function exportRows(
     filters: options.filters ?? [],
   });
 
-  // The text of every value is written with settings of our own, never the session's: a date in the connection's
-  // DateStyle (`03.04.2026`), an interval in its IntervalStyle and a float cut by extra_float_digits would be read
-  // wrongly (or lose digits) by whoever opens the file in another session. They last for this transaction only.
-  await db.query(
-    `SELECT set_config('DateStyle', 'ISO, MDY', true), set_config('IntervalStyle', 'postgres', true),
-            set_config('extra_float_digits', '3', true), set_config('bytea_output', 'hex', true)`,
-  );
   // A reader that stops reading must not hold a transaction open for ever (the server ends the session).
   await db.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
     String(EXPORT_IDLE_MS),
@@ -190,6 +183,18 @@ export async function exportRows(
     if (isDataException(error)) throw new DatabaseError("invalid_request", { cause: error });
     throw error;
   }
+
+  // The text of every value is written with settings of our own, never the session's: a date in the connection's
+  // DateStyle (`03.04.2026`), an interval in its IntervalStyle and a float cut by extra_float_digits would be read
+  // wrongly (or lose digits) by whoever opens the file in another session. They last for this transaction only, and
+  // they are set HERE, after the cursor was declared: the keys and the conditions copied from the grid are in the
+  // connection's own DateStyle (that is what the grid showed), and were read under it when the cursor bound them; a
+  // setting changed before that would read `03.04.2026` as March 4 and return the wrong row (review of PR 30).
+  // The values are written when a row is fetched, so these settings are the ones the file's text is made with.
+  await db.query(
+    `SELECT set_config('DateStyle', 'ISO, MDY', true), set_config('IntervalStyle', 'postgres', true),
+            set_config('extra_float_digits', '3', true), set_config('bytea_output', 'hex', true)`,
+  );
 
   // Errors about the request (a value of the wrong type) come before the first event, so a caller can still answer them.
   if (stop) return;

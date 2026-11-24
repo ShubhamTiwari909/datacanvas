@@ -25,6 +25,8 @@ const SQL = `
   INSERT INTO k_secretkey VALUES ('${SECRET}', 'one'), ('other', 'two');
   CREATE TABLE k_long (id int PRIMARY KEY, t text);
   INSERT INTO k_long VALUES (1, repeat('x', 5000));
+  CREATE TABLE k_date (born date PRIMARY KEY, v int);
+  INSERT INTO k_date VALUES ('2026-04-03', 1), ('2026-03-04', 2), ('2026-12-25', 3);
   CREATE TABLE k_text (code text PRIMARY KEY, v int);
   INSERT INTO k_text VALUES ('a'';b', 1), ('c', 2);
 `;
@@ -152,5 +154,33 @@ describe.skipIf(!testDatabaseUrl())("an export of chosen rows", () => {
   it("a value that does not fit the type of the key is refused with a fixed message that does not repeat it", async () => {
     const error = await refusal(read("k_people", { keys: [k({ id: `not-a-number-${SECRET}` })] }));
     expect(error.code).toBe("invalid_request");
+  });
+  it("reads the keys and the conditions copied from the grid in the connection's own DateStyle, and writes the file in ISO", async () => {
+    // A database whose sessions show dates as 03.04.2026 (April 3). The grid shows that text and sends it back.
+    await client.query(`ALTER DATABASE "${db.dbName}" SET datestyle = 'German, DMY'`);
+    const german = new PostgresAdapter(db.connection);
+    await german.connect();
+    try {
+      const run = async (options: Partial<ExportRowsOptions>) => {
+        const rows: Array<Array<string | null>> = [];
+        await german.exportRows(
+          { schema: "public", name: "k_date" },
+          { revealColumns: [], ...options },
+          (event) => {
+            if (event.kind === "rows") rows.push(...event.rows);
+            return undefined;
+          },
+        );
+        return rows;
+      };
+      // April 3, not March 4: the value was read under the DateStyle the grid showed it in.
+      expect(await run({ keys: [k({ born: "03.04.2026" })] })).toEqual([["2026-04-03", "1"]]);
+      expect(await run({ filters: [{ column: "born", op: "eq", value: "04.03.2026" }] })).toEqual([
+        ["2026-03-04", "2"],
+      ]);
+    } finally {
+      await german.disconnect();
+      await client.query(`ALTER DATABASE "${db.dbName}" RESET datestyle`);
+    }
   });
 });

@@ -74,7 +74,13 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter table statistics", () => {
   });
 
   it("gives the sizes, the estimate and the times of the last analyze", async () => {
-    const stats = (await ask("st_people"))!;
+    // Before PostgreSQL 15 the time of an ANALYZE reaches pg_stat_all_tables through the statistics collector, about a
+    // half second after it ran: wait for it (PostgreSQL 13 in CI showed it as null straight after).
+    let stats = (await ask("st_people"))!;
+    for (let i = 0; i < 40 && stats.lastAnalyze === null; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      stats = (await ask("st_people"))!;
+    }
     expect(stats.estimatedRows).toBe(2000);
     expect(stats.tableBytes).toBeGreaterThan(0);
     expect(stats.indexBytes).toBeGreaterThan(0);

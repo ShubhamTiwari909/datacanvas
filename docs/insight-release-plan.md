@@ -188,3 +188,10 @@ V1 goes first because it is the only item that can change how every screen loads
 - The nonce needs the page to be rendered per request (the layout reads the request's headers); the tests pin that every script of the page has the nonce of its response and that it differs on every response.
 - `'strict-dynamic'` allows a script element made by a script that already runs; markup that the parser reads (an inline handler, a script written into the page) does not run, and `e2e/csp.spec.ts` pins that.
 - The suite also showed two timing weaknesses unrelated to the policy, both fixed in the tests: the axe checks now settle colours first (`settleForAxe`, in every spec that runs axe) and the 1,000-table test waits for the nodes to be measured before counting the ones drawn.
+
+## 15. What V2 found (2026-11-24)
+
+- The runner already accepted `EXPLAIN (FORMAT JSON)`; the work was the **uncut path**: `isWholePlan` and `SQL_LIMITS.maxPlanChars`, with a refusal above 2 MB (a plan of that size needs about 4,500 branches with ANALYZE, BUFFERS and VERBOSE; a plain UNION of 9,000 hits PostgreSQL's own stack depth limit first).
+- The viewer is one pure parser (`plan.ts`, 11 tests including a deeper-than-100 plan, more than 20,000 steps, hostile numbers and `__proto__`) and one component (`plan-view.tsx`); no dependency.
+- **The switch shows the JSON as it came, not a text plan made from it** (a second text rendering would be a second thing to keep right); the existing text entries of the menu remain for that.
+- Two existing end-to-end tests chose the menu item `Explain analyze` by a prefix that the new entry also matches; they now name the whole item.

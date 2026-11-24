@@ -7,7 +7,13 @@
  *
  * Skipped unless DATACANVAS_TEST_PG_URL is set. Runs in its own throwaway database.
  */
-import { DatabaseError, SqlStatementError, type SqlRunRequest } from "@datacanvas/database-core";
+import {
+  DatabaseError,
+  PLAN_TOO_LARGE_MESSAGE,
+  SQL_LIMITS,
+  SqlStatementError,
+  type SqlRunRequest,
+} from "@datacanvas/database-core";
 import net from "node:net";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -185,6 +191,40 @@ describe.skipIf(!testDatabaseUrl())("the SQL runner", () => {
         default_transaction_read_only: "off",
       });
     });
+  });
+
+  describe("a plan in JSON is kept whole (1.10.0)", () => {
+    const union = (n: number) =>
+      Array.from({ length: n }, (_, i) => `SELECT ${i} AS a FROM t_rows`).join(" UNION ALL ");
+
+    it("keeps one cell of a plan far past the 2,000 characters of any other cell, and it parses", async () => {
+      const result = await run(`EXPLAIN (FORMAT JSON) ${union(40)}`);
+      expect(result.command).toBe("EXPLAIN");
+      expect(result.cutCells).toBe(0);
+      const text = result.rows[0]![0]!;
+      expect(text.length).toBeGreaterThan(SQL_LIMITS.maxCellChars);
+      const plan = JSON.parse(text) as Array<{ Plan: { "Node Type": string } }>;
+      expect(plan[0]!.Plan["Node Type"]).toBe("Append");
+    });
+
+    it("still cuts a long cell of any other statement, and a text plan is many short rows", async () => {
+      const cut = await run(`SELECT repeat('x', 5000) AS big`);
+      expect(cut.cutCells).toBe(1);
+      expect(cut.rows[0]![0]!.length).toBe(SQL_LIMITS.maxCellChars);
+      const text = await run(`EXPLAIN ${union(40)}`);
+      expect(text.rows.length).toBeGreaterThan(40);
+      expect(text.cutCells).toBe(0);
+    });
+
+    it("refuses a plan larger than 2 MB with a fixed sentence, and never cuts it", async () => {
+      // ANALYZE, BUFFERS and VERBOSE make each of the 4,500 branches about 500 characters of JSON: over 2 MB.
+      const branches = Array.from({ length: 4500 }, () => "SELECT 1, 2, 3, 4").join(" UNION ALL ");
+      const error = await refusal(
+        run(`EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) ${branches}`, { timeoutMs: 25_000 }),
+      );
+      expect(error.code).toBe("54000");
+      expect(error.message).toBe(PLAN_TOO_LARGE_MESSAGE);
+    }, 30_000);
   });
 
   describe("EXPLAIN ANALYZE runs the statement it explains", () => {

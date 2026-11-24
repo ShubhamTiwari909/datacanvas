@@ -1451,3 +1451,48 @@ describe("the Content-Security-Policy is made for each request and nothing in th
     expect(scriptSrc).toMatch(/options\.dev \? \["'unsafe-eval'"\]/);
   });
 });
+
+describe("a query plan lives in the tab's memory like a result", () => {
+  const root2 = root;
+  const read = (file: string) => readFileSync(path.join(root2, file), "utf8");
+
+  it("is kept in no store, no autosave, no saved layout and no file", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+      ...walk(path.join(root, "apps/web/features/snapshots")),
+      ...walk(path.join(root, "apps/web/lib")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /features\/sql\/plan|planFromRows|parsePlan|PlanResultView/,
+      );
+    }
+  });
+
+  it("is never written anywhere by its own code: no storage, no network, no download", () => {
+    for (const file of ["apps/web/features/sql/plan.ts", "apps/web/features/sql/plan-view.tsx"]) {
+      expect(read(file), file).not.toMatch(
+        /localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest|createObjectURL|document\.cookie/,
+      );
+    }
+  });
+
+  it("is read as untrusted text: bounded, and never put into the page as markup", () => {
+    const parser = read("apps/web/features/sql/plan.ts");
+    expect(parser).toContain("PLAN_MAX_NODES");
+    expect(parser).toContain("PLAN_MAX_DEPTH");
+    expect(parser).toContain("SQL_LIMITS.maxPlanChars");
+    expect(read("apps/web/features/sql/plan-view.tsx")).not.toMatch(
+      /dangerouslySetInnerHTML|innerHTML/,
+    );
+  });
+
+  it("the runner keeps a plan whole only when it is one cell of an EXPLAIN, and refuses a larger one", () => {
+    const runner = read("packages/postgres-adapter/src/connection/run-statement.ts");
+    expect(runner).toContain("isWholePlan(raw.command, kept)");
+    expect(runner).toContain("PLAN_TOO_LARGE_MESSAGE");
+    expect(runner).toContain("wholePlan ? { rows: kept, cutCells: 0 } : cutLongCells(kept)");
+  });
+});

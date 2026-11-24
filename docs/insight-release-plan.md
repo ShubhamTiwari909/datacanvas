@@ -202,3 +202,10 @@ V1 goes first because it is the only item that can change how every screen loads
 - `reltuples` is 0 (PostgreSQL 12 and 13) or -1 (14 and later) before the first ANALYZE or VACUUM; the read treats 0 with no analyze or vacuum time at all as "not known".
 - The statistics need **no data access** (decision 161, accepted); the route has no check of it and a rule test pins that it reads through `getTableStatistics` and nothing else. Not tested against a role that may select only some columns (it needs a second login in the test database): said here as not reproduced.
 - The mock adapter makes the figures up (every column has them, none is a value), so the route test runs without a database; the real read has its own test against a real PostgreSQL (6 tests, including that no marker value of the table is anywhere in the answer).
+
+## 17. What V4 found (2026-11-24)
+
+- The generators are four small pure modules and one file of quoting (`quote.ts`); the tests of hostile names check the shape of **every line** of each output, which found nothing to fix in the generators but would catch any later change that writes a name raw.
+- The dialog first used the default dialog size: on an 800 px window the format list ran under the sticky footer and the note ended outside the dialog. It uses the sized form dialog now (`size="form"`, which scrolls its body and keeps the footer in view), found because the end-to-end test could not click the last radio button.
+- **The snapshot door is not built** (decision 166): the Overview and the canvas export dialog are.
+- Mermaid has no escape for a quote in a name, so a quote becomes an apostrophe there; an attribute name is reduced to word characters (a column called `line break` is `line_break` in the diagram, and exact in the Markdown and DBML files).

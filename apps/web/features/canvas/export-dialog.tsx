@@ -20,6 +20,8 @@ interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onExport: (format: ImageFormat) => void;
+  /** Opens the documentation export (Markdown, Mermaid, DBML, PlantUML). */
+  onDocumentation: () => void;
   exporting: ImageFormat | null;
   error: string | null;
   tableCount: number;
@@ -29,6 +31,7 @@ export function ExportDialog({
   open,
   onOpenChange,
   onExport,
+  onDocumentation,
   exporting,
   error,
   tableCount,
@@ -65,6 +68,9 @@ export function ExportDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
+          </Button>
+          <Button variant="outline" onClick={onDocumentation}>
+            Documentation and diagram text…
           </Button>
           <Button variant="outline" disabled={exporting !== null} onClick={() => onExport("svg")}>
             {exporting === "svg" ? (

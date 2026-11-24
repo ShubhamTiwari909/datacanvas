@@ -1530,3 +1530,42 @@ describe("the statistics of a table hold no value of the table", () => {
     expect(route).not.toMatch(/getRows|exportRows|getCell|runStatement/);
   });
 });
+
+describe("the documentation exports are made in the browser from the structure, and name nothing as syntax", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const files = walk(path.join(root, "apps/web/features/docs")).filter(
+    (f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f),
+  );
+
+  it("the generators are pure: no network, no storage, no row reader, no framework", () => {
+    for (const file of files.filter((f) => !f.endsWith("docs-export-dialog.tsx"))) {
+      const code = readFileSync(file, "utf8");
+      expect(code, rel(file)).not.toMatch(
+        /fetch\(|localStorage|sessionStorage|indexedDB|XMLHttpRequest|from "react"|getRows|exportRows|getCell|runStatement/,
+      );
+    }
+  });
+
+  it("the dialog reads only the structure (schemas, tables, table details, relationships), never a row", () => {
+    const dialog = read("apps/web/features/docs/docs-export-dialog.tsx");
+    for (const call of ["getSchemas(", "getTables(", "getTablesDetails(", "getRelationships("]) {
+      expect(dialog).toContain(call);
+    }
+    expect(dialog).not.toMatch(
+      /features\/data\/|getRows|exportRows|getCell|validateRows|runStatement/,
+    );
+    // The file is made and saved by the browser: no upload.
+    expect(dialog).toContain("URL.createObjectURL");
+    expect(dialog).not.toMatch(/fetch\(|method: "POST"/);
+  });
+
+  it("every name goes through a quoting function of quote.ts before it is written", () => {
+    for (const name of ["markdown", "mermaid", "dbml", "plantuml"]) {
+      const code = read(`apps/web/features/docs/${name}.ts`);
+      expect(code, name).toContain('from "./quote"');
+    }
+    // No generator writes a template literal with a raw `.name` straight into a line.
+    const mermaid = read("apps/web/features/docs/mermaid.ts");
+    expect(mermaid).not.toMatch(/\$\{c\.name\}|\$\{entry\.table\.name\}/);
+  });
+});

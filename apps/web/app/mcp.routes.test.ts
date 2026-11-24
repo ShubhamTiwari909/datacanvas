@@ -19,6 +19,25 @@ const SESSION = "s".repeat(43);
 const MCP = "m".repeat(43);
 const params = <T extends Record<string, string>>(value: T) => ({ params: Promise.resolve(value) });
 
+/** Every tool, in order: the list is the same at every level (a client reads it once, when it connects). */
+const ALL_TOOLS = [
+  "list_connections",
+  "list_schemas",
+  "list_tables",
+  "describe_table",
+  "search_objects",
+  "read_rows",
+  "run_readonly_query",
+  "explain_query",
+  "get_health",
+  "get_sizes",
+  "list_objects",
+  "find_path",
+  "compare_structure",
+  "generate_migration",
+  "check_migration_against_data",
+];
+
 let context: TestContext;
 beforeEach(() => {
   vi.stubEnv("PORT", "4747");
@@ -257,7 +276,7 @@ describe("the structure tools (M2)", () => {
     return body.result;
   };
 
-  it("lists the structure tools, all read-only, and no tool takes anything but a connection id and names", async () => {
+  it("lists every tool, and no structure tool takes anything but a connection id, names and limits", async () => {
     const id = await connect();
     await share(id, "structure");
     const listed = (await (await post(rpc("tools/list"))).json()) as {
@@ -268,18 +287,10 @@ describe("the structure tools (M2)", () => {
         }>;
       };
     };
-    expect(listed.result.tools.map((t) => t.name)).toEqual([
-      "list_connections",
-      "list_schemas",
-      "list_tables",
-      "describe_table",
-      "search_objects",
-      "get_health",
-      "find_path",
-      "compare_structure",
-      "generate_migration",
-    ]);
-    for (const tool of listed.result.tools) {
+    // Every tool is listed at every level: a client reads the list once, when it connects.
+    expect(listed.result.tools.map((t) => t.name)).toEqual(ALL_TOOLS);
+    const data = new Set(["read_rows", "run_readonly_query", "explain_query"]);
+    for (const tool of listed.result.tools.filter((t) => !data.has(t.name))) {
       expect(tool.inputSchema.additionalProperties).toBe(false);
       // No tool takes SQL, a statement or a where clause.
       expect(Object.keys(tool.inputSchema.properties).join(",")).not.toMatch(
@@ -455,35 +466,23 @@ describe("the data tools (M3)", () => {
       }
     ).result.tools.map((t) => t.name);
 
-  it("the data tools exist for a caller only while a connection is shared at the data level", async () => {
+  it("the data tools are listed at every level (a client lists once), and a call checks the level", async () => {
     const id = await connect({ dataAccess: true });
     await share(id, "structure");
-    expect(await names()).not.toContain("run_readonly_query");
-    await share(id, "data");
-    expect(await names()).toEqual([
-      "list_connections",
-      "list_schemas",
-      "list_tables",
-      "describe_table",
-      "search_objects",
-      "read_rows",
-      "run_readonly_query",
-      "explain_query",
-      "get_health",
-      "find_path",
-      "compare_structure",
-      "generate_migration",
-      "check_migration_against_data",
-    ]);
-    // A call to one while it is not offered is a tool nobody made.
+    // Listed before the data level is shared, so a Claude that connected then can use them once it is.
+    expect(await names()).toEqual(ALL_TOOLS);
+    const early = await call("run_readonly_query", { connection: id, sql: "SELECT 1" });
+    expect(early.isError).toBe(true);
+    expect(early.content[0]!.text).toMatch(/structure level only/);
+    await share(id, "data", { approval: false });
+    expect(await names()).toEqual(ALL_TOOLS);
+    const later = await call("run_readonly_query", { connection: id, sql: "SELECT 1" });
+    expect(later.isError).toBeFalsy();
+    // Lowered again: the call is refused again, with nothing run.
     await share(id, "structure");
-    const gone = await post(
-      rpc("tools/call", {
-        name: "run_readonly_query",
-        arguments: { connection: id, sql: "SELECT 1" },
-      }),
-    );
-    expect(((await gone.json()) as { error: { code: number } }).error.code).toBe(-32602);
+    const lowered = await call("run_readonly_query", { connection: id, sql: "SELECT 1" });
+    expect(lowered.isError).toBe(true);
+    expect(lowered.content[0]!.text).toMatch(/structure level only/);
   });
 
   it("a structure-level connection says so when a data tool is called with it, while another is at the data level", async () => {
@@ -1097,18 +1096,15 @@ describe("the analysis tools, the schema documents and the prompts (1.11.0)", ()
     expect(bad.content[0]!.text).toMatch(/has a field this tool does not take/);
   });
 
-  it("check_migration_against_data is a data tool: not offered at the structure level, approved under `from`", async () => {
+  it("check_migration_against_data is a data tool: refused at the structure level, approved under `from`", async () => {
     const a = await connect({ dataAccess: true });
     const b = await connect({ dataAccess: true });
     await share(a, "structure");
     await share(b, "structure");
-    const names = async () =>
-      ((await rpcResult("tools/list")).result!["tools"] as Array<{ name: string }>).map(
-        (t) => t.name,
-      );
-    expect(await names()).not.toContain("check_migration_against_data");
+    const early = await call("check_migration_against_data", { from: a, to: b });
+    expect(early.isError).toBe(true);
+    expect(early.content[0]!.text).toMatch(/structure level only/);
     await share(a, "data", { approval: true });
-    expect(await names()).toContain("check_migration_against_data");
     const waiting = call("check_migration_against_data", { from: a, to: b });
     const pending = await (async () => {
       for (let i = 0; i < 100; i++) {
@@ -1160,7 +1156,7 @@ describe("the analysis tools, the schema documents and the prompts (1.11.0)", ()
     }
   });
 
-  it("the prompts carry only what the person typed, the data prompt waits for the data level, and a missing argument is named", async () => {
+  it("the prompts carry only what the person typed, every prompt is listed at every level, and a missing argument is named", async () => {
     const id = await connect({ dataAccess: true });
     await share(id, "structure");
     const names = async () =>
@@ -1173,9 +1169,8 @@ describe("the analysis tools, the schema documents and the prompts (1.11.0)", ()
       "explain_schema",
       "how_are_tables_related",
       "review_migration",
+      "tune_query",
     ]);
-    await share(id, "data");
-    expect(await names()).toContain("tune_query");
     const got = await rpcResult("prompts/get", {
       name: "how_are_tables_related",
       arguments: { connection: id, from: "public.orders", to: "public.users‮" },
@@ -1189,6 +1184,84 @@ describe("the analysis tools, the schema documents and the prompts (1.11.0)", ()
       arguments: { from: id },
     });
     expect(missing.error!.message).toBe("Missing argument: to.");
+  });
+});
+
+describe("sizes and objects (what the app's statistics and Objects tab show)", () => {
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const response = await post(rpc("tools/call", { name, arguments: args }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        structuredContent?: Record<string, any>;
+      };
+    };
+    return body.result;
+  };
+
+  it("describe_table gives the size on disk and the upkeep of a table, no row read", async () => {
+    const id = await connect();
+    await share(id, "structure");
+    const users = await call("describe_table", {
+      connection: id,
+      schema: "public",
+      table: "users",
+    });
+    expect(users.structuredContent!["size"]).toEqual({
+      totalBytes: 24576,
+      tableBytes: 8192,
+      indexBytes: 16384,
+      toastBytes: 0,
+    });
+    expect(users.structuredContent!["upkeep"]).toMatchObject({
+      lastAnalyze: "2026-01-01T00:00:00.000Z",
+    });
+    expect(users.content[0]!.text).toMatch(/Size 24 KB/);
+  });
+
+  it("get_sizes gives the database, its schemas and the largest tables, at the structure level", async () => {
+    const id = await connect();
+    await share(id, "structure");
+    const all = await call("get_sizes", { connection: id });
+    expect(all.isError).toBeFalsy();
+    const data = all.structuredContent!;
+    expect(typeof data["databaseBytes"]).toBe("number");
+    expect(data["schemas"].map((s: { schema: string }) => s.schema)).toContain("public");
+    expect(data["tables"].length).toBeGreaterThan(0);
+    expect(all.content[0]!.text).toMatch(/The database takes/);
+    const one = await call("get_sizes", { connection: id, schema: "public", limit: 1 });
+    expect(one.structuredContent!["tables"]).toHaveLength(1);
+    expect(one.structuredContent!["tableCount"]).toBeGreaterThan(1);
+    // Bounded, and a connection that is not shared is one that does not exist.
+    const big = await call("get_sizes", { connection: id, limit: 100_000 });
+    expect(big.isError).toBe(true);
+    const none = await call("get_sizes", { connection: "nope" });
+    expect(none.content[0]!.text).toMatch(/not shared with Claude, or does not exist/);
+  });
+
+  it("list_objects lists views, types, functions and the rest, without any definition text", async () => {
+    const id = await connect();
+    await share(id, "structure");
+    const all = await call("list_objects", { connection: id });
+    expect(all.isError).toBeFalsy();
+    const data = all.structuredContent!;
+    expect(data["views"].map((v: { name: string }) => v.name)).toContain("active_users");
+    expect(data["types"][0]).toMatchObject({
+      name: "order_status",
+      values: ["pending", "paid", "shipped", "cancelled"],
+    });
+    expect(data["functions"][0]).toMatchObject({ name: "touch_updated_at", language: "plpgsql" });
+    // No definition, body, expression or default: they can hold values.
+    const text = JSON.stringify(data);
+    expect(text).not.toMatch(/"definition"|"using"|"withCheck"|"defaultValue"|SELECT|BEGIN/);
+    const views = await call("list_objects", { connection: id, kind: "views", schema: "public" });
+    expect(Object.keys(views.structuredContent!)).toEqual(["views"]);
+    expect(views.structuredContent!["views"].map((v: { name: string }) => v.name)).toEqual([
+      "active_users",
+    ]);
   });
 });
 
@@ -1207,7 +1280,7 @@ describe("the tool descriptions steer a model (a lint of the words a model reads
 
   it("each description says what it returns, its level and its limits, in a bounded number of words", async () => {
     const listed = await tools();
-    expect(listed.length).toBe(13);
+    expect(listed.length).toBe(ALL_TOOLS.length);
     let total = 0;
     for (const t of listed) {
       total += t.description.length;
@@ -1229,7 +1302,14 @@ describe("the tool descriptions steer a model (a lint of the words a model reads
     for (const t of listed.filter((l) => text.includes(l.name))) {
       expect(t.description, t.name).toMatch(/NOTHING IS RUN|Nothing is run/);
     }
-    for (const name of ["get_health", "find_path", "compare_structure", "generate_migration"]) {
+    for (const name of [
+      "get_health",
+      "get_sizes",
+      "list_objects",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
+    ]) {
       expect(listed.find((l) => l.name === name)!.description, name).toMatch(/Structure level/);
     }
   });

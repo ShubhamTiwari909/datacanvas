@@ -84,7 +84,10 @@ checks that it imports nothing that writes. It holds, **in memory only**:
 - the **level** of each shared connection (`structure` or `data`; absent means off) and the **approval**
   choice (on by default). `levelOf` falls back from `data` to `structure` when viewing table data is
   switched off; a disconnect (`ConnectionRegistry.onRemove`) stops the sharing.
-- the **tool list**: the three data tools are offered to a caller only while `anyData()` is true.
+- the **tool list**: every tool, at every level. A client reads `tools/list` once when it connects, and the
+  server cannot tell it the list changed (each call is a request of its own), so a list that depended on the
+  level kept the data tools from a Claude that connected before the data level was shared. The level is
+  checked on every call instead (`requireData`).
 - `share(id, level, { acknowledgeRole, approval })`: refuses the data level without data access
   (`data_access_disabled`), and for a **superuser or a role in `pg_read_server_files`,
   `pg_write_server_files` or `pg_execute_server_program`** throws `claude_role_not_acknowledged` (409) unless
@@ -139,7 +142,7 @@ the app shell and the setup text) and `stores/claude-store.ts`, which **polls th
 seconds only while something is shared** and takes its state from the answer, so a sharing the server forgot
 disappears from the screen too. The approval prompt ignores Escape and a click outside.
 
-## The thirteen tools and their limits
+## The fifteen tools and their limits
 
 All have a strict input schema, the read-only annotations, and are wrapped by `track`.
 
@@ -148,13 +151,15 @@ All have a strict input schema, the read-only annotations, and are wrapped by `t
 | `list_connections`   | structure | none                                                                                   | Only shared connections; id, name, database, level. No host, user or password.                                                                                                                                                            |
 | `list_schemas`       | structure | `connection`                                                                           | Counts of tables and views per schema.                                                                                                                                                                                                    |
 | `list_tables`        | structure | `connection`, `schema`, `cursor?`                                                      | **500** a call (`LIST_TABLES_PAGE`); the cursor is a number up to 6 digits.                                                                                                                                                               |
-| `describe_table`     | structure | `connection`, `schema`, `table`                                                        | One table; columns carry `hidden`, null fraction and distinct figures when statistics exist.                                                                                                                                              |
+| `describe_table`     | structure | `connection`, `schema`, `table`                                                        | One table; columns carry `hidden`, null fraction and distinct figures when statistics exist; the table's size (heap, indexes, TOAST), live and dead rows and last vacuum and analyse.                                                     |
 | `search_objects`     | structure | `connection`, `query` (1 to 100 characters)                                            | **50** results (`SEARCH_RESULTS`); names only.                                                                                                                                                                                            |
 | `read_rows`          | data      | `connection`, `schema`, `table`, `filters?` (max 10), `sort?`, `cursor?`, `page_size?` | `page_size` 1 to **100**, default 50; cells cut at **500** characters; rows fitted into about **100,000** characters.                                                                                                                     |
 | `run_readonly_query` | data      | `connection`, `sql` (1 to 20,000 characters), `max_rows?`, `timeout_seconds?`          | `max_rows` 1 to **1,000**, default 200; `timeout_seconds` 1 to **30**, default 10; cells **500**; about **100,000** characters.                                                                                                           |
 | `explain_query`      | data      | `connection`, `sql` (1 to 20,000 characters)                                           | Runs `EXPLAIN (FORMAT JSON)` through the same runner (10 s), never `ANALYZE`. The plan is returned whole (the runner keeps a plan up to 2 MB); the protocol's 200,000-character limit applies; the text copy is cut at 20,000 characters. |
 
 | `get_health` | structure | `connection`, `schema?` | The Health tab's checks over at most **2,000** tables; **200** findings, serious first; suggested SQL as text. |
+| `get_sizes` | structure | `connection`, `schema?`, `limit?` | The database size, each schema's total and the largest tables (default **20**, at most **200**); file sizes from the server's size functions, no row read. A partitioned table counts its partitions. |
+| `list_objects` | structure | `connection`, `kind?`, `schema?` | The Objects tab's lists as names and settings, at most **2,000** objects; view SQL, function and trigger bodies, domain defaults and checks and policy expressions are left out (`mcp-objects.ts`). |
 | `find_path` | structure | `connection`, `from`, `to` (schema and table) | The shortest paths (at most **5**), the join as text. |
 | `compare_structure` | structure | `from`, `to` (two shared connections) | At most **200** tables listed; views, functions and other objects not compared; hidden columns' defaults, comments and checks left out. |
 | `generate_migration` | structure | `from`, `to`, `concurrent_indexes?`, `safe_constraints?`, `renames?` | Text only, never run; up to **100,000** characters of SQL (the rest of the steps are listed without it). |

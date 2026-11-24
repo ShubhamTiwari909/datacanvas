@@ -1687,6 +1687,8 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
       "run_readonly_query",
       "explain_query",
       "get_health",
+      "get_sizes",
+      "list_objects",
       "find_path",
       "compare_structure",
       "generate_migration",

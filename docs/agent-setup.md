@@ -57,6 +57,24 @@ VS Code:
 }
 ```
 
+## If Claude Desktop says "Connection closed"
+
+A desktop app does not load your shell's `PATH`, so a bare `npx` is not found when Node came from nvm, Volta or Homebrew. In `claude_desktop_config.json`, give the full path of `npx` (run `which npx` in a terminal) as the `command`, and add that folder to `env.PATH`:
+
+```json
+{
+  "mcpServers": {
+    "datacanvas": {
+      "command": "/Users/you/.nvm/versions/node/v22.14.0/bin/npx",
+      "args": ["--yes", "@shubhamtiwari909/datacanvas", "mcp"],
+      "env": { "PATH": "/Users/you/.nvm/versions/node/v22.14.0/bin:/usr/local/bin:/usr/bin:/bin" }
+    }
+  }
+}
+```
+
+Quit Claude Desktop completely (Cmd+Q) and reopen it. Its log is `~/Library/Logs/Claude/mcp-server-datacanvas.log`. The same fix applies to `claude mcp add`: put the full path of `npx` after the `--`. If `claude mcp add` says the server "already exists", an older entry is in the way: run `claude mcp remove datacanvas` first. When you paste the package name, check that its first character is a plain `@` (a lookalike such as `＠` makes npx look for a package that does not exist).
+
 The formats are the apps', and apps change them. These were read from each app's documentation in November 2026 (Claude Code: <https://code.claude.com/docs/en/mcp>; Cursor: <https://cursor.com/docs/context/mcp>; VS Code: <https://code.visualstudio.com/docs/agents/reference/mcp-configuration>). VS Code's reference says that its Copilot harness does not read `.vscode/mcp.json` directly (it reads a workspace-root `.mcp.json` with the key `mcpServers`, or `~/.copilot/mcp-config.json`) and that its Local harness is deprecated and will be removed in February 2027: if `.vscode/mcp.json` is not picked up, follow VS Code's MCP configuration reference. If any app does not accept a file, check its MCP documentation: the command never changes.
 
 ## The Claude Code plugin

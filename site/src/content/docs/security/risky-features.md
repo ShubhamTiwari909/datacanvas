@@ -109,7 +109,7 @@ None of these writes to a database.
 
 **Off until you press Share with Claude** under a connection. A Claude app you already use (Claude Desktop,
 Claude Code, any MCP client) asks DataCanvas, on your machine, for things to read, and DataCanvas answers.
-Nothing in it writes to a database, to a file or anywhere else: there are **thirteen tools** and a test pins the
+Nothing in it writes to a database, to a file or anywhere else: there are **fifteen tools** and a test pins the
 list; none changes anything. Guide: [Use DataCanvas from Claude](/guides/use-with-claude/). Design:
 [MCP server](/architecture/mcp/).
 
@@ -156,8 +156,8 @@ type integer: "..."` repeats the text of a row, and a query can make it do so fo
 claude_role_not_acknowledged`) until you confirm **Share anyway**. Use a read-only database user instead.
   The structure level needs no confirmation.
 - **A connection that is not shared looks like one that does not exist**: one sentence for "not shared",
-  "paused" and "no such connection", and the data tools appear in the tool list only while some connection
-  is at the data level.
+  "paused" and "no such connection". Every tool is listed at every level (a Claude app reads the list once,
+  when it connects); a data tool on a connection that is not at the data level refuses, with nothing run.
 
 **Residual risks, said plainly**
 

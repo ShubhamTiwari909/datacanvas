@@ -60,34 +60,57 @@ more (**Share anyway**); see [Powerful roles](#powerful-database-roles).
 3. **Ask Claude about the database.** For example: "Which tables reference `orders`?" or "How many
    orders were placed last month?"
 
-**Unknown:** whether `npx` starts reliably from Claude Desktop on every platform (the path, Windows `npx.cmd`)
-and how long the first start takes with the download. The project's plan lists this as a question for a hand
-test on each platform and records no result. If the first start is slow, installing the package globally
+**If Claude Desktop says "Connection closed":** a desktop app does not load your shell's `PATH`, so a bare
+`npx` is not found when Node came from nvm, Volta or Homebrew (seen on macOS with nvm). Give the full path of
+`npx` (run `which npx`) as the `command` and add its folder to `env.PATH`:
+
+```json
+{
+  "mcpServers": {
+    "datacanvas": {
+      "command": "/Users/you/.nvm/versions/node/v22.14.0/bin/npx",
+      "args": ["--yes", "@shubhamtiwari909/datacanvas", "mcp"],
+      "env": { "PATH": "/Users/you/.nvm/versions/node/v22.14.0/bin:/usr/local/bin:/usr/bin:/bin" }
+    }
+  }
+}
+```
+
+Then quit Claude Desktop completely and reopen it; its log is `~/Library/Logs/Claude/mcp-server-datacanvas.log`.
+The same applies to `claude mcp add` (full path after the `--`). If it says the server "already exists", run
+`claude mcp remove datacanvas` first, and check that the package name starts with a plain `@`.
+
+**Unknown:** whether `npx` starts reliably from Claude Desktop on Windows (`npx.cmd`) and how long the first
+start takes with the download. The project's plan lists this as a question for a hand test on each platform;
+only the macOS PATH case above has been seen. If the first start is slow, installing the package globally
 and using `datacanvas mcp` as the command is the plan's own fallback (**Inference**: the plan says the
 setup text should then say so).
 
-## What Claude can do: thirteen tools
+## What Claude can do: fifteen tools
 
-Claude gets **thirteen tools and no more**; a test pins the list. **There is no tool that writes.**
+Claude gets **fifteen tools and no more**; a test pins the list. **There is no tool that writes.**
 
 | Tool                           | Level     | What it does                                                                                                                                                           |
 | ------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list_connections`             | structure | The connections you shared: an id, the name you gave, the database name, the level. No host or user.                                                                   |
 | `list_schemas`                 | structure | Schemas with how many tables and views each has.                                                                                                                       |
 | `list_tables`                  | structure | Tables and views of a schema, with estimated rows; up to 500 a call, then a cursor.                                                                                    |
-| `describe_table`               | structure | Columns, keys, constraints, indexes, foreign keys both ways and the table's statistics.                                                                                |
+| `describe_table`               | structure | Columns, keys, constraints, indexes, foreign keys both ways and the table's statistics: size on disk, live and dead rows, last vacuum and analyse.                     |
 | `search_objects`               | structure | Tables and columns whose **name** contains a word; up to 50 results.                                                                                                   |
 | `read_rows`                    | data      | One page of rows (up to 100 rows, 50 by default), with filters and a sort, by the page reader.                                                                         |
 | `run_readonly_query`           | data      | **One** read-only statement (`SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`).                                                                                             |
 | `explain_query`                | data      | The planner's plan (JSON) for one statement, **without running it** (never `ANALYZE`).                                                                                 |
 | `get_health`                   | structure | The Health tab's checks (missing keys, unindexed foreign keys, type mismatches, duplicate and unused indexes...) with the suggested SQL as text; 200 findings at most. |
+| `get_sizes`                    | structure | The size of the database, each schema and the largest tables (table, indexes, TOAST), from the server's size functions: no row is read.                                |
+| `list_objects`                 | structure | The Objects tab: views, types, sequences, functions, triggers, extensions and policies, as names and settings. Definitions are left out (they can hold values).        |
 | `find_path`                    | structure | The shortest chains of foreign keys between two tables, the columns joined, and the join as text.                                                                      |
 | `compare_structure`            | structure | What was added, removed or changed going from one **shared** connection to another (staging against production).                                                       |
 | `generate_migration`           | structure | The SQL, its rollback and its risks that turn one shared connection into another, **as text: nothing is run**.                                                         |
 | `check_migration_against_data` | data      | How many rows would make each step of that migration fail: **counts, never a row**. `from` must be at the data level.                                                  |
 
-The data tools appear in Claude's tool list only while some connection is shared at the data level. The
-limits of each are in [Limits](/reference/limits/#claude-reading-a-connection-mcp-1110); how they work is in
+Every tool is in Claude's list from the start, whatever the level: a Claude app reads the list once, when it
+connects. A data tool on a connection shared at the structure level answers that it needs the data level, and
+nothing runs. The limits of each are in [Limits](/reference/limits/#claude-reading-a-connection-mcp-1110); how they work is in
 [MCP server](/architecture/mcp/).
 
 ### The migration loop, and what it leaves out
@@ -214,7 +237,7 @@ DataCanvas. The structure level and the approval prompt are the answers.
 | "The person did not approve this (in time). Nothing was run."                                                                                    | You denied it, or the two minutes passed. Ask again.                                                                                                                                                                                                           |
 | "Too many calls in a minute."                                                                                                                    | Wait a little: at most 30 calls a minute are served.                                                                                                                                                                                                           |
 | "Another read is still running on this connection."                                                                                              | One statement and one page read run at a time per connection. Try again in a moment.                                                                                                                                                                           |
-| The data tools are missing from Claude's list                                                                                                    | No connection is at the data level. Share one at **Structure and data**, then ask Claude to refresh its tools (or restart the Claude app).                                                                                                                     |
+| The data tools are missing from Claude's list (DataCanvas 1.11.0)                                                                                | 1.11.0 listed them only while a connection was at the data level, and Claude reads the list once. Restart the Claude app after sharing the data level, or update DataCanvas: later versions list every tool from the start.                                    |
 | A statement is refused for naming a sensitive-looking column                                                                                     | Ask for other columns. A table called `password_resets` is caught too, on purpose.                                                                                                                                                                             |
 | The answer was "too large to send"                                                                                                               | Ask for less: a smaller page, fewer columns, a `LIMIT`.                                                                                                                                                                                                        |
 

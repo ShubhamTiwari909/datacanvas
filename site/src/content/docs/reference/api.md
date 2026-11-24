@@ -90,9 +90,11 @@ own. See [Protecting the local server](/security/local-server/#the-door-for-clau
   The Host check applies; **a request with an `Origin` or `Sec-Fetch-Site` header is refused (403)**; no CORS
   headers.
 - **404** while no token is configured and **while no connection is shared**, before the body is read.
-- **Tools:** thirteen, read-only, strict input schemas: `list_connections`, `list_schemas`, `list_tables`,
-  `describe_table`, `search_objects` and, only while a connection is at the data level, `read_rows`,
-  `run_readonly_query`, `explain_query`. Details and limits: [MCP server](/architecture/mcp/) and
+- **Tools:** fifteen, read-only, strict input schemas: `list_connections`, `list_schemas`, `list_tables`,
+  `describe_table`, `search_objects`, `get_health`, `get_sizes`, `list_objects`, `find_path`,
+  `compare_structure`, `generate_migration` and the data tools `read_rows`, `run_readonly_query`,
+  `explain_query`, `check_migration_against_data`. Every tool is listed at every level; a data tool refuses a
+  connection that is not at the data level. Details and limits: [MCP server](/architecture/mcp/) and
   [Limits](/reference/limits/#claude-reading-a-connection-mcp-1110).
 - **Errors** do not use the `/api` shape (see [Error codes](/reference/error-codes/)).
 - Most clients do not call it directly: the bridge `datacanvas mcp` does ([CLI](/start/cli/)).

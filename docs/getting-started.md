@@ -123,7 +123,20 @@ Read the script before you run it anywhere. DataCanvas writes the text and never
 
 To find out whether a migration will work on your data, choose a **live database as From** and press **Check against the data**: each step that can fail says how many rows would make it fail (NULLs before `SET NOT NULL`, shared values before a unique key, rows with no parent before a foreign key, rows at all before a required column with no default). A check constraint and a type conversion are not tried: it says so, and you can try them in the SQL tab. It needs **Allow viewing table data** and reads only counts.
 
-## 8. Keep and share
+## 8. Use DataCanvas from Claude (optional, read-only)
+
+**Share with Claude**, under a connection in the sidebar, lets a Claude app (Claude Desktop, Claude Code, any MCP client) read that database through DataCanvas: explain the schema, find tables, and answer questions with read-only queries. DataCanvas holds no API key and calls no cloud service: your Claude app asks, DataCanvas answers on your machine.
+
+1. Connect the database, then press **Share with Claude** and choose a level:
+   - **Structure**: schemas, tables, columns, types, keys, indexes, foreign keys and the server's statistics. No row of any table.
+   - **Structure and data** (needs **Allow viewing table data** for the connection): also pages of rows and read-only queries. Tick that you understand that rows Claude reads are sent to Anthropic by the Claude app. If your database user is a superuser, or can read server files or run programs, you are asked once more (**Share anyway**): use a read-only user instead.
+2. Connect the Claude app **once**. The dialog shows the text and a Copy button: for **Claude Code** run `claude mcp add datacanvas -- npx --yes @shubhamtiwari909/datacanvas mcp`; for **Claude Desktop** add the shown entry to `claude_desktop_config.json` and restart it. The text holds no secret and is the same on every run. The `mcp` command finds the running DataCanvas by itself, and says "start DataCanvas" in plain words when there is none.
+3. Ask Claude about the database. At the data level each call opens a prompt that shows what Claude asked (a statement, or a table). Nothing runs until you press **Approve**; **Deny** refuses it; Escape does not answer; after two minutes it is refused. You can turn the prompt off in the dialog if you accept calls without looking.
+4. **Pause** (next to the sharing in the sidebar) refuses every call at once; **Resume** lets the next through. **Stop sharing** ends it. The dialog lists **what Claude asked** and how each call ended, with counts, never a value that came back.
+
+What to know: sharing is kept in memory only and ends when you stop it, disconnect, switch off viewing table data or close DataCanvas. There is no tool that changes anything. Columns whose names look sensitive are never returned, but a name is only a hint. At most 30 calls a minute are served. **Anything Claude reads is sent to Anthropic by the Claude app, and DataCanvas cannot take it back.**
+
+## 9. Keep and share
 
 - Layouts are saved automatically for saved connections and restored when you reconnect.
 - **Export** saves a PNG or SVG. These images show table and column names, so share them only with people who should see your schema.

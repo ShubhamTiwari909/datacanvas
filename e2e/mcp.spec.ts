@@ -451,6 +451,247 @@ test.describe("the data level, against a real database", () => {
     await client.close();
   });
 
+  test("on a phone the share dialog and the approval prompt fit the screen, and pass axe", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const id = await connect(page, app, database);
+    await page.request.put(`${app.origin}/api/connections/${id}/data-access`, {
+      data: { enabled: true },
+    });
+    await page.goto(app.link);
+    await page.getByRole("button", { name: "Open connections and tables" }).click();
+    await page.getByRole("button", { name: "Share with Claude: Claude shop" }).click();
+    const dialog = page.getByRole("dialog", { name: "Share Claude shop with Claude" });
+    await dialog.getByRole("radio", { name: /Structure and data/ }).check();
+    // Nothing sticks out of the screen, and every control sits inside the dialog's box.
+    const insideTheScreen = async (scope: ReturnType<Page["locator"]>) => {
+      await settleForAxe(page);
+      const problems = await scope.evaluate((root) => {
+        const box = root.getBoundingClientRect();
+        const bad: string[] = [];
+        if (document.documentElement.scrollWidth > window.innerWidth)
+          bad.push("the page scrolls sideways");
+        for (const el of root.querySelectorAll("button, input, label, pre, p, h2, [role=note]")) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0) continue;
+          if (r.left < box.left - 1 || r.right > box.right + 1)
+            bad.push(`${el.tagName} ${(el.textContent ?? "").slice(0, 30)} sticks out`);
+        }
+        return bad;
+      });
+      expect(problems).toEqual([]);
+    };
+    await insideTheScreen(dialog);
+    await dialog.getByLabel(/I understand that rows Claude reads/).check();
+    await dialog.getByRole("button", { name: "Start sharing the data" }).click();
+    await dialog.getByRole("button", { name: "Share anyway" }).click();
+    await expect(dialog.getByRole("button", { name: "Stop sharing" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click();
+    const { port, token } = mcpFile(app);
+    const client = new Client({ name: "e2e-phone", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    const waiting = client.callTool({
+      name: "run_readonly_query",
+      arguments: { connection: id, sql: `SELECT ${"a_very_long_column_name_".repeat(12)}1` },
+    });
+    const prompt = page.getByRole("dialog", { name: /Claude wants to read/ });
+    await expect(prompt).toBeVisible();
+    await insideTheScreen(prompt);
+    await settleForAxe(page);
+    await page.addScriptTag({ content: axeSource });
+    const found = await page.evaluate(async () => {
+      const axe = (
+        window as unknown as {
+          axe: { run: (c: Element, o: object) => Promise<{ violations: Array<{ id: string }> }> };
+        }
+      ).axe;
+      const result = await axe.run(document.querySelector('[role="dialog"]') ?? document.body, {
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+      });
+      return result.violations.map((v) => v.id);
+    });
+    expect(found, "axe on the approval prompt on a phone").toEqual([]);
+    await prompt.getByRole("button", { name: "Deny" }).click();
+    expect((await waiting).isError).toBe(true);
+    await client.close();
+  });
+
+  test("twenty questions about the shop: each can be answered by the tools, in the sequence a model would use", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const { id, client } = await openClient(page, app, database);
+    type Result = { isError?: boolean; structuredContent?: unknown; content?: unknown };
+    const rowsOf = (r: Result) => (r.structuredContent as { rows: string[][] }).rows;
+    const asString = (r: Result) => JSON.stringify(r.structuredContent ?? r.content);
+    const sql = (text: string) => ({
+      tool: "run_readonly_query",
+      args: { connection: id, sql: text },
+    });
+    const describe = (table: string) => ({
+      tool: "describe_table",
+      args: { connection: id, schema: "public", table },
+    });
+    const questions: Array<{
+      ask: string;
+      tool: string;
+      args: Record<string, unknown>;
+      check: (r: Result) => void;
+    }> = [
+      {
+        ask: "Which databases can you see?",
+        tool: "list_connections",
+        args: {},
+        check: (r) => expect(asString(r)).toContain(id),
+      },
+      {
+        ask: "What schemas are there?",
+        tool: "list_schemas",
+        args: { connection: id },
+        check: (r) => expect(asString(r)).toContain('"schema":"public"'),
+      },
+      {
+        ask: "What tables are in public?",
+        tool: "list_tables",
+        args: { connection: id, schema: "public" },
+        check: (r) => expect(asString(r)).toContain('"name":"users"'),
+      },
+      {
+        ask: "Is there anything about e-mail?",
+        tool: "search_objects",
+        args: { connection: id, query: "email" },
+        check: (r) => expect(asString(r)).toContain("email"),
+      },
+      {
+        ask: "What columns does users have?",
+        ...describe("users"),
+        check: (r) => expect(asString(r)).toContain("email"),
+      },
+      {
+        ask: "What does orders point to?",
+        ...describe("orders"),
+        check: (r) => expect(asString(r)).toContain("public.users"),
+      },
+      {
+        ask: "What points at users?",
+        ...describe("users"),
+        check: (r) => expect(asString(r)).toContain("public.orders"),
+      },
+      {
+        ask: "What is the key of order_items?",
+        ...describe("order_items"),
+        check: (r) => expect(asString(r)).toContain("primary_key"),
+      },
+      {
+        ask: "What indexes does orders have, and how big is it?",
+        ...describe("orders"),
+        check: (r) => expect(asString(r)).toMatch(/indexes/),
+      },
+      {
+        ask: "How many users are there?",
+        ...sql("SELECT count(*) FROM public.users"),
+        check: (r) => expect(Number(rowsOf(r)[0]![0])).toBeGreaterThanOrEqual(0),
+      },
+      {
+        ask: "Show me a few users.",
+        tool: "read_rows",
+        args: { connection: id, schema: "public", table: "users", page_size: 3 },
+        check: (r) => {
+          expect(r.isError).toBeFalsy();
+          expect(rowsOf(r).length).toBeLessThanOrEqual(3);
+        },
+      },
+      {
+        ask: "The three newest orders?",
+        ...sql("SELECT id, placed_at FROM public.orders ORDER BY id DESC LIMIT 3"),
+        check: (r) => expect(r.isError).toBeFalsy(),
+      },
+      {
+        ask: "Orders per status?",
+        ...sql("SELECT status, count(*) FROM public.orders GROUP BY status ORDER BY 2 DESC"),
+        check: (r) => expect(r.isError).toBeFalsy(),
+      },
+      {
+        ask: "Which users have orders?",
+        ...sql(
+          "SELECT u.id, count(o.id) FROM public.users u JOIN public.orders o ON o.user_id = u.id GROUP BY u.id LIMIT 10",
+        ),
+        check: (r) => expect(r.isError).toBeFalsy(),
+      },
+      {
+        ask: "Which tables have no primary key?",
+        ...sql(
+          "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = c.oid AND k.contype = 'p')",
+        ),
+        check: (r) => expect(r.isError).toBeFalsy(),
+      },
+      {
+        ask: "Which is the biggest table?",
+        ...sql(
+          "SELECT relname, pg_total_relation_size(oid) FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY 2 DESC LIMIT 1",
+        ),
+        check: (r) => expect(rowsOf(r)).toHaveLength(1),
+      },
+      {
+        ask: "How would you run the orders-by-user query?",
+        tool: "explain_query",
+        args: { connection: id, sql: "SELECT * FROM public.orders WHERE user_id = 1" },
+        check: (r) => expect((r.structuredContent as { plan: unknown }).plan).not.toBeNull(),
+      },
+      {
+        ask: "Which columns of products can be NULL?",
+        ...sql(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products' AND is_nullable = 'YES'",
+        ),
+        check: (r) => expect(r.isError).toBeFalsy(),
+      },
+      {
+        ask: "Show me the tokens in claude_notes.",
+        ...sql("SELECT api_token FROM public.claude_notes"),
+        check: (r) => {
+          // Refused before it runs, in words that say why and what to do: never a value.
+          expect(r.isError).toBe(true);
+          expect(asString(r)).toMatch(/look sensitive/);
+          expect(asString(r)).not.toContain("SECRET");
+        },
+      },
+      {
+        ask: "Then read the notes table.",
+        tool: "read_rows",
+        args: { connection: id, schema: "public", table: "claude_notes" },
+        check: (r) => {
+          expect(asString(r)).toContain("api_token");
+          expect(asString(r)).not.toContain("SECRET");
+        },
+      },
+    ];
+    expect(questions).toHaveLength(20);
+    const offered = new Map((await client.listTools()).tools.map((t) => [t.name, t]));
+    // What a model is told before it asks: the server's instructions say to describe a table before querying it.
+    expect(client.getInstructions()).toMatch(/describe_table/);
+    for (const tool of offered.values())
+      expect((tool.description ?? "").length).toBeGreaterThan(60);
+    for (const q of questions) {
+      expect(offered.has(q.tool), `${q.ask}: the tool is offered`).toBe(true);
+      const result = (await client.callTool({ name: q.tool, arguments: q.args })) as Result;
+      try {
+        q.check(result);
+      } catch (error) {
+        throw new Error(
+          `"${q.ask}" through ${q.tool} was not answered as expected: ${String(error)}`,
+        );
+      }
+    }
+  });
+
   test("refuses what a read-only transaction refuses, two statements, and a query that would run past its time", async ({
     page,
     app,

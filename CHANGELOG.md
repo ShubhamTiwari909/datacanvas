@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-24
+
+### Added
+
+- **Connect to Claude: read your database from a Claude app, read-only.** Under each connection, **Share with Claude** lets Claude Desktop, Claude Code or any MCP client read it through DataCanvas, over the Model Context Protocol. DataCanvas holds no API key and calls no cloud service: the Claude app you already use asks, DataCanvas answers locally. Decision 169, `docs/mcp-server-plan.md`.
+  - **Two levels**, chosen per connection, kept in memory only (never saved; gone on a restart, a disconnect, and when viewing table data is switched off): **structure** (schemas, tables, columns, types, keys, indexes, foreign keys in both directions and the server's statistics: no row of any table) and **structure and data** (also rows, one page at a time, and read-only queries). The dialog says what leaves the machine before anything is shared; the data level needs a tick that rows are sent to Anthropic by the Claude app.
+  - **Eight tools and no more** (a test pins the list): `list_connections`, `list_schemas`, `list_tables`, `describe_table`, `search_objects`, and, at the data level only, `read_rows`, `run_readonly_query`, `explain_query`. **There is no tool that writes.** Statements run through the SQL tab's runner (a read-only transaction on a connection of its own, one statement, limits); pages through the page reader that already hides sensitive-named columns.
+  - **You stay in control.** At the data level every call waits for your **Approve** (on by default; Escape does not answer it; two minutes, then it is refused), **Pause** refuses everything at once, at most 30 calls a minute are served, and a list shows **what Claude asked and how it ended** (counts, never a value that came back). Claude cannot approve or pause itself: those routes are behind the browser's cookie, which the token of the MCP door is not.
+  - **Its own door.** `POST /mcp` has a token of its own (never the browser session's), refuses a web page (Host, `Origin`, `Sec-Fetch-Site`), and does not exist (404) while nothing is shared. The command `datacanvas mcp` is the bridge a Claude app starts; it finds the running DataCanvas by itself and says in plain words when there is none. The setup text is the same on every run and holds no secret.
+  - **A database's own error text is not passed on** (it can hold a value: `invalid input syntax for type integer: "..."`): only errors about names, limits and our own refusals are. A statement that names a sensitive-looking column is refused; with `SELECT *` the column comes back as NULL. A superuser, or a role that can read server files or run programs, needs a second "Share anyway" (use a read-only database user).
+- Documentation for it: README, the guide ("Use DataCanvas from Claude"), SECURITY.md, the threat model (section 13) and the documentation site.
+
+### Fixed
+
+- The **Export diagram** dialog (1.10.0) fell back to the narrowest dialog size, so its four buttons and its notice stuck out of the box. It uses the form size now, and a test checks that every control stays inside the dialog.
+
 ## [1.10.0] - 2026-11-24
 
 ### Security

@@ -48,6 +48,31 @@ const isDataException = (error: unknown): boolean =>
   typeof (error as { code?: unknown }).code === "string" &&
   (error as { code: string }).code.startsWith("22");
 
+/**
+ * Which columns an INSERT script cannot set (`GENERATED ... STORED`) and which it sets only with
+ * `OVERRIDING SYSTEM VALUE` (`GENERATED ALWAYS AS IDENTITY`). Catalog flags only.
+ */
+const GENERATION_SQL = `
+  SELECT a.attname::text AS name, a.attgenerated <> '' AS generated, a.attidentity = 'a' AS identity_always
+  FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
+`;
+
+async function findColumnGeneration(
+  db: Queryable,
+  ref: TableRef,
+): Promise<Map<string, { generated: boolean; identityAlways: boolean }>> {
+  const { rows } = await db.query<{ name: string; generated: boolean; identity_always: boolean }>(
+    GENERATION_SQL,
+    [ref.schema, ref.name],
+  );
+  return new Map(
+    rows.map((r) => [r.name, { generated: r.generated, identityAlways: r.identity_always }]),
+  );
+}
+
 export async function exportRows(
   db: Queryable,
   ref: TableRef,
@@ -78,6 +103,7 @@ export async function exportRows(
   // Every column: a file that quietly leaves some out would look complete (the page shows the first 100).
   const all = await listColumns(db, ref.schema, ref.name);
   const kinds = await findColumnKinds(db, ref);
+  const generation = await findColumnGeneration(db, ref);
   const columns: RowColumn[] = all.map((c) => ({
     name: c.name,
     dataType: c.dataType,
@@ -126,6 +152,8 @@ export async function exportRows(
     columns: shown.map((s) => ({
       name: s.name,
       dataType: columns[s.position]!.dataType,
+      generated: generation.get(s.name)?.generated ?? false,
+      identityAlways: generation.get(s.name)?.identityAlways ?? false,
     })),
     leftOut,
   });

@@ -647,11 +647,11 @@ describe("an export of rows is table data behind the data-access check, bounded,
     const schema = read("packages/shared-types/src/connections.ts");
     expect(schema).toMatch(/exportRequestSchema = z\.strictObject/);
     // The format is one of a fixed list, never free text; the limits are not in the request.
-    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson"\]\)/);
-    const body = schema.slice(
-      schema.indexOf("exportRequestSchema"),
-      schema.indexOf("ParsedExportRequest"),
-    );
+    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson", "sql"\]\)/);
+    // (The word "sql" is a value of the format list, the INSERT script of decision 167, and nothing else.)
+    const body = schema
+      .slice(schema.indexOf("exportRequestSchema"), schema.indexOf("ParsedExportRequest"))
+      .replace(/format: z\.enum\(\[[^\]]*\]\)/, "format: <the fixed list>");
     expect(body).not.toMatch(/\b(limit|maxRows|maxBytes|sql|where|orderBy)\b/);
     for (const file of [
       "apps/web/app/api/connections/[id]/rows/export/route.ts",

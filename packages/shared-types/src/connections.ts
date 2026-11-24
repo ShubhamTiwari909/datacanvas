@@ -272,7 +272,7 @@ export const exportRequestSchema = z.strictObject({
   revealColumns: z.array(identifierSchema).max(100).default([]),
   sort: rowSortSchema.nullable().default(null),
   filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
-  format: z.enum(["csv", "tsv", "json", "ndjson"]),
+  format: z.enum(["csv", "tsv", "json", "ndjson", "sql"]),
   /** For CSV: a comma or a semicolon (a tab is TSV). */
   delimiter: z.enum([",", ";"]).default(","),
   header: z.boolean().default(true),

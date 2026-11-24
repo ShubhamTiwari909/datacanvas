@@ -47,6 +47,11 @@ const FORMATS: Array<{ value: ExportRowsFormat; label: string; hint: string }> =
     hint: 'An object: { "rows": [...], "_meta": {...} }. Values are text, as shown.',
   },
   { value: "ndjson", label: "NDJSON", hint: "One JSON object per line." },
+  {
+    value: "sql",
+    label: "SQL INSERT statements",
+    hint: "A script that adds these rows to a table of the same shape, in one transaction. A script that was cut rolls itself back.",
+  },
 ];
 
 type Run =

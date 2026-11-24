@@ -58,6 +58,15 @@ used by UI tests and demos.
   address; row, cell, validation, pre-flight and export paths are reachable only through the connection service
   behind the data-access check and are kept out of stores, autosave and layouts; bulk changes are single-row
   changes in one transaction; product documents keep their promises' wording.
+- `tests/architecture.test.ts` also keeps `packages/mcp` pure (only relative imports and `zod`; no `fetch(`,
+  `node:http`, `node:net` or `process.`).
+- `tests/security.test.ts` also has rules for the MCP door (1.11.0): `/mcp` has its own guard in `proxy.ts` and
+  in the route and the cookie guard never reads an `Authorization` header; no MCP file logs; the tool list is
+  pinned at thirteen read-only tools; the MCP files import nothing that writes; the data tools reach data only
+  through the SQL service and the page reader; `mcp.json` holds only the pid, the port and the MCP token and is
+  written `0600`.
+- `e2e/csp.spec.ts` and the end-to-end fixture: every end-to-end test fails when a page breaks the
+  Content-Security-Policy (1.10.0).
 - `tests/data-dir.test.ts`: the CLI and the web app resolve the data folder the same way.
 
 ## End-to-end tests

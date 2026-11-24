@@ -37,11 +37,38 @@ the row count, the time taken, and when rows were left unread. **Row limit** is 
 5,000 or 10,000. **Export** copies the rows as TSV, CSV or JSON or saves a CSV file; a value a
 spreadsheet would run as a formula gets a leading apostrophe.
 
-## Explain
+## Explain and the plan viewer
 
-**Explain** shows the plan of the statement. **Explain analyze** _runs_ the statement and shows real
-times. Both work on a query only (an `EXPLAIN` containing `INTO` is refused, because PostgreSQL would run
-`EXPLAIN ANALYZE CREATE TABLE … AS` without its read-only check).
+The **Explain** menu has four entries:
+
+| Entry                         | What it does                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| **Explain**                   | Shows the plan as text. The statement is not run.                                      |
+| **Explain as a tree**         | The plan as a tree (`EXPLAIN (FORMAT JSON)`). The statement is not run.                |
+| **Explain analyze**           | _Runs_ the statement and shows the plan as text with the real times.                   |
+| **Explain analyze as a tree** | _Runs_ the statement (`ANALYZE, BUFFERS`) and shows the tree with real times and rows. |
+
+Both work on a query only (an `EXPLAIN` containing `INTO` is refused, because PostgreSQL would run
+`EXPLAIN ANALYZE CREATE TABLE … AS` without its read-only check). If your text already starts with
+`EXPLAIN`, the menu refuses to put a second one in front: press **Run** to run it as it is.
+
+The **tree** (1.10.0) shows each step with its cost, the rows the planner **expected** against the rows it
+**got** (and how many runs), and with analyze its time and buffer counts. In words, never by colour alone,
+it points at what deserves the eye:
+
+- a wrong guess by **10 times or more** (only when the larger figure is at least 100 rows);
+- a **sequential scan** of a table the planner thinks has 10,000 rows or more;
+- a **sort or hash that used the disk**;
+- the step that holds **at least half of the plan's time** by itself (analyze only).
+
+A switch shows the **JSON text** as it came, which is what people paste into a chat. The plan lives in the
+memory of the tab like a result and is kept nowhere; the conditions of a step can hold a literal from your
+own statement, so the **Blur values** switch hides them.
+
+The plan is kept whole, up to **2 MB** (a larger plan is refused with a sentence, never cut in the middle),
+and is read as **untrusted text** with limits: at most 20,000 steps and 100 levels of nesting, every number
+checked, every string cut for display and never used as markup. A plan of many thousands of steps takes a
+moment to draw, so the steps beyond the first levels start collapsed.
 
 ## History
 
@@ -60,6 +87,7 @@ The database's own sentence plus the line and column, with the place marked in t
 | Rows             | 1,000 by default, 10,000 at most         |
 | Result size      | read in small batches, stopped at 64 MB  |
 | Cell             | 2,000 characters kept                    |
+| Query plan       | 2 MB kept whole (JSON format)            |
 | Time             | 30 seconds by default, 5 minutes at most |
 | Lock wait        | 3 seconds                                |
 
@@ -79,6 +107,7 @@ cancel.
 
 **Sources:** [`packages/database-core/src/sql-run.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/sql-run.ts) (`SQL_LIMITS`, `ALLOWED_FIRST_WORDS`),
 [`apps/web/lib/server/sql-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/sql-service.ts),
-[`apps/web/features/sql/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/sql),
+[`apps/web/features/sql/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/sql) (`plan.ts`, `plan-view.tsx`, `sql-view.tsx`),
 [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (The SQL tab),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 6).
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 6),
+[`docs/insight-release-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/insight-release-plan.md) (section 5), `docs/decisions.md` decision 164.

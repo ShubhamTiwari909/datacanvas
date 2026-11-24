@@ -255,3 +255,20 @@ describe("the repository holds no leftovers of editing", () => {
     expect(files.filter((f) => /\.(bak|bk|orig|rej)$|~$/.test(f))).toEqual([]);
   });
 });
+
+describe("packages/mcp stays a pure protocol package", () => {
+  it("imports no framework, no network, no database, no React and nothing of the app", () => {
+    const files = readdirSync(path.join(root, "packages/mcp/src")).filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
+    );
+    expect(files.length).toBeGreaterThan(2);
+    for (const file of files) {
+      const code = readFileSync(path.join(root, "packages/mcp/src", file), "utf8");
+      const imports = [...code.matchAll(/from "([^"]+)"/g)].map((m) => m[1]!);
+      for (const spec of imports) {
+        expect(spec, `${file}: ${spec}`).toMatch(/^(\.\/|zod$)/);
+      }
+      expect(code, file).not.toMatch(/\bfetch\(|node:http|node:net|process\./);
+    }
+  });
+});

@@ -37,6 +37,7 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 - **Run SQL** (optional, read-only, needs **Allow viewing table data**): a **SQL** tab with an editor that highlights your statement and completes the names of your database's schemas, tables, columns and functions, several query tabs, a results grid, a history of what ran, **Explain** (as text, or as a **tree** with the rows the planner expected against the rows it got, the time of each step and what deserves the eye), and export of the rows as TSV, CSV or JSON. One statement at a time, in a read-only transaction on a connection of its own, with limits on rows and time; it cannot write, even with `--enable-writes`. Queries are kept only until you close the page, so save a tab as a `.sql` file to keep it.
 - **Check a migration against your data** (optional, read-only, needs **Allow viewing table data**): in the Migrations tab, with a live database as _From_, **Check against the data** says how many rows would make a `SET NOT NULL`, a unique key, a foreign key or a required column fail, before you run the script. It does not check CHECK constraints or type changes, so the script is not fully verified against your data.
 - **Write a migration** (optional, never run by DataCanvas): a **Migrations** tab compares two sides (a snapshot or the live database of any connection, so staging against production works) and writes the SQL that makes the first look like the second, **with its rollback**. Every step says what it risks (a lock, a rewrite, it can fail, it destroys data, it cannot be undone); you can leave a change out, confirm each destructive step (until then it is written commented out), and confirm the renames it suggests (a rename keeps the rows, a drop and an add does not). Tables, columns, keys, indexes, views, types, sequences, functions, triggers and policies are covered, in an order that runs. Export it as plain SQL, a dbmate or goose file, a Flyway pair, or `up.sql` and `down.sql`. It writes text and runs none of it.
+- **Let Claude read it** (optional, read-only, off until you share a connection): **Share with Claude** under a connection lets Claude Desktop, Claude Code or any MCP client look at your database through DataCanvas, to explain the schema, find tables and answer questions with read-only queries. **Structure** shares names, types, keys, indexes and statistics (no row); **Structure and data** adds rows and queries, and asks you to approve each call (you can pause or stop at any time and see what Claude asked). No API key, no cloud service, no tool that changes anything. Anything Claude reads is sent to Anthropic by the Claude app, which DataCanvas cannot undo: use a database user that can read only what may leave. Setup is copy-paste for Claude Code, Claude Desktop, Cursor and VS Code, there is a Claude Code plugin with a skill that teaches the workflow (`integrations/claude-code`), and a Docker image: see [docs/agent-setup.md](docs/agent-setup.md), [the guide](docs/getting-started.md) and [SECURITY.md](SECURITY.md).
 - **See relationships** drawn as edges with their cardinality (1:1, 1:N, N:1), including across schemas.
 - **Arrange** tables on an infinite canvas: drag, zoom, auto-layout (hierarchical, grouped, compact), search, filters, and focus on one table and its neighbours.
 - **Save** layouts per connection; they are restored the next time you connect.
@@ -45,9 +46,10 @@ That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9
 
 ## Your database, your machine, your control
 
-- Everything runs locally and listens on `127.0.0.1` only.
+- Everything runs locally and listens on `127.0.0.1` only (the one exception is inside a Docker container, see [docs/docker.md](docs/docker.md): publish its port to `127.0.0.1` only).
 - By default only **metadata** is read (names, types, keys, indexes). If you switch on **Allow viewing table data** for a connection, DataCanvas can also show the rows of a table you open: one page at a time, never saved, logged or put in a snapshot or workspace. Rows leave the page in a file you ask for with **Export**, which your browser saves on your computer (hidden columns are left out unless you showed them), and through the copy buttons of the cell dialog and the JSON editor, which put a value on your clipboard. SQL you type runs only in the **SQL** tab, read-only and one statement at a time (see [SECURITY.md](SECURITY.md)).
 - DataCanvas **never changes your database unless you start it with `--enable-writes`**, the connection looks like one to a database on your own machine (an SSH tunnel to a remote database can look the same, see [SECURITY.md](SECURITY.md)), and you unlock writes for that connection by typing its name. Even then the SQL tab stays read-only: you edit rows and design tables through forms that show the exact statement first.
+- **Claude can read a connection only if you share it** (per connection, in memory, structure or data level, each data call approved by you unless you turn that off), through a door with a token of its own that is not your browser's.
 - No telemetry, no cloud, no account.
 - The local server refuses requests from other websites and other programs (Host, Origin and a per-run session token).
 
@@ -71,9 +73,12 @@ datacanvas [options]
 
   --port <number>   Port to listen on (default 4747, or the next free port)
   --no-open         Do not open the browser automatically
+  --host <address>  127.0.0.1 (default), or 0.0.0.0 for a container only (needs DATACANVAS_ALLOW_ANY_INTERFACE=1)
   --enable-writes   Allow editing rows and changing table structure on local databases (off by default)
   -v, --version     Print the version
   -h, --help        Show help
+
+datacanvas mcp      The bridge a Claude app starts to reach the running DataCanvas (see "Share with Claude")
 ```
 
 Your data lives in `~/.datacanvas` (set `DATACANVAS_HOME` to change it). Starting DataCanvas a second time opens the one that is already running.

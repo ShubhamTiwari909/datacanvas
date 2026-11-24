@@ -19,6 +19,10 @@ A table name is a button that puts the table on the canvas and switches to it. *
 whole schema. "No relationships" means no _declared_ foreign key touches the table; views never have
 foreign keys, so they are not listed as such.
 
+The Overview also has an **Export documentation** button (1.10.0): the structure of the whole database or
+one schema as a Markdown data dictionary or a Mermaid, DBML or PlantUML diagram, made in your browser from
+names and types only. See [Export documentation](/guides/export-json-validate/#export-documentation-structure-only).
+
 ## Paths
 
 ![The paths tab: the shortest route between two tables and the generated join SQL](../../../assets/screenshots/paths.png)

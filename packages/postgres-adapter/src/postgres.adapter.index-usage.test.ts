@@ -63,6 +63,12 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter.getIndexUsage", () => {
     adapter = new PostgresAdapter(db.connection);
     await adapter.connect();
     report = await adapter.getIndexUsage();
+    // Before PostgreSQL 15 the statistics collector applies a reset a moment later, so the time of the reset can still be
+    // empty on the first read (it failed on 12 and 13 in CI): ask again for up to ten seconds.
+    for (let attempt = 0; attempt < 40 && report.statsReset === null; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      report = await adapter.getIndexUsage();
+    }
   });
 
   afterAll(async () => {

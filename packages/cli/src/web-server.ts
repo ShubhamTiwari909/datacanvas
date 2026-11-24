@@ -6,6 +6,8 @@
  * it has its own lifecycle, so we can stop it cleanly, and so a crash in it
  * cannot take the CLI down silently.
  */
+import { LOOPBACK_HOST, type ServerHost } from "./host-option.js";
+import { VERSION } from "./version.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -25,6 +27,9 @@ export function generateSessionToken(): string {
 /** The variable through which the CLI tells the server that writes are enabled. Set by the CLI only. */
 export const ENABLE_WRITES_ENV = "DATACANVAS_ENABLE_WRITES";
 
+/** The variable through which the CLI gives the server the token of `/mcp`. Set by the CLI only. */
+export const MCP_TOKEN_ENV = "DATACANVAS_MCP_TOKEN";
+
 /**
  * The environment the web server runs with. Exported so a test can pin down
  * the security-relevant values (loopback only, token, no telemetry, writes).
@@ -33,7 +38,7 @@ export function buildServerEnv(
   port: number,
   sessionToken: string,
   base: NodeJS.ProcessEnv = process.env,
-  options: { enableWrites?: boolean } = {},
+  options: { enableWrites?: boolean; mcpToken?: string; host?: ServerHost } = {},
 ): NodeJS.ProcessEnv {
   // SECURITY: writes are switched on by the `--enable-writes` FLAG only
   // (decision 125). A value inherited from the shell is dropped, so a line in a
@@ -44,18 +49,24 @@ export function buildServerEnv(
   const rest = { ...base };
   for (const key of Object.keys(rest)) {
     if (key.toLowerCase() === ENABLE_WRITES_ENV.toLowerCase()) delete rest[key];
+    // SECURITY: the token of `/mcp` is made by this process for this run: one inherited from the shell is dropped.
+    if (key.toLowerCase() === MCP_TOKEN_ENV.toLowerCase()) delete rest[key];
   }
   return {
     ...rest,
     ...(options.enableWrites ? { [ENABLE_WRITES_ENV]: "1" } : {}),
+    ...(options.mcpToken ? { [MCP_TOKEN_ENV]: options.mcpToken } : {}),
     NODE_ENV: "production",
     PORT: String(port),
     // SECURITY: Next.js reads HOSTNAME to choose the interface to listen on.
-    // Without this it would listen on all interfaces (0.0.0.0) and expose
-    // the app to the local network. Never remove or loosen this.
-    HOSTNAME: "127.0.0.1",
+    // Without this it would listen on all interfaces and expose the app to the
+    // local network. It is loopback unless `--host` chose another address, which
+    // `resolveHost` (host-option.ts) allows only inside a container. Never loosen this.
+    HOSTNAME: options.host ?? LOOPBACK_HOST,
     // SECURITY: the per-run secret the server requires on every request.
     DATACANVAS_SESSION_TOKEN: sessionToken,
+    // The version, for `serverInfo` of the MCP server (nothing else reads it).
+    DATACANVAS_VERSION: VERSION,
     // Tell Next.js NOT to install its own SIGINT/SIGTERM handlers: the app's
     // instrumentation.ts installs one that first closes database connections.
     NEXT_MANUAL_SIG_HANDLE: "1",
@@ -65,12 +76,12 @@ export function buildServerEnv(
   };
 }
 
-/** Launch `server.js` bound to loopback only, on the given port, protected by `sessionToken`. */
+/** Launch `server.js` on the given port (loopback unless `options.host` says otherwise), protected by `sessionToken`. */
 export function startWebServer(
   serverJsPath: string,
   port: number,
   sessionToken: string,
-  options: { enableWrites?: boolean } = {},
+  options: { enableWrites?: boolean; mcpToken?: string; host?: ServerHost } = {},
 ): WebServer {
   const child = spawn(process.execPath, [serverJsPath], {
     // Run with the same Node.js binary that runs the CLI.

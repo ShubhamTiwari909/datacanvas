@@ -24,7 +24,8 @@ export type ServiceErrorCode =
   | "write_not_unlocked"
   | "wrong_database_name"
   | "preview_expired"
-  | "write_busy";
+  | "write_busy"
+  | "claude_role_not_acknowledged";
 
 export class ServiceError extends Error {
   readonly code: ServiceErrorCode;

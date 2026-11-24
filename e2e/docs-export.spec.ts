@@ -128,6 +128,46 @@ test.describe("documentation exports", () => {
     await page.getByRole("button", { name: "Add all tables of public to the canvas" }).click();
     await expect(page.locator(".react-flow__node").first()).toBeVisible();
     await page.getByRole("button", { name: "Export", exact: true }).click();
+    // Nothing may stick out of the dialog: the notice and all four buttons stay inside its box (it once fell back to the
+    // narrowest size and the footer overflowed). Measured once the dialog has stopped zooming in, all in one pass.
+    const exportDialog = page.getByRole("dialog", { name: "Export diagram" });
+    await expect(exportDialog).toBeVisible();
+    // The same check at two widths: as it is, and squeezed (fonts differ between machines, and on a wider font four buttons
+    // do not fit in one row: they must wrap, not run off the left edge).
+    const outsideAt = (width: string | null) =>
+      exportDialog.evaluate(async (root, maxWidth) => {
+        const settle = async (): Promise<void> => {
+          // The dialog animates (zoom, and a width that changes): wait for a frame, then for every animation to end.
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await Promise.all(
+            root.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)),
+          );
+        };
+        await settle();
+        (root as HTMLElement).style.maxWidth = maxWidth ?? "";
+        await settle();
+        const box = root.getBoundingClientRect();
+        const bad: string[] = [];
+        for (const el of root.querySelectorAll("button, p, [data-slot=dialog-footer]")) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0) continue;
+          if (r.left < box.left - 1 || r.right > box.right + 1) {
+            bad.push(`${el.tagName} "${(el.textContent ?? "").slice(0, 30)}" sticks out`);
+          }
+        }
+        return bad;
+      }, width);
+    expect(await outsideAt(null)).toEqual([]);
+    expect(await outsideAt("440px")).toEqual([]);
+    await exportDialog.evaluate((root) => ((root as HTMLElement).style.maxWidth = ""));
+    for (const name of [
+      /^Cancel$/,
+      /^Documentation and diagram text/,
+      /Save as SVG/,
+      /Save as PNG/,
+    ]) {
+      await expect(exportDialog.getByRole("button", { name })).toBeVisible();
+    }
     await page.getByRole("button", { name: /^Documentation and diagram text/ }).click();
     await expect(page.getByRole("dialog", { name: "Export documentation" })).toBeVisible();
   });

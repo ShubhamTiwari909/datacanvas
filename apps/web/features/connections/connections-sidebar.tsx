@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { ClaudeControl } from "@/features/claude/claude-control";
 import { SchemaTree } from "@/features/explorer/schema-tree";
 import { WritesControl } from "@/features/writes/writes-control";
 import { cn } from "@/lib/utils";
@@ -109,6 +110,7 @@ export function ConnectionsSidebar() {
                   </label>
                   {connection.dataAccess ? <Badge variant="outline">on</Badge> : null}
                 </div>
+                <ClaudeControl connection={connection} />
                 <WritesControl connection={connection} />
               </li>
             );

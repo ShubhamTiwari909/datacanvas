@@ -63,11 +63,32 @@ refused with a fixed message. A sorted or filtered read has a **5 second** limit
 
 `exportRows` streams the rows as filtered and sorted on screen, a batch at a time, through the page reader's
 own statement and checks in the read-only transaction, up to 100,000 rows and 64 MB, then ends with a note
-that it was cut. Formatters in `database-core/src/rows-export.ts` (CSV, TSV, JSON, NDJSON) are shared and
-tested; they make spreadsheet formulas safe with a leading apostrophe and put nothing about a value in the
+that it was cut. Formatters in `database-core/src/rows-export.ts` (CSV, TSV, JSON, NDJSON, SQL) are shared and
+tested (a fifth format, `sql`, is the INSERT script, 1.10.0); they make spreadsheet formulas safe with a leading apostrophe and put nothing about a value in the
 notes. Batches are sized by what they hold, one export runs at a time per connection (`export_busy`), and a
 client that goes away ends the database read. If it fails after the first byte the stream ends with a fixed
 sentence rather than the database's message.
+
+### Chosen rows and the INSERT script (1.10.0)
+
+- **Chosen rows.** The export request may carry `keys`: up to **500** rows, each by the table's **whole key**
+  (each key part a column name and a text value of at most 4,096 characters, up to 32 parts). The adapter
+  checks them against the table's real key (`checkKeys`): a key that is not the table's key, a table without a
+  key, or a key column that is hidden and not revealed is refused. The keys go into the same read statement
+  (the page reader's, every value bound), so the rows are **read again on the server** and not taken from the
+  grid. The body of such a request may be up to **4 MB** (`EXPORT_MAX_BODY_BYTES`) with at most 1,000,000
+  characters of key values (`EXPORT_MAX_KEY_CHARS`), because 500 rows with a composite uuid key exceeded the
+  default 64 KB.
+- **Reading settings.** After the cursor is declared the transaction sets `DateStyle = ISO, MDY`,
+  `IntervalStyle = postgres`, `extra_float_digits = 3` and `bytea_output = hex` (local to the transaction), so
+  the text of every value is the same whoever reads the file. They are set after the cursor so the keys and
+  conditions copied from the grid are still read in the session's own `DateStyle`.
+- **The script** (`sql` format): `BEGIN;`, `SET LOCAL standard_conforming_strings`, `datestyle` and
+  `intervalstyle`, then `INSERT` statements of 100 rows (every value a quoted text literal, a quote doubled;
+  every identifier quoted; generated columns left out; `OVERRIDING SYSTEM VALUE` for identity-always
+  columns), then `COMMIT;`. A cut script, or one made with sensitive-named columns left out, ends with
+  `ROLLBACK;`; a failure after the first byte leaves no end at all. A round trip against a real PostgreSQL
+  with hostile values is part of the tests.
 
 ## One cell
 
@@ -95,12 +116,30 @@ and a narrowing type change are deliberately not run.
 ## The SQL runner
 
 A separate capability, `SqlRunnerAdapter`, reached only by `sql-service.ts` through exactly **one route**
-(`POST /api/connections/:id/run`): strict body, no GET, `no-store`, nothing logged. It opens a **connection of
+(`POST /api/connections/:id/run`; since 1.11.0 the MCP service also calls `SqlService.run` for Claude's
+`run_readonly_query` and `explain_query`, which adds no new way to run SQL): strict body, no GET, `no-store`, nothing logged. It opens a **connection of
 its own** for each run (so a `SET SESSION default_transaction_read_only = off` cannot touch a pooled
 connection used later by a write), uses the **extended protocol** with a named statement (the server refuses
 more than one command in it, where the simple protocol would let `SELECT 1; COMMIT; DROP TABLE x` end the
 read-only transaction), checks the first word, and applies limits (see [Limits](/reference/limits/)). The
 client going away cancels the statement in the database.
+
+**Plans (1.10.0).** `EXPLAIN (FORMAT JSON)` answers one row of one cell, which is the one result whose cell
+must not be cut (a plan cut in the middle is not JSON): `isWholePlan` keeps it whole up to
+`SQL_LIMITS.maxPlanChars` = 2,000,000 characters, and a larger plan is refused with a sentence. The browser
+reads it as untrusted text (`features/sql/plan.ts`: at most 20,000 nodes and nesting 100, every number checked,
+every string cut at 300 characters, nothing used as markup).
+
+## Statistics
+
+`getTableStatistics` (1.10.0, `postgres-adapter/src/introspection/statistics.ts`, route
+`GET /api/connections/:id/tables/:table/statistics`) reads, with one fixed query, the share of NULLs, the
+distinct count, the width and the correlation of each column (`pg_stats`) and the sizes and upkeep times of
+the table. **No row and no value is read**: the columns of `pg_stats` that hold values (`most_common_vals`, the
+histograms) are never selected, the column list is written out, and a test fails if any statement of the
+adapter names one. It needs no data-access check, like the row-count estimate; `statistics` is null for a view
+or a foreign table. `pg_stats` shows a column only to a role that may select it and only once the table was
+analysed.
 
 ## Where rows may live in the browser
 
@@ -111,6 +150,8 @@ Rows live only in component state (`useRows`): never in a Zustand store, `localS
 
 **Sources:** [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Reading table rows, M1 to M4, S1 to S3),
 [`packages/database-core/src/rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows.ts),
+[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
+[`packages/postgres-adapter/src/introspection/export-rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/export-rows.ts),
 [`packages/database-core/src/rows-export.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows-export.ts),
 [`packages/database-core/src/validation.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/validation.ts),
 [`packages/postgres-adapter/src/connection/checking-transaction.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/checking-transaction.ts),

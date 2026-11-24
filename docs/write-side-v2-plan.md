@@ -1,6 +1,6 @@
-# Plan: 1.11.0, the write side, second part (import and bulk editing, finished)
+# Plan: 1.12.0, the write side, second part (import and bulk editing, finished)
 
-Status: **proposed 2026-11-23; the decisions of section 11 were taken by the owner on 2026-11-23 (every recommendation accepted, decision 162).** It finishes what 1.9.0 deliberately left out (`docs/advanced-data-workspace-plan.md`, sections 19 and 20; decisions 159 and 160). It follows `docs/insight-release-plan.md` (1.10.0, nothing in it writes) and, like 1.9.0, **ends with its own independent review of the write side**, because every item here changes data in a way the earlier releases did not.
+Status: **moved to 1.12.0 on 2026-11-24: the MCP server (`docs/mcp-server-plan.md`) is built first as 1.11.0, and nothing in this plan changes.** Originally proposed 2026-11-23; the decisions of section 11 were taken by the owner on 2026-11-23 (every recommendation accepted, decision 162).** It finishes what 1.9.0 deliberately left out (`docs/advanced-data-workspace-plan.md`, sections 19 and 20; decisions 159 and 160). It follows `docs/insight-release-plan.md` (1.10.0, nothing in it writes) and `docs/mcp-server-plan.md` (1.11.0, nothing in it writes) and, like 1.9.0, **ends with its own independent review of the write side**, because every item here changes data in a way the earlier releases did not.
 
 ## 1. What we promise
 

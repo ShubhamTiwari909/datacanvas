@@ -191,15 +191,21 @@ describe("no CORS", () => {
 });
 
 describe("loopback only", () => {
-  it("the CLI never mentions an all-interfaces address", () => {
+  it("the CLI never mentions an all-interfaces address, except in the one file that guards `--host` (a container needs it)", () => {
     const files = walk(path.join(root, "packages/cli/src")).filter((f) => f.endsWith(".ts"));
+    const hostOption = "packages/cli/src/host-option.ts";
     for (const file of files) {
       if (file.endsWith(".test.ts")) continue;
       const code = readFileSync(file, "utf8");
       // Comments may warn about it; code must not use it.
       const withoutComments = code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      if (rel(file) === hostOption) continue;
       expect(withoutComments, rel(file)).not.toContain("0.0.0.0");
     }
+    // The exception is only as wide as its guard: the address is accepted only when the environment says so.
+    const guard = readFileSync(path.join(root, hostOption), "utf8");
+    expect(guard).toMatch(/DATACANVAS_ALLOW_ANY_INTERFACE/);
+    expect(guard).toMatch(/env\[ALLOW_ANY_INTERFACE_ENV\] === "1"/);
   });
 });
 
@@ -212,7 +218,13 @@ describe("table rows are read only behind the data-access check", () => {
 
   it("calls getRows only in the connection service, and in the one route that asks the service", () => {
     const callers = appCode.filter((f) => /\.getRows\(/.test(readFileSync(f, "utf8")));
-    expect(callers.map(rel).sort()).toEqual([rel(rowsRoute), rel(service)].sort());
+    // (The MCP service asks the connection SERVICE for a page, as the route does: it never holds an adapter; checked below.)
+    expect(callers.map(rel).sort()).toEqual(
+      [rel(rowsRoute), rel(service), "apps/web/lib/server/mcp-service.ts"].sort(),
+    );
+    expect(readFileSync(path.join(root, "apps/web/lib/server/mcp-service.ts"), "utf8")).toMatch(
+      /this\.rows\.getRows\(/,
+    );
     // The route asks the SERVICE (which checks the setting); it never holds an adapter.
     const route = readFileSync(rowsRoute, "utf8");
     expect(route).toMatch(/connections\.getRows\(/);
@@ -1624,5 +1636,267 @@ describe("an export of chosen rows names rows by the whole key and is read by th
         /use-export-selection|useExportSelection/,
       );
     }
+  });
+});
+
+describe("the MCP server is a read-only door with a token of its own (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const mcpFiles = [
+    ...walk(path.join(root, "packages/mcp/src")),
+    "apps/web/lib/server/mcp-service.ts",
+    "apps/web/app/mcp/route.ts",
+    "apps/web/app/api/connections/[id]/claude/route.ts",
+    "packages/cli/src/mcp-bridge.ts",
+    "packages/cli/src/mcp-file.ts",
+  ]
+    .map((f) => (path.isAbsolute(f) ? f : path.join(root, f)))
+    .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("/dist/"));
+
+  it("no file of the MCP path writes to a log or the console", () => {
+    for (const file of mcpFiles) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("the service imports nothing that writes: no write service, no adapter write capability, no change", () => {
+    const code = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    expect(code).not.toMatch(
+      /write-service|WriteService|WritableAdapter|isWritableAdapter|PlannedChange|previewChange|applyChange|exportRows/,
+    );
+    for (const file of mcpFiles) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(
+        /write-service|WritableAdapter|isWritableAdapter|previewChange|applyChange|\.writes\b/,
+      );
+    }
+  });
+
+  it("the tools are exactly the pinned list, every one read-only, and none is named for a write", () => {
+    const code = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    const tools = code.slice(code.indexOf("const TOOLS"));
+    const names = [...tools.matchAll(/^\s+name: "([a-z_]+)",$/gm)].map((m) => m[1]);
+    // A new tool is a deliberate change of this list: a decision, a review and a test of its own.
+    expect(names).toEqual([
+      "list_connections",
+      "list_schemas",
+      "list_tables",
+      "describe_table",
+      "search_objects",
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
+      "check_migration_against_data",
+    ]);
+    expect((code.match(/annotations: READ_ONLY/g) ?? []).length).toBe(names.length);
+    for (const name of names)
+      expect(name).not.toMatch(/write|insert|update|delete|drop|create|alter|import|exec|run_sql/);
+  });
+
+  it("/mcp has its own guard, in the front door and in the route, and never the cookie's", () => {
+    const proxy = stripComments(read("apps/web/proxy.ts"));
+    expect(proxy).toMatch(/pathname === "\/mcp"/);
+    expect(proxy).toContain("evaluateMcpRequest(mcpFactsFromRequest(request), security)");
+    const route = stripComments(read("apps/web/app/mcp/route.ts"));
+    expect(route).toContain(
+      "evaluateMcpRequest(mcpFactsFromRequest(request), readSecurityConfig())",
+    );
+    expect(route).not.toMatch(/cookie|sessionCookieName|guardRequest|handleRoute/i);
+    // The cookie guard never reads an Authorization header, so the token of /mcp is no credential for the app.
+    const guard = stripComments(read("apps/web/lib/security/request-guard.ts"));
+    const cookieGuard = guard.slice(
+      guard.indexOf("export function evaluateRequest"),
+      guard.indexOf("export interface McpRequestFacts"),
+    );
+    expect(cookieGuard).not.toMatch(/authorization|bearer|mcpToken/i);
+  });
+
+  it("the guard refuses a browser (Origin, Sec-Fetch-Site), compares the token in constant time, and the route answers 404 before anything is shared", () => {
+    const guard = stripComments(read("apps/web/lib/security/request-guard.ts"));
+    expect(guard).toMatch(/facts\.origin !== null \|\| facts\.secFetchSite !== null/);
+    expect(guard).toMatch(/tokensMatch\(config\.mcpToken, readBearer\(facts\.authorization\)\)/);
+    expect(stripComments(read("apps/web/app/mcp/route.ts"))).toMatch(/if \(!mcp\.anyShared\(\)\)/);
+  });
+
+  it("what is shared is kept in memory only: no file, no profile, no storage", () => {
+    const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    expect(service).not.toMatch(
+      /writeFile|fs\/|storage|profile|localStorage|sessionStorage|setDataAccess/,
+    );
+    expect(stripComments(read("packages/shared-types/src/postgres-connection.ts"))).not.toMatch(
+      /claude|mcp/i,
+    );
+  });
+
+  it("the browser keeps the level of a sharing in memory only: no storage, no persistence, no token, no profile", () => {
+    for (const file of [
+      "apps/web/stores/claude-store.ts",
+      "apps/web/features/claude/api.ts",
+      "apps/web/features/claude/setup-text.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(
+        /localStorage|sessionStorage|indexedDB|persist|document\.cookie|Bearer|mcpToken/,
+      );
+    }
+    for (const file of walk(path.join(root, "apps/web/features/workspaces")).filter((f) =>
+      /\.(ts|tsx)$/.test(f),
+    )) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /claude-store|useClaude|claudeSharing/,
+      );
+    }
+  });
+
+  it("mcp.json holds the token of /mcp and nothing of the browser's session, and is written 0600", () => {
+    const file = stripComments(read("packages/cli/src/mcp-file.ts"));
+    expect(file).toContain("0o600");
+    const cli = stripComments(read("packages/cli/src/index.ts"));
+    expect(cli).toMatch(/writeMcpFile\(dataDir, \{ pid: process\.pid, port, token: mcpToken \}\)/);
+    expect(cli).toContain("const mcpToken = generateSessionToken()");
+  });
+
+  it("the bridge writes nothing but protocol to stdout", () => {
+    const bridge = stripComments(read("packages/cli/src/mcp-bridge.ts"));
+    expect(bridge).not.toMatch(/console\.|process\.stdout\.write/);
+    expect(bridge).toContain("output.write(`${answer}\\n`)");
+  });
+});
+
+describe("the MCP data tools reach the data only through the services that guard it (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+
+  it("holds no adapter for a statement or a page: statements go through SqlService, pages through ConnectionService", () => {
+    expect(service).toMatch(/this\.sql\.run\(/);
+    expect(service).toMatch(/this\.rows\.getRows\(/);
+    expect(service).not.toMatch(
+      /isSqlRunnerAdapter|adapter\.runStatement|adapter\.getRows|adapter\.exportRows|adapter\.getCell/,
+    );
+  });
+
+  it("never reveals a hidden column: the page request carries no reveal, and no tool has a field for it", () => {
+    expect(service).toMatch(/revealColumns: \[\]/);
+    expect(service).not.toMatch(/reveal[A-Za-z]*: (?!\[\])/);
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).not.toMatch(/reveal/i);
+  });
+
+  it("every data tool checks the level first, and a statement is checked for sensitive names before it is sent", () => {
+    expect((service.match(/this\.requireData\(connection\)/g) ?? []).length).toBe(2);
+    const run = service.slice(
+      service.indexOf("async runQuery("),
+      service.indexOf("async readRows("),
+    );
+    expect(run.indexOf("requireData")).toBeLessThan(run.indexOf("this.screenStatement(text)"));
+    expect(run.indexOf("this.screenStatement(text)")).toBeLessThan(run.indexOf("this.sql.run("));
+    const screen = service.slice(service.indexOf("screenStatement(text: string)"));
+    expect(screen.indexOf("sensitiveNamesIn")).toBeLessThan(screen.indexOf("forbiddenNamesIn"));
+  });
+
+  it("a database failure is passed on only through failureWords, never as the message of the error", () => {
+    expect(service).toMatch(/failureWords\(outcome\.failure, text\)/);
+    expect(service).not.toMatch(/error\.message|\.message\)/);
+    const data = stripComments(read("apps/web/lib/server/mcp-data.ts"));
+    expect(data).toMatch(/startsWith\("42"\)/);
+  });
+});
+
+describe("what the person sees and stops while Claude reads: approval, pause, the list (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+  const control = stripComments(read("apps/web/lib/server/mcp-control.ts"));
+
+  it("every tool is wrapped, and a call is paused, rate limited and (data tools) approved BEFORE it runs", () => {
+    expect(service).toMatch(/TOOLS\.map\(\(tool\) => \(\{\s*\.\.\.tool,\s*run:/);
+    const track = service.slice(service.indexOf("private async track("));
+    const paused = track.indexOf("this.control.paused");
+    const limited = track.indexOf("this.control.allowCall()");
+    const approved = track.indexOf("this.control.requestApproval(");
+    const ran = track.indexOf("await tool.run(");
+    expect(paused).toBeGreaterThan(-1);
+    expect(paused).toBeLessThan(limited);
+    expect(limited).toBeLessThan(approved);
+    expect(approved).toBeLessThan(ran);
+    // Only an explicit "approved" lets the call go on: a timeout, a denial and a client that gave up all stop it.
+    expect(track).toMatch(/decision !== "approved"/);
+  });
+
+  it("approval is ON unless the person turned it off, and only the person's routes can change it or answer", () => {
+    expect(service).toMatch(/approval\.get\(id\) \?\? true/);
+    for (const file of [
+      "apps/web/app/api/claude/pending/[id]/route.ts",
+      "apps/web/app/api/claude/pause/route.ts",
+      "apps/web/app/api/claude/activity/route.ts",
+    ]) {
+      expect(stripComments(read(file)), file).toContain("handleRoute(request");
+    }
+    // Nothing on the MCP path (the tools, the route of /mcp) can reach the decision or the pause.
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).not.toMatch(/\.decide\(|setPaused|control\./);
+    expect(stripComments(read("apps/web/app/mcp/route.ts"))).not.toMatch(
+      /decide|setPaused|control/,
+    );
+  });
+
+  it("the control state is memory only and an entry holds no returned value: a request, an outcome and two counts", () => {
+    expect(control).not.toMatch(/\bfs\b|node:fs|writeFile|localStorage|console\.|process\.env/);
+    const entry = control.slice(
+      control.indexOf("export interface ActivityEntry"),
+      control.indexOf("export interface PendingApproval"),
+    );
+    const fields = [...entry.matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]);
+    expect(fields).toEqual([
+      "id",
+      "at",
+      "tool",
+      "connection",
+      "connectionName",
+      "request",
+      "outcome",
+      "rows",
+      "size",
+    ]);
+    // What is recorded after a call is a count of rows and a size, never the rows.
+    const track = service.slice(service.indexOf("private async track("));
+    expect(track).toMatch(/rows: Array\.isArray\(rows\) \? rows\.length : undefined/);
+    expect(track).toMatch(/size: result\.text\.length/);
+  });
+
+  it("stopping the sharing, or a disconnect, answers what waits and forgets the list when nothing is shared", () => {
+    expect(service).toMatch(/onRemove\(\(id\) => this\.stop\(id\)\)/);
+    const stop = service.slice(service.indexOf("private stop("));
+    expect(stop.slice(0, 400)).toMatch(/denyAll\(id\)/);
+    expect(stop.slice(0, 400)).toMatch(/control\.reset\(\)/);
+  });
+
+  it("the review of 1.11.0: a cursor is sealed both ways, a statement is screened before it is shown, a running call is cancelled and its result withheld", () => {
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).toMatch(/openCursor\(a\.cursor, scope\)/);
+    expect(tools).toMatch(/sealCursor\(shaped\.nextCursor, scope\)/);
+    const track = service.slice(service.indexOf("private async track("));
+    expect(track.indexOf("this.screenStatement(")).toBeGreaterThan(-1);
+    expect(track.indexOf("this.screenStatement(")).toBeLessThan(
+      track.indexOf("this.control.requestApproval("),
+    );
+    expect(track).toMatch(/request\.length > REQUEST_CHARS/);
+    expect(track.indexOf("await tool.run(")).toBeLessThan(track.lastIndexOf("this.control.paused"));
+    expect(service).toMatch(/cancelRunning\(id\)/);
+    // The data level ends for good when viewing table data is switched off; a role that cannot be checked is a risky one.
+    expect(service).toMatch(/this\.shared\.set\(id, "structure"\)/);
+    expect(service).toMatch(/if \(!role \|\| role\.superuser/);
+    const data = stripComments(read("apps/web/lib/server/mcp-data.ts"));
+    expect(data).toMatch(/pg_stats\|pg_statistic/);
+    expect(data).toMatch(/pg_notify/);
+    expect(data).toMatch(/pg_advisory/);
+    const cursor = stripComments(read("apps/web/lib/server/mcp-cursor.ts"));
+    expect(cursor).toMatch(/aes-256-gcm/);
   });
 });

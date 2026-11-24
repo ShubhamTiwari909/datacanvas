@@ -4,7 +4,7 @@
  * What it does when the user runs `npx @shubhamtiwari909/datacanvas`:
  *   1. checks the Node.js version,
  *   2. picks a port (4747, or the next free one),
- *   3. starts the bundled web server on 127.0.0.1,
+ *   3. starts the bundled web server on 127.0.0.1 (or, in a container only, on all interfaces: see host-option.ts),
  *   4. waits until it answers /api/health,
  *   5. opens the browser,
  *   6. on Ctrl+C / SIGTERM stops the server cleanly.
@@ -19,12 +19,20 @@ import { DEFAULT_PORT } from "@datacanvas/shared-types";
 import { openBrowser } from "./browser.js";
 import { ensureDataDir, resolveDataDir } from "./data-dir.js";
 import {
+  ALL_INTERFACES_HOST,
+  ALLOW_ANY_INTERFACE_ENV,
+  LOOPBACK_HOST,
+  resolveHost,
+} from "./host-option.js";
+import {
   findRunningInstance,
   isDataCanvasHealthy,
   removeInstance,
   writeInstance,
 } from "./instance.js";
 import { isSupportedNode, unsupportedNodeMessage } from "./node-version.js";
+import { runBridge } from "./mcp-bridge.js";
+import { removeMcpFile, writeMcpFile } from "./mcp-file.js";
 import { findFreePort, isPortFree } from "./port.js";
 import { VERSION } from "./version.js";
 import {
@@ -38,9 +46,12 @@ const HELP = `DataCanvas ${VERSION}
 A local-first visual PostgreSQL explorer.
 
 Usage: datacanvas [options]
+       datacanvas mcp      A bridge for a Claude app: connects it to the running DataCanvas (read only)
 
 Options:
   --port <number>   Port to listen on (default: ${DEFAULT_PORT}, or the next free port)
+  --host <address>  Address to listen on: ${LOOPBACK_HOST} (default) or ${ALL_INTERFACES_HOST}, which is accepted only
+                    when ${ALLOW_ANY_INTERFACE_ENV}=1 is set (for a container; see docs/docker.md)
   --no-open         Do not open the browser automatically
   --enable-writes   Allow editing rows and changing table structure on local databases (off by default)
   -v, --version     Print the version
@@ -64,11 +75,19 @@ function checkNodeVersion(): void {
 async function main(): Promise<void> {
   checkNodeVersion();
 
+  // `datacanvas mcp`: the stdio bridge a Claude app starts (docs/mcp-server-plan.md, section 5.3). Nothing but protocol
+  // may go to stdout, so it runs before anything that prints.
+  if (process.argv[2] === "mcp") {
+    await runBridge(resolveDataDir());
+    return;
+  }
+
   let values;
   try {
     ({ values } = parseArgs({
       options: {
         port: { type: "string" },
+        host: { type: "string" },
         "no-open": { type: "boolean", default: false },
         "enable-writes": { type: "boolean", default: false },
         version: { type: "boolean", short: "v", default: false },
@@ -88,6 +107,11 @@ async function main(): Promise<void> {
     console.log(VERSION);
     return;
   }
+
+  // `--host`: loopback unless the environment allows all interfaces (a container). Refused in plain words otherwise.
+  const hostChoice = resolveHost(values.host);
+  if (!hostChoice.ok) fail(hostChoice.message);
+  const host = hostChoice.host;
 
   // The bundled web app sits next to the CLI: <package>/bin/datacanvas.mjs and
   // <package>/web/apps/web/server.js. (Layout is created by scripts/build-package.mjs.)
@@ -149,7 +173,9 @@ async function main(): Promise<void> {
   console.log(`DataCanvas ${VERSION}: starting…`);
   // A new secret for every run. Only this process and the server it starts know it.
   const sessionToken = generateSessionToken();
-  const server = startWebServer(serverJs, port, sessionToken, { enableWrites });
+  // The token of `/mcp` is another secret, never the session token: it is accepted on that one route only.
+  const mcpToken = generateSessionToken();
+  const server = startWebServer(serverJs, port, sessionToken, { enableWrites, mcpToken, host });
 
   // Shutdown handling. `shuttingDown` stops a second Ctrl+C from racing the first.
   let shuttingDown = false;
@@ -159,6 +185,7 @@ async function main(): Promise<void> {
     console.log("\nStopping DataCanvas…");
     await stopWebServer(server);
     await removeInstance(dataDir, process.pid).catch(() => {});
+    await removeMcpFile(dataDir, process.pid).catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
@@ -187,6 +214,13 @@ async function main(): Promise<void> {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   console.log(`DataCanvas is running. Open this link in your browser:\n  ${url}`);
   console.log("The link is private to this run. Press Ctrl+C to stop.");
+  if (host === ALL_INTERFACES_HOST) {
+    console.log(
+      `Listening on all interfaces of this container. Publish the port to the loopback address of the host only ` +
+        `(docker run -p ${LOOPBACK_HOST}:${port}:${port}), and keep the host port equal to ${port}: the Host check accepts only ` +
+        `${LOOPBACK_HOST}:${port} and localhost:${port}.`,
+    );
+  }
   if (enableWrites) console.log(WRITES_NOTICE);
   await writeInstance(dataDir, {
     pid: process.pid,
@@ -197,6 +231,8 @@ async function main(): Promise<void> {
   }).catch(
     () => {}, // not being able to write it only disables "open the running one"
   );
+  // For `datacanvas mcp`, the bridge a Claude app starts (mode 0600, deleted on shutdown).
+  await writeMcpFile(dataDir, { pid: process.pid, port, token: mcpToken }).catch(() => {});
   if (!values["no-open"]) openBrowser(url);
 }
 

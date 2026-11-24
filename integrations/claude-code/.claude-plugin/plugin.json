@@ -1,0 +1,14 @@
+{
+  "name": "datacanvas",
+  "displayName": "DataCanvas",
+  "description": "Read a PostgreSQL database that you share from DataCanvas, safely: structure tools, health checks, foreign-key paths, schema comparison and migration drafts, and (only if you allow it) read-only rows and queries.",
+  "version": "1.11.0",
+  "author": {
+    "name": "ShubhamTiwari909",
+    "url": "https://github.com/ShubhamTiwari909"
+  },
+  "homepage": "https://github.com/ShubhamTiwari909/pg-visualizer#readme",
+  "repository": "https://github.com/ShubhamTiwari909/pg-visualizer",
+  "license": "Apache-2.0",
+  "keywords": ["postgresql", "database", "mcp", "schema", "sql"]
+}

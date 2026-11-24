@@ -18,7 +18,9 @@ import { errorResponse } from "@/lib/server/api-response";
 import { buildCsp, makeNonce } from "@/lib/security/csp";
 import {
   TOKEN_QUERY_PARAM,
+  evaluateMcpRequest,
   evaluateRequest,
+  mcpFactsFromRequest,
   isAllowedHost,
   readSecurityConfig,
   sessionCookieName,
@@ -54,6 +56,16 @@ export function proxy(request: NextRequest): Response {
     });
     response.headers.set("Cache-Control", "no-store");
     return response;
+  }
+
+  // `/mcp` is for programs, with a token of its own and no cookie: its own guard (decision 169), and none of the page's.
+  if (pathname === "/mcp") {
+    const mcp = evaluateMcpRequest(mcpFactsFromRequest(request), security);
+    if (mcp.ok) return NextResponse.next();
+    return new Response(JSON.stringify({ error: { message: mcp.message } }), {
+      status: mcp.status,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
   const facts: RequestFacts = {

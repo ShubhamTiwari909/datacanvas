@@ -54,7 +54,7 @@ expect that workflow to fail on a pushed tag. **Do not publish the same version 
   holder in `NOTICE` should be.
 - Windows and Linux were never tested by hand; the CI workflow had its first run only recently.
 - Managed PostgreSQL services (RDS, Supabase, Neon, Azure) are untested.
-- No independent security review and no full Content-Security-Policy.
+- No independent security review. (`docs/releasing.md` still lists "no full Content-Security-Policy"; since 1.10.0 every page has one with a nonce, with the residual risks listed in [Known limits](/security/limits/).)
 - No demo GIF in the README (regenerate screenshots with `npm run screenshots`).
 
 ---

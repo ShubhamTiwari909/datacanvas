@@ -38,7 +38,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>Export diagram</DialogTitle>
           <DialogDescription>
@@ -65,7 +65,7 @@ export function ExportDialog({
           </p>
         ) : null}
 
-        <DialogFooter>
+        <DialogFooter className="sm:flex-wrap">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

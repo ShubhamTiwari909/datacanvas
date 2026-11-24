@@ -6,8 +6,9 @@ description: Put tables on an infinite canvas, see relationships with their card
 ![The DataCanvas canvas showing a sample shop database: tables, relationships and the inspector panel](../../../assets/screenshots/canvas.png)
 
 With a connection selected, the workspace offers these tabs: **Canvas, Overview, Paths, Health, Objects,
-SQL, Snapshots, Migrations** and **Table details**. This page covers the Canvas; the others have their
-own pages.
+SQL, Snapshots, Migrations** and **Table details**. This page covers the Canvas and Table details; the
+others have their own pages. A connection can also be [shared with Claude](/guides/use-with-claude/) from the left
+list.
 
 ## Adding tables
 
@@ -47,6 +48,26 @@ Click a table to open the inspector: columns, relationships, constraints, indexe
 allowed it) its rows. It reads from the cache the canvas already holds, so opening it makes no extra
 request.
 
+## Table details and statistics
+
+The **Table details** tab lists the columns, constraints, indexes and relationships of one table. Since
+1.10.0 it also has a **Statistics** section (for a table, not a view or foreign table), made from the
+**server's own figures**, not from your rows:
+
+- **For the table:** rows (an estimate), live and dead rows, the size of the table, its indexes and its
+  TOAST data, and when it was last analysed and last vacuumed (the newer of a manual and an automatic run).
+- **For each column:** the **share of NULLs**, the number of **distinct values** (or the share of rows that
+  differ), the **average width** in bytes and whether the values follow the **order** of the rows on disk.
+- It says plainly when the figures are old (30 days or more), when the table was **never analysed** (the
+  planner is guessing, and the columns have no figures), when a fifth or more of the rows are dead, and when
+  a column has no figures because the connected role may not read it.
+
+**No row and no value is read.** The statistics that hold values of the table (the most common values and
+the histograms) are never selected, and a test fails if any statement of the adapter names one. So
+statistics need **no "Allow viewing table data"**, like the row-count estimate, and are never blurred. They
+are estimates from the last `ANALYZE`; a column's null share and distinct count are metadata that still say
+something about the data.
+
 ## Tables that no longer exist
 
 A saved layout names tables, but the database may have changed. Tables that are gone come back as
@@ -58,7 +79,8 @@ timeout) aborts the restore and leaves the canvas as it was.
 
 - Layouts are **autosaved** (800 ms after the last change) for connections that were saved. See
   [Saved data and themes](/guides/saved-data/).
-- **Export** writes a **PNG or SVG** of the canvas. The image shows table and column names, so share
+- **Export** opens a dialog that writes a **PNG or SVG** of the canvas, or opens **Export documentation**
+  (Markdown, Mermaid, DBML or PlantUML; see [Export](/guides/export-json-validate/)). The image shows table and column names, so share
   it only with people who should see your schema. It contains no row data. A dark-mode export is dark.
 - A workspace can also be exported as a `.datacanvas.json` file and imported again.
 
@@ -72,7 +94,12 @@ in the browser tests (**Inference**; this documentation did not verify where or 
 
 ---
 
-**Sources:** [`apps/web/features/canvas/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/canvas),
+**Sources:** [`apps/web/features/explorer/table-details.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/table-details.tsx),
+[`apps/web/features/explorer/statistics-body.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/statistics-body.tsx),
+[`apps/web/features/explorer/statistics-format.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/statistics-format.ts),
+[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
+[`apps/web/app/api/connections/[id]/tables/[table]/statistics/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/api/connections/%5Bid%5D/tables/%5Btable%5D/statistics/route.ts),
+[`apps/web/features/canvas/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/canvas),
 [`packages/canvas-engine/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/canvas-engine/src),
 [`apps/web/features/explorer/workspace.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/workspace.tsx),
 [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 7 to 9, sidebar search),

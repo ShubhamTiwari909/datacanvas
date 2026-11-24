@@ -73,6 +73,8 @@ const SERVICE_ERROR_STATUS = {
   wrong_database_name: 400,
   preview_expired: 410,
   write_busy: 429,
+  // Sharing a connection with Claude at the data level needs the person to acknowledge a risky role (decision 169).
+  claude_role_not_acknowledged: 409,
 } as const;
 
 /** A log-safe description: names and codes only, never messages (they may hold secrets). */

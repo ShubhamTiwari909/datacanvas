@@ -8,6 +8,7 @@ import {
   schemasResponseSchema,
   searchResponseSchema,
   tableDetailsResponseSchema,
+  tableStatisticsResponseSchema,
   tablesDetailsResponseSchema,
   tablesResponseSchema,
 } from "@datacanvas/shared-types";
@@ -23,6 +24,7 @@ import type {
   TableDetailsEntry,
   TableInfo,
   TableRef,
+  TableStatistics,
 } from "@datacanvas/database-core";
 import { apiRequest, type ApiResult } from "@/lib/api-client";
 
@@ -116,4 +118,17 @@ export async function getObjects(connectionId: string): Promise<ApiResult<Databa
 export async function getIndexUsage(connectionId: string): Promise<ApiResult<IndexUsageReport>> {
   const result = await apiRequest(`${base(connectionId)}/index-usage`, indexUsageResponseSchema);
   return unwrap(result, (d) => d.usage);
+}
+
+/** What the server's statistics say about a table (no row, no value); null for a view or a foreign table. */
+export async function getTableStatistics(
+  connectionId: string,
+  schema: string,
+  table: string,
+): Promise<ApiResult<TableStatistics | null>> {
+  const result = await apiRequest(
+    `${base(connectionId)}/tables/${encodeURIComponent(table)}/statistics?schema=${encodeURIComponent(schema)}`,
+    tableStatisticsResponseSchema,
+  );
+  return unwrap(result, (d) => d.statistics);
 }

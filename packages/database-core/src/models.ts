@@ -345,6 +345,47 @@ export interface IndexUsageReport {
   indexes: IndexUsage[];
 }
 
+// ------------------------------------------------------------ table statistics ---
+
+/**
+ * What the server's statistics say about one column. A share of NULLs, a number of distinct values, a width and an
+ * order: never a value (the statistics that hold values are not read). A column with `hasStatistics: false` has no
+ * figures yet (the table was not analysed) or the connected role may not read it.
+ */
+export interface ColumnStatistics {
+  column: string;
+  hasStatistics: boolean;
+  /** 0 to 1. */
+  nullFraction: number | null;
+  /** The number of distinct values, when the server counted them (an estimate from a sample). */
+  distinctValues: number | null;
+  /** The number of distinct values as a share of the rows, 0 to 1 (1 = every row differs), when it is not a count. */
+  distinctShare: number | null;
+  /** Average width in bytes of the values. */
+  averageWidth: number | null;
+  /** How well the values follow the physical order of the rows, -1 to 1. */
+  correlation: number | null;
+}
+
+/** The size and the upkeep of a table, with the statistics of its columns. Estimates: nothing here scans the table. */
+export interface TableStatistics {
+  table: TableRef;
+  kind: "table" | "partitioned" | "materialized";
+  /** The planner's estimate of the rows (`reltuples`), or null before the first ANALYZE. */
+  estimatedRows: number | null;
+  liveRows: number | null;
+  deadRows: number | null;
+  tableBytes: number;
+  indexBytes: number;
+  toastBytes: number;
+  /** ISO 8601 times, or null when it never happened. */
+  lastVacuum: string | null;
+  lastAutovacuum: string | null;
+  lastAnalyze: string | null;
+  lastAutoanalyze: string | null;
+  columns: ColumnStatistics[];
+}
+
 // ---------------------------------------------------------------- table rows ---
 //
 // The ROWS of a table, read only when the caller asks for them (the opt-in

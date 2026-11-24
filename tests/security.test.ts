@@ -1496,3 +1496,37 @@ describe("a query plan lives in the tab's memory like a result", () => {
     expect(runner).toContain("wholePlan ? { rows: kept, cutCells: 0 } : cutLongCells(kept)");
   });
 });
+
+describe("the statistics of a table hold no value of the table", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("no statement of the adapter names a statistic that holds values (pg_stats keeps the values of the table in them)", () => {
+    const FORBIDDEN =
+      /most_common_vals|most_common_freqs|most_common_elems|most_common_elem_freqs|histogram_bounds|elem_count_histogram|range_length_histogram|range_bounds_histogram|stavalues|stanumbers|pg_statistic\b/;
+    const sources = walk(path.join(root, "packages/postgres-adapter/src")).filter(
+      (f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("/dist/"),
+    );
+    for (const file of sources) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(FORBIDDEN);
+    }
+  });
+
+  it("the statistics read names the columns it takes and never selects everything from pg_stats", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/statistics.ts"));
+    expect(code).not.toMatch(/\bs\.\*|SELECT\s+\*|pg_stats\.\*/);
+    for (const column of ["null_frac", "n_distinct", "avg_width", "correlation"]) {
+      expect(code).toContain(`s.${column}`);
+    }
+  });
+
+  it("the route reads no row, so it does not need the data-access switch, and says so", () => {
+    const route = read("apps/web/app/api/connections/[id]/tables/[table]/statistics/route.ts");
+    expect(route).toContain("No row and no value is read");
+    expect(route).not.toMatch(/requireDataAccess|dataAccess/);
+    // It only reads through the adapter's statistics method: no row reader.
+    expect(route).toContain("getTableStatistics(");
+    expect(route).not.toMatch(/getRows|exportRows|getCell|runStatement/);
+  });
+});

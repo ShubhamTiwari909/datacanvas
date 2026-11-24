@@ -10,6 +10,7 @@ import {
   constraintInfoSchema,
   indexInfoSchema,
   indexUsageReportSchema,
+  tableStatisticsSchema,
   relationshipInfoSchema,
   rowPageSchema,
   schemaInfoSchema,
@@ -91,6 +92,15 @@ export const searchResponseSchema = z.object({ hits: z.array(searchHitSchema) })
 
 /** `GET /api/connections/:id/index-usage`: usage counters of the indexes (statistics, not rows). */
 export const indexUsageResponseSchema = z.object({ usage: indexUsageReportSchema });
+
+/**
+ * `GET /api/connections/:id/tables/:table/statistics?schema=`: what the server's statistics say about one table (the
+ * share of NULLs, distinct values, widths, sizes, last vacuum and analyze), null for a view or a foreign table. No row
+ * and no value is read.
+ */
+export const tableStatisticsResponseSchema = z.object({
+  statistics: tableStatisticsSchema.nullable(),
+});
 
 // --- Table data (rows) ------------------------------------------------------
 

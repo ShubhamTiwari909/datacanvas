@@ -25,7 +25,8 @@ import { useConnectionWrites, useStructureVersion, writesReady } from "@/stores/
 import { useAsyncData } from "@/lib/use-async-data";
 import { KIND_LABEL } from "@/components/relation-kind";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { getRelationships, getTableDetails, getTables } from "./api";
+import { getRelationships, getTableDetails, getTables, getTableStatistics } from "./api";
+import { StatisticsBody } from "./statistics-body";
 
 const ACTION_LABEL = {
   no_action: "no action",
@@ -227,6 +228,7 @@ export function TableDetails({
   const details = useAsyncData(() => getTableDetails(connectionId, schema, table), key);
   const relationships = useAsyncData(() => getRelationships(connectionId), key);
   const tables = useAsyncData(() => getTables(connectionId, schema), key);
+  const statistics = useAsyncData(() => getTableStatistics(connectionId, schema, table), key);
 
   const info: TableInfo | undefined =
     tables.state.status === "success" ? tables.state.data.find((t) => t.name === table) : undefined;
@@ -309,6 +311,11 @@ export function TableDetails({
           <Section title="Indexes" count={details.state.data.indexes.length}>
             <IndexesList indexes={details.state.data.indexes} />
           </Section>
+          {statistics.state.status === "success" && statistics.state.data ? (
+            <Section title="Statistics">
+              <StatisticsBody stats={statistics.state.data} />
+            </Section>
+          ) : null}
         </Fragment>
       ) : null}
 

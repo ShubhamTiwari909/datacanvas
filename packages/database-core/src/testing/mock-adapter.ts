@@ -39,6 +39,7 @@ import type {
   TableDetailsEntry,
   TableInfo,
   TableRef,
+  TableStatistics,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
 import type { ExportEvent, ExportRowsOptions, ExportSignal } from "../rows-export.js";
@@ -534,6 +535,36 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
   async getIndexUsage(): Promise<IndexUsageReport> {
     this.requireConnection();
     return copy(this.data.indexUsage);
+  }
+
+  async getTableStatistics(table: TableRef): Promise<TableStatistics | null> {
+    this.requireConnection();
+    const info = this.data.tables.find((t) => t.schema === table.schema && t.name === table.name);
+    if (!info || (info.kind !== "table" && info.kind !== "materialized_view")) return null;
+    // Made up, in the shape of the real thing: every column has figures, none is a value.
+    return {
+      table: { schema: table.schema, name: table.name },
+      kind: info.kind === "materialized_view" ? "materialized" : "table",
+      estimatedRows: info.estimatedRowCount,
+      liveRows: info.estimatedRowCount,
+      deadRows: 0,
+      tableBytes: 8192,
+      indexBytes: 16384,
+      toastBytes: 0,
+      lastVacuum: null,
+      lastAutovacuum: null,
+      lastAnalyze: "2026-01-01T00:00:00.000Z",
+      lastAutoanalyze: null,
+      columns: this.lookup(this.data.columns, table.schema, table.name).map((c) => ({
+        column: c.name,
+        hasStatistics: true,
+        nullFraction: c.nullable ? 0.1 : 0,
+        distinctValues: null,
+        distinctShare: 1,
+        averageWidth: 4,
+        correlation: 0,
+      })),
+    };
   }
 
   async getRoleInfo(): Promise<RoleInfo> {

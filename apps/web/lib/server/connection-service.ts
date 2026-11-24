@@ -18,6 +18,7 @@ import {
   type DatabaseObjects,
   type IndexInfo,
   type IndexUsageReport,
+  type TableStatistics,
   type RelationshipInfo,
   type RoleInfo,
   type CellRead,
@@ -527,6 +528,13 @@ export class ConnectionService {
   /** Usage counters of the indexes (statistics, not rows). */
   getIndexUsage(id: string): Promise<IndexUsageReport> {
     return this.connections.use(id, (adapter) => adapter.getIndexUsage());
+  }
+
+  /** What the server's statistics say about one table (no row, no value); null for a view or a foreign table. */
+  getTableStatistics(id: string, schema: string, table: string): Promise<TableStatistics | null> {
+    return this.connections.use(id, (adapter) =>
+      adapter.getTableStatistics({ schema, name: table }),
+    );
   }
 
   /** What the connected role can do, and the server's address (catalog only, read-only). */

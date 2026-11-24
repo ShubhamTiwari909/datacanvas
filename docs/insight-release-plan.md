@@ -195,3 +195,10 @@ V1 goes first because it is the only item that can change how every screen loads
 - The viewer is one pure parser (`plan.ts`, 11 tests including a deeper-than-100 plan, more than 20,000 steps, hostile numbers and `__proto__`) and one component (`plan-view.tsx`); no dependency.
 - **The switch shows the JSON as it came, not a text plan made from it** (a second text rendering would be a second thing to keep right); the existing text entries of the menu remain for that.
 - Two existing end-to-end tests chose the menu item `Explain analyze` by a prefix that the new entry also matches; they now name the whole item.
+
+## 16. What V3 found (2026-11-24)
+
+- `pg_stats` is joined with `inherited = (relkind = 'p')`: a plain table has the row with `inherited = false`, a partitioned parent only the `true` one. A column without a row is "no figures" (never analysed, or the role may not read it): the two cannot be told apart from the catalog, so the words say both.
+- `reltuples` is 0 (PostgreSQL 12 and 13) or -1 (14 and later) before the first ANALYZE or VACUUM; the read treats 0 with no analyze or vacuum time at all as "not known".
+- The statistics need **no data access** (decision 161, accepted); the route has no check of it and a rule test pins that it reads through `getTableStatistics` and nothing else. Not tested against a role that may select only some columns (it needs a second login in the test database): said here as not reproduced.
+- The mock adapter makes the figures up (every column has them, none is a value), so the route test runs without a database; the real read has its own test against a real PostgreSQL (6 tests, including that no marker value of the table is anywhere in the answer).

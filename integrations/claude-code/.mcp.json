@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "datacanvas": {
+      "command": "npx",
+      "args": ["--yes", "@shubhamtiwari909/datacanvas", "mcp"]
+    }
+  }
+}

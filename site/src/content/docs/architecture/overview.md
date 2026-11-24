@@ -89,7 +89,7 @@ image export and `monaco-editor` 0.57.0 for the SQL and JSON editors. These are 
   command, so no OS-keychain password storage and no Next.js image optimizer (`sharp`).
 - **Files, not browser storage**, for persistence, so a changed port cannot hide your data.
 - **Everything that reads rows is opt-in and gated**; **everything that writes is behind three switches**.
-- **Claude reads only what you share, and cannot change anything**: eight read-only tools pinned by a
+- **Claude reads only what you share, and cannot change anything**: thirteen read-only tools pinned by a
   test, behind a door with its own token (decision 169).
 - **Security rules are tests**, not only prose. See [Security model](/security/model/).
 

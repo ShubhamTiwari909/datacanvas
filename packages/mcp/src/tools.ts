@@ -60,3 +60,41 @@ export interface ListedTool {
   inputSchema: Record<string, unknown>;
   annotations: ReadOnlyAnnotations;
 }
+
+/** A document a client may read (`resources/read`): the server decides what exists, and for whom, from the context. */
+export interface ListedResource {
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: string;
+}
+
+export interface ResourceCatalog<Context> {
+  /** The resources this caller may see. */
+  list(context: Context): ReadonlyArray<ListedResource>;
+  /**
+   * The text of one resource, or null when there is none by that uri (for this caller).
+   * @throws ToolError for words meant for the model.
+   */
+  read(uri: string, context: Context, signal?: CancelSignal): Promise<string | null>;
+}
+
+/** What a prompt asks of its user (a name and what it is). */
+export interface PromptArgument {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
+export interface ListedPrompt {
+  name: string;
+  title: string;
+  description: string;
+  arguments: PromptArgument[];
+}
+
+export interface PromptDefinition<Context> extends ListedPrompt {
+  /** The text the prompt sends as the user's message; it holds the arguments' text and no value of any database. */
+  text(args: Record<string, string>, context: Context): string;
+}

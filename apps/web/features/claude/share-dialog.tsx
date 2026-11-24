@@ -11,6 +11,7 @@ import { ShieldAlert } from "lucide-react";
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -21,10 +22,11 @@ import {
 } from "@/components/ui/dialog";
 import { useClaudeStore } from "@/stores/claude-store";
 import {
-  CLAUDE_CODE_COMMAND,
-  CLAUDE_DESKTOP_CONFIG,
   HIDDEN_COLUMNS_NOTE,
   LEAVES_THE_MACHINE,
+  SETUP_CLIENTS,
+  SETUP_FORMAT_NOTE,
+  type SetupClient,
 } from "./setup-text";
 
 export function ShareWithClaudeDialog({
@@ -64,6 +66,9 @@ function ShareForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [riskyRole, setRiskyRole] = useState(false);
+  // Which app's setup text is shown: one block at a time keeps the dialog short (the first is Claude Code).
+  const [appId, setAppId] = useState<SetupClient["id"]>("claude-code");
+  const app = SETUP_CLIENTS.find((c) => c.id === appId) ?? SETUP_CLIENTS[0]!;
 
   const dataReady = connection.dataAccess;
   const wantsData = choice === "data";
@@ -181,35 +186,39 @@ function ShareForm({
           Connect a Claude app (once)
         </h3>
         <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Claude Code: run this</span>
-            <CopyButton text={CLAUDE_CODE_COMMAND} label="Copy the command for Claude Code" />
-          </div>
-          <pre
-            tabIndex={0}
-            aria-label="Command for Claude Code"
-            className="overflow-auto rounded-md bg-muted p-2 font-mono text-xs"
+          <label htmlFor={`claude-app-${connection.id}`} className="text-xs text-muted-foreground">
+            Your app
+          </label>
+          <Select
+            id={`claude-app-${connection.id}`}
+            value={appId}
+            onChange={(event) => setAppId(event.target.value as SetupClient["id"])}
+            className="w-full min-w-0"
           >
-            {CLAUDE_CODE_COMMAND}
-          </pre>
+            {SETUP_CLIENTS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
         </div>
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              Claude Desktop: add this to claude_desktop_config.json, then restart it
-            </span>
-            <CopyButton text={CLAUDE_DESKTOP_CONFIG} label="Copy the config for Claude Desktop" />
+        {/* One block at a time, keyed so a change of app starts a fresh, unscrolled box. */}
+        <div key={app.id} className="flex min-w-0 flex-col gap-1">
+          <div className="flex items-start justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted-foreground">{app.where}</span>
+            <CopyButton text={app.text} label={app.copyLabel} />
           </div>
           <pre
             tabIndex={0}
-            aria-label="Config for Claude Desktop"
-            className="overflow-auto rounded-md bg-muted p-2 font-mono text-xs"
+            aria-label={app.boxLabel}
+            className="max-w-full overflow-auto rounded-md bg-muted p-2 font-mono text-xs"
           >
-            {CLAUDE_DESKTOP_CONFIG}
+            {app.text}
           </pre>
         </div>
         <p className="text-xs text-muted-foreground">
-          The same text works on every run: nothing in it changes, and no secret is in it.
+          The same text works on every run: nothing in it changes, and no secret is in it.{" "}
+          {SETUP_FORMAT_NOTE}
         </p>
       </section>
 

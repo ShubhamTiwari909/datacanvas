@@ -164,6 +164,26 @@ describe("evaluateRequest", () => {
     expect(d).toMatchObject({ ok: false, status: 403, code: "forbidden" });
   });
 
+  it("refuses a request that arrives through a LAN or container address, even with the cookie and the right port (a container listens on all interfaces, the Host check does not change)", () => {
+    for (const host of [
+      "192.168.1.20:4747",
+      "10.0.0.5:4747",
+      "172.17.0.2:4747",
+      "host.docker.internal:4747",
+      "my-laptop.local:4747",
+      "0.0.0.0:4747",
+    ]) {
+      expect(evaluateRequest(facts({ host }), config), host).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+      expect(
+        evaluateRequest(facts({ host, pathname: "/api/health", cookieToken: null }), config),
+        host,
+      ).toMatchObject({ ok: false, status: 403 });
+    }
+  });
+
   it("refuses cross-site and same-site (other port) browser requests to the API", () => {
     for (const site of ["cross-site", "same-site"]) {
       expect(evaluateRequest(facts({ secFetchSite: site }), config)).toMatchObject({
@@ -260,7 +280,15 @@ describe("the guard of /mcp (decision 169)", () => {
   });
 
   it("refuses another Host (DNS rebinding) before it looks at the token", () => {
-    for (const host of ["evil.example:4747", "127.0.0.1:9999", "127.0.0.1", null]) {
+    for (const host of [
+      "evil.example:4747",
+      "127.0.0.1:9999",
+      "127.0.0.1",
+      "192.168.1.20:4747",
+      "172.17.0.2:4747",
+      "host.docker.internal:4747",
+      null,
+    ]) {
       expect(evaluateMcpRequest({ ...ok, host }, mcpConfig)).toMatchObject({
         ok: false,
         status: 403,

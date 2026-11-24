@@ -257,7 +257,7 @@ describe("the structure tools (M2)", () => {
     return body.result;
   };
 
-  it("lists the five tools, all read-only, and no tool takes anything but a connection id and names", async () => {
+  it("lists the structure tools, all read-only, and no tool takes anything but a connection id and names", async () => {
     const id = await connect();
     await share(id, "structure");
     const listed = (await (await post(rpc("tools/list"))).json()) as {
@@ -274,6 +274,10 @@ describe("the structure tools (M2)", () => {
       "list_tables",
       "describe_table",
       "search_objects",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
     ]);
     for (const tool of listed.result.tools) {
       expect(tool.inputSchema.additionalProperties).toBe(false);
@@ -465,6 +469,11 @@ describe("the data tools (M3)", () => {
       "read_rows",
       "run_readonly_query",
       "explain_query",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
+      "check_migration_against_data",
     ]);
     // A call to one while it is not offered is a tool nobody made.
     await share(id, "structure");
@@ -970,5 +979,240 @@ describe("the data tools (M3)", () => {
       });
       expect(huge.isError).toBe(true);
     });
+  });
+});
+
+describe("the analysis tools, the schema documents and the prompts (1.11.0)", () => {
+  const rpcResult = async (method: string, params?: unknown) => {
+    const response = await post(rpc(method, params));
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      result?: Record<string, unknown>;
+      error?: { code: number; message: string };
+    };
+  };
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const body = await rpcResult("tools/call", { name, arguments: args });
+    return body.result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      structuredContent?: Record<string, any>;
+    };
+  };
+
+  it("get_health runs the checks of the Health tab and lists findings, serious first, with SQL as text", async () => {
+    const id = await connect();
+    await share(id, "structure");
+    const r = await call("get_health", { connection: id });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent!["checkedTables"]).toBeGreaterThan(0);
+    expect(Array.isArray(r.structuredContent!["findings"])).toBe(true);
+    expect(r.content[0]!.text).toMatch(/tables checked/);
+    // One schema only; an unknown schema is said to be unknown.
+    const one = await call("get_health", { connection: id, schema: "analytics" });
+    expect(one.structuredContent!["checkedTables"]).toBeLessThan(
+      r.structuredContent!["checkedTables"],
+    );
+    const none = await call("get_health", { connection: id, schema: "nothere" });
+    expect(none.isError).toBe(true);
+    expect(none.content[0]!.text).toBe("There is no such table or schema.");
+    const unshared = await call("get_health", { connection: "nope" });
+    expect(unshared.content[0]!.text).toMatch(/not shared with Claude, or does not exist/);
+  });
+
+  it("find_path finds the foreign-key route and writes the join as text", async () => {
+    const id = await connect();
+    await share(id, "structure");
+    const r = await call("find_path", {
+      connection: id,
+      from: { schema: "public", table: "orders" },
+      to: { schema: "public", table: "users" },
+    });
+    expect(r.structuredContent!["status"]).toBe("found");
+    const path = r.structuredContent!["paths"][0];
+    expect(path.tables).toEqual(["public.orders", "public.users"]);
+    expect(path.sql).toMatch(
+      /^SELECT \*\nFROM "public"\."orders" AS t1\nJOIN "public"\."users" AS t2 ON/,
+    );
+    const same = await call("find_path", {
+      connection: id,
+      from: { schema: "public", table: "users" },
+      to: { schema: "public", table: "users" },
+    });
+    expect(same.structuredContent!["status"]).toBe("same_table");
+  });
+
+  it("compare_structure and generate_migration need both connections shared, run nothing, and say what is not compared", async () => {
+    const a = await connect();
+    const b = await connect();
+    await share(a, "structure");
+    const alone = await call("compare_structure", { from: a, to: b });
+    expect(alone.isError).toBe(true);
+    expect(alone.content[0]!.text).toMatch(/not shared with Claude, or does not exist/);
+    await share(b, "structure");
+    const same = await call("compare_structure", { from: a, to: b });
+    expect(same.structuredContent!["identical"]).toBe(true);
+    expect(same.structuredContent!["note"]).toMatch(/not compared/);
+    const migration = await call("generate_migration", { from: a, to: b });
+    expect(migration.isError).toBeFalsy();
+    expect(migration.structuredContent!["stepCount"]).toBe(0);
+    expect(JSON.stringify(migration.structuredContent)).toMatch(/Views, functions/);
+    // Arguments that are not allowed are named, not echoed.
+    const bad = await call("generate_migration", { from: a, to: b, run: true });
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0]!.text).toMatch(/has a field this tool does not take/);
+  });
+
+  it("check_migration_against_data is a data tool: not offered at the structure level, approved under `from`", async () => {
+    const a = await connect({ dataAccess: true });
+    const b = await connect({ dataAccess: true });
+    await share(a, "structure");
+    await share(b, "structure");
+    const names = async () =>
+      ((await rpcResult("tools/list")).result!["tools"] as Array<{ name: string }>).map(
+        (t) => t.name,
+      );
+    expect(await names()).not.toContain("check_migration_against_data");
+    await share(a, "data", { approval: true });
+    expect(await names()).toContain("check_migration_against_data");
+    const waiting = call("check_migration_against_data", { from: a, to: b });
+    const pending = await (async () => {
+      for (let i = 0; i < 100; i++) {
+        const found = context.mcp.control.pending()[0];
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error("nothing waits");
+    })();
+    expect(pending.tool).toBe("check_migration_against_data");
+    expect(pending.connection).toBe(a);
+    context.mcp.control.decide(pending.id, "approve");
+    const done = await waiting;
+    expect(done.isError).toBeFalsy();
+    expect(done.structuredContent!["stepCount"]).toBe(0);
+    // `from` must be at the data level, whatever `to` is.
+    const flipped = await call("check_migration_against_data", { from: b, to: a });
+    expect(flipped.isError).toBe(true);
+    expect(flipped.content[0]!.text).toMatch(/structure level only/);
+  });
+
+  it("the schema of a shared connection is a resource, and nothing else is: a made-up uri or an unshared connection is not found", async () => {
+    const id = await connect();
+    const other = await connect();
+    await share(id, "structure");
+    const init = await rpcResult("initialize", { protocolVersion: "2025-11-25" });
+    expect(init.result!["capabilities"]).toMatchObject({ resources: {}, prompts: {} });
+    const listed = (await rpcResult("resources/list")).result!["resources"] as Array<{
+      uri: string;
+      mimeType: string;
+    }>;
+    expect(listed.map((r) => r.uri)).toEqual([
+      `datacanvas://connection/${id}/schema`,
+      `datacanvas://connection/${id}/diagram`,
+    ]);
+    const schema = await rpcResult("resources/read", { uri: listed[0]!.uri });
+    const text = (schema.result!["contents"] as Array<{ text: string }>)[0]!.text;
+    expect(text).toMatch(/data dictionary/);
+    expect(text).toContain("users");
+    const diagram = await rpcResult("resources/read", { uri: listed[1]!.uri });
+    expect((diagram.result!["contents"] as Array<{ text: string }>)[0]!.text).toMatch(/^erDiagram/);
+    for (const uri of [
+      `datacanvas://connection/${other}/schema`,
+      "datacanvas://connection/zzz/schema",
+      "file:///etc/passwd",
+    ]) {
+      const refused = await rpcResult("resources/read", { uri });
+      expect(refused.error).toEqual({ code: -32002, message: "Resource not found." });
+    }
+  });
+
+  it("the prompts carry only what the person typed, the data prompt waits for the data level, and a missing argument is named", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "structure");
+    const names = async () =>
+      ((await rpcResult("prompts/list")).result!["prompts"] as Array<{ name: string }>).map(
+        (p) => p.name,
+      );
+    expect(await names()).toEqual([
+      "find_tables_without_keys",
+      "review_schema_health",
+      "explain_schema",
+      "how_are_tables_related",
+      "review_migration",
+    ]);
+    await share(id, "data");
+    expect(await names()).toContain("tune_query");
+    const got = await rpcResult("prompts/get", {
+      name: "how_are_tables_related",
+      arguments: { connection: id, from: "public.orders", to: "public.users‮" },
+    });
+    const text = (got.result!["messages"] as Array<{ content: { text: string } }>)[0]!.content.text;
+    expect(text).toContain("find_path");
+    expect(text).toContain("public.orders");
+    expect(text).not.toContain("‮");
+    const missing = await rpcResult("prompts/get", {
+      name: "review_migration",
+      arguments: { from: id },
+    });
+    expect(missing.error!.message).toBe("Missing argument: to.");
+  });
+});
+
+describe("the tool descriptions steer a model (a lint of the words a model reads)", () => {
+  type Listed = {
+    name: string;
+    description: string;
+    inputSchema: { properties: Record<string, { description?: string }> };
+  };
+  const tools = async (): Promise<Listed[]> => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    const response = await post(rpc("tools/list"));
+    return ((await response.json()) as { result: { tools: Listed[] } }).result.tools;
+  };
+
+  it("each description says what it returns, its level and its limits, in a bounded number of words", async () => {
+    const listed = await tools();
+    expect(listed.length).toBe(13);
+    let total = 0;
+    for (const t of listed) {
+      total += t.description.length;
+      expect(t.description.length, `${t.name} is too short to steer a model`).toBeGreaterThan(80);
+      expect(t.description.length, `${t.name} is too long`).toBeLessThan(1200);
+    }
+    // The tokens every conversation pays for: all descriptions together stay small.
+    expect(total).toBeLessThan(9000);
+    const data = [
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
+      "check_migration_against_data",
+    ];
+    for (const t of listed.filter((l) => data.includes(l.name))) {
+      expect(t.description, t.name).toMatch(/Data level/);
+    }
+    const text = ["generate_migration", "check_migration_against_data"];
+    for (const t of listed.filter((l) => text.includes(l.name))) {
+      expect(t.description, t.name).toMatch(/NOTHING IS RUN|Nothing is run/);
+    }
+    for (const name of ["get_health", "find_path", "compare_structure", "generate_migration"]) {
+      expect(listed.find((l) => l.name === name)!.description, name).toMatch(/Structure level/);
+    }
+  });
+
+  it("every connection field says where its value comes from, and describe_table says to call it before a query", async () => {
+    const listed = await tools();
+    for (const t of listed) {
+      for (const field of ["connection", "from", "to"]) {
+        const property = t.inputSchema.properties[field];
+        if (property && "description" in property) {
+          expect(property.description, `${t.name}.${field}`).toMatch(/shared connection/);
+        }
+      }
+    }
+    expect(listed.find((l) => l.name === "describe_table")!.description).toMatch(
+      /before (writing|you write) a query/i,
+    );
   });
 });

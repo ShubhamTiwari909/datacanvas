@@ -280,3 +280,128 @@ describe("what a body is", () => {
     }
   });
 });
+
+describe("resources and prompts (when the server has them)", () => {
+  const rich = createMcpServer<Ctx>({
+    name: "rich",
+    title: "Rich",
+    version: "1.0.0",
+    instructions: "Read only.",
+    tools: () => [],
+    resources: {
+      list: (c) =>
+        c.offered.includes("doc")
+          ? [
+              {
+                uri: "test://doc",
+                name: "doc",
+                title: "A document",
+                description: "Text.",
+                mimeType: "text/markdown",
+              },
+              {
+                uri: "test://big",
+                name: "big",
+                title: "Big",
+                description: "Too large.",
+                mimeType: "text/plain",
+              },
+              {
+                uri: "test://breaks",
+                name: "breaks",
+                title: "Breaks",
+                description: "Fails.",
+                mimeType: "text/plain",
+              },
+            ]
+          : [],
+      read: async (uri) => {
+        if (uri === "test://doc") return "# Hello";
+        if (uri === "test://big") return "x".repeat(MAX_RESULT_CHARS + 1);
+        if (uri === "test://breaks") throw new Error(`database said: ${SECRET}`);
+        return null;
+      },
+    },
+    prompts: () => [
+      {
+        name: "ask",
+        title: "Ask",
+        description: "Asks about a thing.",
+        arguments: [
+          { name: "thing", description: "The thing.", required: true },
+          { name: "extra", description: "More.", required: false },
+        ],
+        text: (args) =>
+          `Tell me about ${args["thing"]}${args["extra"] ? ` and ${args["extra"]}` : ""}.`,
+      },
+    ],
+  });
+  const rcall = (body: unknown, context: Ctx = ctx) => rich.handle(body, context);
+  const result = (r: { body: unknown }) => (r.body as { result: Record<string, unknown> }).result;
+  const error = (r: { body: unknown }) =>
+    (r.body as { error: { code: number; message: string } }).error;
+  const withDoc: Ctx = { offered: ["doc"] };
+
+  it("declares them at initialize, and a server without them declares neither", async () => {
+    const caps = result(await rcall(rpc("initialize", { protocolVersion: "2025-06-18" })))[
+      "capabilities"
+    ];
+    expect(caps).toEqual({
+      tools: { listChanged: false },
+      resources: { subscribe: false, listChanged: false },
+      prompts: { listChanged: false },
+    });
+    const plain = result(await call(rpc("initialize", { protocolVersion: "2025-06-18" })));
+    expect(plain["capabilities"]).toEqual({ tools: { listChanged: false } });
+  });
+
+  it("lists what the context allows and reads only what is listed", async () => {
+    expect(result(await rcall(rpc("resources/list"), ctx))["resources"]).toEqual([]);
+    expect(
+      (result(await rcall(rpc("resources/list"), withDoc))["resources"] as unknown[]).length,
+    ).toBe(3);
+    expect(result(await rcall(rpc("resources/read", { uri: "test://doc" }), withDoc))).toEqual({
+      contents: [{ uri: "test://doc", mimeType: "text/markdown", text: "# Hello" }],
+    });
+    // Not listed for this caller: the same answer as a resource nobody made, and the uri is not repeated.
+    const none = await rcall(rpc("resources/read", { uri: "test://doc" }), ctx);
+    expect(error(none)).toEqual({ code: -32002, message: "Resource not found." });
+    expect(
+      JSON.stringify(await rcall(rpc("resources/read", { uri: "test://nope-SECRET" }), withDoc)),
+    ).not.toContain("SECRET");
+    expect(result(await rcall(rpc("resources/templates/list"), withDoc))).toEqual({
+      resourceTemplates: [],
+    });
+  });
+
+  it("refuses a document that is too large and says nothing of an error that holds a value", async () => {
+    expect(
+      error(await rcall(rpc("resources/read", { uri: "test://big" }), withDoc)).message,
+    ).toMatch(/too large/);
+    const broken = await rcall(rpc("resources/read", { uri: "test://breaks" }), withDoc);
+    expect(JSON.stringify(broken)).not.toContain(SECRET);
+    expect(error(broken).message).toBe("The document could not be read.");
+  });
+
+  it("gives a prompt its declared arguments only, and refuses a missing one", async () => {
+    expect(
+      (result(await rcall(rpc("prompts/list")))["prompts"] as Array<{ name: string }>).map(
+        (p) => p.name,
+      ),
+    ).toEqual(["ask"]);
+    const got = result(
+      await rcall(
+        rpc("prompts/get", { name: "ask", arguments: { thing: "orders", other: "ignored" } }),
+      ),
+    );
+    expect(got["messages"]).toEqual([
+      { role: "user", content: { type: "text", text: "Tell me about orders." } },
+    ]);
+    expect(error(await rcall(rpc("prompts/get", { name: "ask", arguments: {} }))).message).toBe(
+      "Missing argument: thing.",
+    );
+    expect(error(await rcall(rpc("prompts/get", { name: "nope" }))).message).toBe(
+      "Unknown prompt.",
+    );
+  });
+});

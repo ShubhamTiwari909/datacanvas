@@ -88,3 +88,19 @@ describe("buildServerEnv and writes (decision 125: the flag only)", () => {
     expect(base.DATACANVAS_ENABLE_WRITES).toBe("1");
   });
 });
+
+describe("buildServerEnv and the interface (docs/docker.md)", () => {
+  it("listens on loopback unless a host was chosen", () => {
+    expect(buildServerEnv(4747, "tok", {}).HOSTNAME).toBe("127.0.0.1");
+    expect(buildServerEnv(4747, "tok", {}, {}).HOSTNAME).toBe("127.0.0.1");
+  });
+
+  it("takes the host that --host chose (resolveHost has already allowed it)", () => {
+    expect(buildServerEnv(4747, "tok", {}, { host: "0.0.0.0" }).HOSTNAME).toBe("0.0.0.0");
+    expect(buildServerEnv(4747, "tok", {}, { host: "127.0.0.1" }).HOSTNAME).toBe("127.0.0.1");
+  });
+
+  it("ignores the HOSTNAME of the environment (a container sets it to its own name)", () => {
+    expect(buildServerEnv(4747, "tok", { HOSTNAME: "a1b2c3" }).HOSTNAME).toBe("127.0.0.1");
+  });
+});

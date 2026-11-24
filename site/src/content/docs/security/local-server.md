@@ -9,6 +9,14 @@ places so that a mistake in one cannot silently open the API. Since 1.10.0 every
 Content-Security-Policy with a nonce, and since 1.11.0 there is a second, separate door for Claude (`/mcp`)
 with its own token; both are described below.
 
+## Listening address
+
+DataCanvas listens on `127.0.0.1` only. The one exception is a **container** (1.11.0): `--host 0.0.0.0` is
+accepted only when `DATACANVAS_ALLOW_ANY_INTERFACE=1` is set, which the Docker image does and a normal
+computer does not. The rules below still apply, so a request through a LAN address, the container's own
+address or a published port that differs from the container's is refused with 403 (all tested); publish the
+port to `127.0.0.1` of the host only.
+
 ## Two places, same rules
 
 1. **`apps/web/proxy.ts`** (the Next.js 16 name for middleware) runs before every page and route. It also

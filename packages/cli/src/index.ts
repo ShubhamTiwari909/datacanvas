@@ -4,7 +4,7 @@
  * What it does when the user runs `npx @shubhamtiwari909/datacanvas`:
  *   1. checks the Node.js version,
  *   2. picks a port (4747, or the next free one),
- *   3. starts the bundled web server on 127.0.0.1,
+ *   3. starts the bundled web server on 127.0.0.1 (or, in a container only, on all interfaces: see host-option.ts),
  *   4. waits until it answers /api/health,
  *   5. opens the browser,
  *   6. on Ctrl+C / SIGTERM stops the server cleanly.
@@ -18,6 +18,12 @@ import { parseArgs } from "node:util";
 import { DEFAULT_PORT } from "@datacanvas/shared-types";
 import { openBrowser } from "./browser.js";
 import { ensureDataDir, resolveDataDir } from "./data-dir.js";
+import {
+  ALL_INTERFACES_HOST,
+  ALLOW_ANY_INTERFACE_ENV,
+  LOOPBACK_HOST,
+  resolveHost,
+} from "./host-option.js";
 import {
   findRunningInstance,
   isDataCanvasHealthy,
@@ -44,6 +50,8 @@ Usage: datacanvas [options]
 
 Options:
   --port <number>   Port to listen on (default: ${DEFAULT_PORT}, or the next free port)
+  --host <address>  Address to listen on: ${LOOPBACK_HOST} (default) or ${ALL_INTERFACES_HOST}, which is accepted only
+                    when ${ALLOW_ANY_INTERFACE_ENV}=1 is set (for a container; see docs/docker.md)
   --no-open         Do not open the browser automatically
   --enable-writes   Allow editing rows and changing table structure on local databases (off by default)
   -v, --version     Print the version
@@ -79,6 +87,7 @@ async function main(): Promise<void> {
     ({ values } = parseArgs({
       options: {
         port: { type: "string" },
+        host: { type: "string" },
         "no-open": { type: "boolean", default: false },
         "enable-writes": { type: "boolean", default: false },
         version: { type: "boolean", short: "v", default: false },
@@ -98,6 +107,11 @@ async function main(): Promise<void> {
     console.log(VERSION);
     return;
   }
+
+  // `--host`: loopback unless the environment allows all interfaces (a container). Refused in plain words otherwise.
+  const hostChoice = resolveHost(values.host);
+  if (!hostChoice.ok) fail(hostChoice.message);
+  const host = hostChoice.host;
 
   // The bundled web app sits next to the CLI: <package>/bin/datacanvas.mjs and
   // <package>/web/apps/web/server.js. (Layout is created by scripts/build-package.mjs.)
@@ -161,7 +175,7 @@ async function main(): Promise<void> {
   const sessionToken = generateSessionToken();
   // The token of `/mcp` is another secret, never the session token: it is accepted on that one route only.
   const mcpToken = generateSessionToken();
-  const server = startWebServer(serverJs, port, sessionToken, { enableWrites, mcpToken });
+  const server = startWebServer(serverJs, port, sessionToken, { enableWrites, mcpToken, host });
 
   // Shutdown handling. `shuttingDown` stops a second Ctrl+C from racing the first.
   let shuttingDown = false;
@@ -200,6 +214,13 @@ async function main(): Promise<void> {
   const url = `http://127.0.0.1:${port}/?token=${sessionToken}`;
   console.log(`DataCanvas is running. Open this link in your browser:\n  ${url}`);
   console.log("The link is private to this run. Press Ctrl+C to stop.");
+  if (host === ALL_INTERFACES_HOST) {
+    console.log(
+      `Listening on all interfaces of this container. Publish the port to the loopback address of the host only ` +
+        `(docker run -p ${LOOPBACK_HOST}:${port}:${port}), and keep the host port equal to ${port}: the Host check accepts only ` +
+        `${LOOPBACK_HOST}:${port} and localhost:${port}.`,
+    );
+  }
   if (enableWrites) console.log(WRITES_NOTICE);
   await writeInstance(dataDir, {
     pid: process.pid,

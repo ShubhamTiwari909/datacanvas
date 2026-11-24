@@ -9,7 +9,16 @@
  *
  * PRIVACY: nothing here logs, and no value of a table is kept here.
  */
-import { DatabaseError, isSensitiveColumnName } from "@datacanvas/database-core";
+import {
+  DatabaseError,
+  StructureTooLargeError,
+  diffStructures,
+  isSensitiveColumnName,
+  planMigration,
+  planPreflight,
+  suggestRenames,
+  type DatabaseStructure,
+} from "@datacanvas/database-core";
 import {
   READ_ONLY,
   ToolError,
@@ -24,9 +33,27 @@ import { z } from "zod";
 import type { DatabaseAdapter } from "@datacanvas/database-core";
 import { MAX_ROW_FILTERS, rowFilterSchema, rowSortSchema } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
+import { runHealthChecks } from "@/features/health/health-checks";
+import { sortTables } from "@/features/docs/types";
+import { toMarkdown } from "@/features/docs/markdown";
+import { toMermaid } from "@/features/docs/mermaid";
+import { findingsFor, flattenChecks, inRequests } from "@/features/migrations/preflight-findings";
 import type { ConnectionService } from "./connection-service";
 import { McpControl, REQUEST_CHARS } from "./mcp-control";
 import { CursorSealer } from "./mcp-cursor";
+import {
+  PROMPTS,
+  diagramUri,
+  findPaths,
+  loadEntries,
+  redactEntries,
+  redactStructure,
+  schemaUri,
+  shapeDiff,
+  shapeHealth,
+  shapeMigration,
+  shapePaths,
+} from "./mcp-insight";
 import {
   failureWords,
   forbiddenNamesIn,
@@ -133,6 +160,19 @@ export class McpService {
       // The data tools exist for a caller only while some connection is shared at the data level.
       tools: (context) =>
         context.service.anyData() ? this.tools : this.tools.filter((t) => !DATA_TOOLS.has(t.name)),
+      resources: {
+        list: (context) => context.service.listResources(),
+        read: (uri, context) => context.service.readResource(uri),
+      },
+      // A prompt that needs the data level is offered only while a connection is shared at it.
+      prompts: (context) =>
+        PROMPTS.filter((p) => !p.data || context.service.anyData()).map((p) => ({
+          name: p.name,
+          title: p.title,
+          description: p.description,
+          arguments: p.arguments,
+          text: (args) => p.text(args),
+        })),
     });
   }
 
@@ -193,7 +233,9 @@ export class McpService {
     context: Context,
     signal?: CancelSignal,
   ): Promise<ToolResult> {
-    const connection = (args as { connection?: unknown } | null)?.connection;
+    // A tool on two connections (`from` and `to`) is asked about, approved and counted under `from`, the one that is read.
+    const given = args as { connection?: unknown; from?: unknown } | null;
+    const connection = given?.connection ?? given?.from;
     const connectionId = typeof connection === "string" ? connection : null;
     const summary = connectionId ? this.connections.getSummary(connectionId) : undefined;
     const request = describeRequest(tool.name, args);
@@ -390,6 +432,70 @@ export class McpService {
     } catch (error) {
       throw asToolError(error);
     }
+  }
+
+  /** The structure of a shared connection, made safe for Claude (see `mcp-insight.ts`), whole. */
+  async capturedStructure(id: string): Promise<DatabaseStructure> {
+    if (this.levelOf(id) === "off") throw new ToolError(NOT_SHARED);
+    try {
+      return redactStructure((await this.rows.captureStructure(id)).structure);
+    } catch (error) {
+      if (error instanceof StructureTooLargeError) {
+        throw new ToolError(
+          "This database is too large to read as a whole. Ask about a schema or a table.",
+        );
+      }
+      throw new ToolError("The database could not be read right now.");
+    }
+  }
+
+  /** How many rows would make the checks of a migration fail, in one connection (counts only; the data level). */
+  async preflightCounts(
+    id: string,
+    checks: Parameters<ConnectionService["preflight"]>[1]["checks"],
+  ) {
+    this.requireData(id);
+    try {
+      return await this.rows.preflight(id, { checks });
+    } catch (error) {
+      throw asToolError(error);
+    }
+  }
+
+  /** The documents Claude may read: the schema of each shared connection as text, and its diagram. */
+  listResources() {
+    return this.listShared().flatMap((c) => [
+      {
+        uri: schemaUri(c.id),
+        name: `${c.name}: schema`,
+        title: `Schema of ${c.name}`,
+        description:
+          "The data dictionary: tables, columns, keys, indexes and relationships. No row of any table.",
+        mimeType: "text/markdown",
+      },
+      {
+        uri: diagramUri(c.id),
+        name: `${c.name}: diagram`,
+        title: `Diagram of ${c.name}`,
+        description: "The tables and their foreign keys as a Mermaid entity-relationship diagram.",
+        mimeType: "text/plain",
+      },
+    ]);
+  }
+
+  async readResource(uri: string): Promise<string | null> {
+    const match = /^datacanvas:\/\/connection\/([^/]+)\/(schema|diagram)$/.exec(uri);
+    if (!match) return null;
+    const id = match[1]!;
+    const summary = this.connections.getSummary(id);
+    if (!summary || this.levelOf(id) === "off") return null;
+    const { entries, relationships } = await this.structure(id, (adapter) => loadEntries(adapter));
+    const input = {
+      tables: sortTables(redactEntries(entries)),
+      relationships,
+      title: summary.name,
+    };
+    return (match[2] === "schema" ? toMarkdown(input) : toMermaid(input)).text;
   }
 
   /** Seal a cursor for Claude, for one connection, table and sort. */
@@ -827,6 +933,218 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
       return { text: text.length > 20_000 ? `${text.slice(0, 20_000)}…` : text, data: { plan } };
     },
   },
+  {
+    name: "get_health",
+    title: "Check the health of the schema",
+    description:
+      "Runs the schema health checks of DataCanvas on one connection (or one schema of it): tables without a primary key, foreign keys without an index, columns whose types differ across a foreign key, duplicate, redundant and unused indexes, nullable foreign keys, inconsistent names and very wide tables. Each finding names the table and, where a safe statement exists, suggests the SQL as text (nothing is run). At most 200 findings, the serious ones first. Structure level; no row is read.",
+    input: z.strictObject({
+      connection: connectionField,
+      schema: identifier.optional().describe("Only this schema (all schemas when left out)."),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as { connection: string; schema?: string };
+      const found = await context.service.structure(a.connection, async (adapter) => {
+        const loaded = await loadEntries(adapter, a.schema);
+        const usage = await adapter.getIndexUsage().catch(() => null);
+        return { loaded, usage };
+      });
+      const report = runHealthChecks(
+        redactEntries(found.loaded.entries),
+        found.loaded.relationships,
+        { usage: found.usage },
+      );
+      const shaped = shapeHealth(report, found.loaded.skipped);
+      const summary = shaped.counts.map((c) => `${c.count} x ${c.title}`).join("; ");
+      return {
+        text:
+          `${shaped.checkedTables} tables checked: ${shaped.findings.length === 0 ? "no findings" : summary}.` +
+          (shaped.truncated ? " Only the first 200 findings are listed." : "") +
+          (shaped.skippedTables > 0
+            ? ` ${shaped.skippedTables} tables were left out (limit).`
+            : "") +
+          (shaped.usage === null ? " The unused-index check did not run (no usage counters)." : ""),
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "find_path",
+    title: "Find the foreign-key path between two tables",
+    description:
+      "Finds the shortest chains of foreign keys between two tables (up to 5, fewest joins first), the columns joined at each step, whether a step multiplies rows, and a ready SELECT ... JOIN ... as text. Structure level; nothing is run.",
+    input: z.strictObject({
+      connection: connectionField,
+      from: z.strictObject({ schema: identifier, table: identifier }),
+      to: z.strictObject({ schema: identifier, table: identifier }),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as {
+        connection: string;
+        from: { schema: string; table: string };
+        to: { schema: string; table: string };
+      };
+      const relationships = await context.service.structure(a.connection, (adapter) =>
+        adapter.getRelationships(),
+      );
+      const search = findPaths(relationships, a.from, a.to);
+      const shaped = shapePaths(search, relationships);
+      return {
+        text:
+          shaped.status === "found"
+            ? `${shaped.paths.length} path${shaped.paths.length === 1 ? "" : "s"} of ${shaped.joins} join${shaped.joins === 1 ? "" : "s"}.`
+            : shaped.status === "same_table"
+              ? "Both are the same table."
+              : "No chain of foreign keys connects these two tables.",
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "compare_structure",
+    title: "Compare the structure of two connections",
+    description:
+      "Compares the structure of two shared connections (for example staging against production): schemas, tables, columns, constraints, indexes and foreign keys that were added, removed or changed, going from `from` to `to`. Views, functions and other objects are not compared; defaults and comments of hidden columns are left out. At most 200 tables are listed. Structure level; no row is read.",
+    input: z.strictObject({ from: connectionField, to: connectionField }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as { from: string; to: string };
+      const [before, after] = await Promise.all([
+        context.service.capturedStructure(a.from),
+        context.service.capturedStructure(a.to),
+      ]);
+      const diff = diffStructures(before, after);
+      const shaped = shapeDiff(diff);
+      const t = diff.summary.tables;
+      return {
+        text: diff.isEmpty
+          ? "The two structures are the same (views, functions and other objects were not compared)."
+          : `Tables: ${t.added} added, ${t.removed} removed, ${t.changed} changed; columns: ${diff.summary.columns.added} added, ${diff.summary.columns.removed} removed, ${diff.summary.columns.changed} changed.`,
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "generate_migration",
+    title: "Write a migration between two connections",
+    description:
+      "Writes the SQL that turns the structure of `from` into the structure of `to` (both shared connections), with its rollback. NOTHING IS RUN, here or by DataCanvas: this is text for the person to review. Every step says what it risks (a lock, a rewrite, it can fail on existing rows, it destroys data) and whether its reverse brings everything back. A rename is only applied when you pass its id in `renames` (suggestions are listed with the evidence); otherwise it is a drop and an add, which loses the rows. Views, functions and other objects are not compared. Structure level.",
+    input: z.strictObject({
+      from: connectionField,
+      to: connectionField,
+      concurrent_indexes: z
+        .boolean()
+        .optional()
+        .describe(
+          "CREATE INDEX CONCURRENTLY for tables that exist (a step outside the transaction).",
+        ),
+      safe_constraints: z
+        .boolean()
+        .optional()
+        .describe("Add CHECKs and foreign keys NOT VALID, then VALIDATE in a step of their own."),
+      renames: z
+        .array(z.string().min(1).max(300))
+        .max(100)
+        .optional()
+        .describe("The ids of the rename suggestions that are right."),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as {
+        from: string;
+        to: string;
+        concurrent_indexes?: boolean;
+        safe_constraints?: boolean;
+        renames?: string[];
+      };
+      const [from, to] = await Promise.all([
+        context.service.capturedStructure(a.from),
+        context.service.capturedStructure(a.to),
+      ]);
+      const plan = planMigration(from, to, {
+        concurrentIndexes: a.concurrent_indexes === true,
+        safeConstraints: a.safe_constraints === true,
+        renames: a.renames ?? [],
+      });
+      const shaped = shapeMigration(plan, suggestRenames(from, to), a.renames ?? []);
+      const destructive = plan.steps.filter((s) => s.risk.includes("destructive")).length;
+      return {
+        text:
+          plan.steps.length === 0
+            ? "Nothing to change: the two structures match (views, functions and other objects were not compared)."
+            : `${plan.steps.length} step${plan.steps.length === 1 ? "" : "s"}${destructive > 0 ? `, ${destructive} destructive` : ""}; reversibility: ${plan.reversibility}. Not run: this is text for the person to review.`,
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "check_migration_against_data",
+    title: "Check a migration against the data",
+    description:
+      "Does what `generate_migration` does for the same arguments, then asks the database of `from` how many rows would make each step fail (a NOT NULL on a column with NULLs, a new unique key or foreign key that existing rows break, a required column). Only COUNTS come back, never a row; a step that cannot be checked says so. Nothing is run or changed. Data level on `from`; `to` needs the structure level.",
+    input: z.strictObject({
+      from: connectionField,
+      to: connectionField,
+      concurrent_indexes: z.boolean().optional(),
+      safe_constraints: z.boolean().optional(),
+      renames: z.array(z.string().min(1).max(300)).max(100).optional(),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as {
+        from: string;
+        to: string;
+        concurrent_indexes?: boolean;
+        safe_constraints?: boolean;
+        renames?: string[];
+      };
+      context.service.requireData(a.from);
+      const [from, to] = await Promise.all([
+        context.service.capturedStructure(a.from),
+        context.service.capturedStructure(a.to),
+      ]);
+      const plan = planMigration(from, to, {
+        concurrentIndexes: a.concurrent_indexes === true,
+        safeConstraints: a.safe_constraints === true,
+        renames: a.renames ?? [],
+      });
+      const planned = planPreflight(plan.steps, to);
+      const results = [];
+      for (const batch of inRequests(flattenChecks(planned))) {
+        results.push(...(await context.service.preflightCounts(a.from, batch)));
+      }
+      const findings = findingsFor(
+        planned,
+        results,
+        plan.steps.some((s) => s.kind.startsWith("rename_")),
+      );
+      const steps = plan.steps.map((s) => ({
+        id: s.id,
+        kind: s.kind,
+        note: s.note,
+        risk: s.risk,
+        verdict: findings.get(s.id)?.verdict ?? "unchecked",
+        findings: findings.get(s.id)?.lines ?? [],
+      }));
+      const failing = steps.filter((s) => s.verdict === "fails" || s.verdict === "partly").length;
+      return {
+        text:
+          plan.steps.length === 0
+            ? "Nothing to change: the two structures match."
+            : `${plan.steps.length} steps checked against the data of the connection that would change: ${failing} would fail or partly fail. Counts only; nothing was run.`,
+        data: {
+          steps,
+          stepCount: steps.length,
+          failing,
+          notCompared: [...plan.notCompared],
+          instructions:
+            "Counts say how the data is today, not that a step is safe: the checks do not cover every constraint or type change. Hand the result and the SQL of generate_migration to the person.",
+        },
+      };
+    },
+  },
 ];
 
 /** Control and direction characters are shown as escapes: a statement must not be able to disguise what it says. */
@@ -860,6 +1178,7 @@ const DATA_TOOLS: ReadonlySet<string> = new Set([
   "read_rows",
   "run_readonly_query",
   "explain_query",
+  "check_migration_against_data",
 ]);
 
 /** The names of the tools, for the test that pins the list. */

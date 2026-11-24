@@ -67,7 +67,7 @@ The **Migrations** tab writes SQL as **text** and runs none of it: there is no n
 
 A web page you visit can try to reach programs listening on `127.0.0.1`. DataCanvas defends against that in layers:
 
-1. It listens on `127.0.0.1` only, never on your network.
+1. It listens on `127.0.0.1` only, never on your network. (The one exception is a container, 1.11.0: `--host 0.0.0.0` is refused unless `DATACANVAS_ALLOW_ANY_INTERFACE=1` is set, which only the Docker image does, because a published port reaches the program through the container's own interface. Every other layer below still applies, so a request that arrives through a LAN address is refused; publish the port to `127.0.0.1` of the host only, see `docs/docker.md`.)
 2. **Host check** (blocks "DNS rebinding"): only `127.0.0.1:<port>` and `localhost:<port>` are accepted.
 3. **Origin check**: state-changing requests from another web page are refused. The browser's `Sec-Fetch-Site` hint must say same-origin.
 4. **Session token**: every start creates a new random secret. The link printed by `datacanvas` carries it once; the app swaps it for an `HttpOnly`, `SameSite=Strict` cookie and removes it from the address bar. Requests without it are refused. Treat the printed link like a password while DataCanvas runs.
@@ -94,7 +94,7 @@ None of these writes to a database.
 
 ## Letting Claude read a connection (1.11.0)
 
-Off until you press **Share with Claude** under a connection. Nothing in it writes to a database, to a file or anywhere else: there are eight tools and a test pins the list.
+Off until you press **Share with Claude** under a connection. Nothing in it writes to a database, to a file or anywhere else: there are thirteen tools and a test pins the list.
 
 - **What it is.** The Claude app you already use (Claude Desktop, Claude Code, any MCP client) asks DataCanvas on this machine for things to read, and DataCanvas answers. DataCanvas holds no API key and calls no cloud service. **What Claude reads is sent to Anthropic by the Claude app, and DataCanvas cannot stop that or take it back.** Share only what may leave your machine, and use a database user that cannot read the rest.
 - **Two levels**, per connection, kept in memory only (never saved with a profile, a workspace or a snapshot; gone on a restart, on a disconnect, and when viewing table data is switched off). **Structure**: names, types, keys, indexes, foreign keys and the server's statistics, no row. **Structure and data**: also pages of rows and read-only queries, which needs **Allow viewing table data**.

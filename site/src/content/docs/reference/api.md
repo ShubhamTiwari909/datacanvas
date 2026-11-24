@@ -90,7 +90,7 @@ own. See [Protecting the local server](/security/local-server/#the-door-for-clau
   The Host check applies; **a request with an `Origin` or `Sec-Fetch-Site` header is refused (403)**; no CORS
   headers.
 - **404** while no token is configured and **while no connection is shared**, before the body is read.
-- **Tools:** eight, read-only, strict input schemas: `list_connections`, `list_schemas`, `list_tables`,
+- **Tools:** thirteen, read-only, strict input schemas: `list_connections`, `list_schemas`, `list_tables`,
   `describe_table`, `search_objects` and, only while a connection is at the data level, `read_rows`,
   `run_readonly_query`, `explain_query`. Details and limits: [MCP server](/architecture/mcp/) and
   [Limits](/reference/limits/#claude-reading-a-connection-mcp-1110).

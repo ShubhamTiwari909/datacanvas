@@ -1,0 +1,15 @@
+{
+  "name": "datacanvas",
+  "description": "Plugins for DataCanvas, the local-first PostgreSQL explorer.",
+  "owner": {
+    "name": "ShubhamTiwari909",
+    "url": "https://github.com/ShubhamTiwari909"
+  },
+  "plugins": [
+    {
+      "name": "datacanvas",
+      "source": "./integrations/claude-code",
+      "description": "Let Claude read a PostgreSQL database that you share from DataCanvas: structure tools, health checks, paths, comparison, migration drafts and, only if you allow it, read-only rows and queries."
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 /**
  * The Model Context Protocol, tools only, as a pure function from a request body to an answer (`docs/mcp-server-plan.md`,
- * sections 4 and 5; decision 169). It speaks `initialize`, `ping`, `tools/list` and `tools/call`, over JSON-RPC 2.0; any
- * other method is "method not found", and the server declares no resources, no prompts and no logging, so a client does
- * not ask for them. It is stateless (no session), has no network code and no framework: a route hands it a parsed body and
+ * sections 4 and 5; decision 169). It speaks `initialize`, `ping`, `tools/list` and `tools/call`, and, when the server is
+ * given a catalog of them, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list` and
+ * `prompts/get`, over JSON-RPC 2.0; any other method is "method not found", and the server declares no logging. It is stateless (no session), has no network code and no framework: a route hands it a parsed body and
  * a context and sends what it returns.
  *
  * Every error answer is a fixed sentence that repeats nothing the client sent, and a tool's own failure is a tool RESULT
@@ -21,7 +21,10 @@ import {
 import {
   ToolError,
   type CancelSignal,
+  type ListedPrompt,
   type ListedTool,
+  type PromptDefinition,
+  type ResourceCatalog,
   type ToolDefinition,
   type ToolResult,
 } from "./tools.js";
@@ -45,6 +48,10 @@ export interface McpServerOptions<Context> {
   instructions: string;
   /** The tools this caller may see and call (a function of the context: the sharing state decides). */
   tools: (context: Context) => ReadonlyArray<ToolDefinition<Context>>;
+  /** Documents a client may read (optional: without it the server declares no resources). */
+  resources?: ResourceCatalog<Context>;
+  /** Prompts a client may offer its user (optional: without it the server declares no prompts). */
+  prompts?: (context: Context) => ReadonlyArray<PromptDefinition<Context>>;
 }
 
 /** What a route sends back: a status, and a body (null for "accepted, nothing to say"). */
@@ -57,6 +64,22 @@ const initializeParams = z.looseObject({
   protocolVersion: z.string().max(40),
   capabilities: z.looseObject({}).optional(),
   clientInfo: z.looseObject({}).optional(),
+});
+
+const readParams = z.looseObject({ uri: z.string().min(1).max(500) });
+const promptParams = z.looseObject({
+  name: z.string().min(1).max(100),
+  arguments: z.record(z.string().max(100), z.string().max(4000)).optional(),
+});
+
+/** The error code of the specification for a resource that does not exist. */
+const RESOURCE_NOT_FOUND = -32002;
+
+const listedPrompt = (p: ListedPrompt): ListedPrompt => ({
+  name: p.name,
+  title: p.title,
+  description: p.description,
+  arguments: p.arguments,
 });
 
 const callParams = z.looseObject({
@@ -158,7 +181,11 @@ export function createMcpServer<Context>(options: McpServerOptions<Context>): {
           : SUPPORTED_PROTOCOL_VERSIONS[0];
         return success(request.id, {
           protocolVersion: version,
-          capabilities: { tools: { listChanged: false } },
+          capabilities: {
+            tools: { listChanged: false },
+            ...(options.resources ? { resources: { subscribe: false, listChanged: false } } : {}),
+            ...(options.prompts ? { prompts: { listChanged: false } } : {}),
+          },
           serverInfo: { name: options.name, title: options.title, version: options.version },
           instructions: options.instructions,
         });
@@ -174,9 +201,70 @@ export function createMcpServer<Context>(options: McpServerOptions<Context>): {
         }
         return success(request.id, result);
       }
-      default:
-        return failure(request.id, ERROR.methodNotFound, "Method not found.");
+      case "resources/list":
+        if (!options.resources) break;
+        return success(request.id, { resources: options.resources.list(context) });
+      case "resources/templates/list":
+        if (!options.resources) break;
+        return success(request.id, { resourceTemplates: [] });
+      case "resources/read": {
+        if (!options.resources) break;
+        const params = readParams.safeParse(request.params);
+        if (!params.success) return failure(request.id, ERROR.invalidParams, "Invalid parameters.");
+        const uri = params.data.uri;
+        // Only a uri that is listed for this caller can be read: a made-up one is a resource nobody made.
+        const listed = options.resources.list(context).find((r) => r.uri === uri);
+        if (!listed) return failure(request.id, RESOURCE_NOT_FOUND, "Resource not found.");
+        try {
+          const text = await options.resources.read(uri, context, signal);
+          if (text === null) return failure(request.id, RESOURCE_NOT_FOUND, "Resource not found.");
+          if (text.length > MAX_RESULT_CHARS) {
+            return failure(request.id, ERROR.invalidParams, "The document is too large to send.");
+          }
+          return success(request.id, {
+            contents: [{ uri, mimeType: listed.mimeType, text }],
+          });
+        } catch (error) {
+          return failure(
+            request.id,
+            ERROR.invalidParams,
+            error instanceof ToolError ? error.message : "The document could not be read.",
+          );
+        }
+      }
+      case "prompts/list":
+        if (!options.prompts) break;
+        return success(request.id, { prompts: options.prompts(context).map(listedPrompt) });
+      case "prompts/get": {
+        if (!options.prompts) break;
+        const params = promptParams.safeParse(request.params);
+        if (!params.success) return failure(request.id, ERROR.invalidParams, "Invalid parameters.");
+        const prompt = options.prompts(context).find((p) => p.name === params.data.name);
+        if (!prompt) return failure(request.id, ERROR.invalidParams, "Unknown prompt.");
+        const given = params.data.arguments ?? {};
+        const missing = prompt.arguments.filter((a) => a.required && !given[a.name]);
+        if (missing.length > 0) {
+          return failure(
+            request.id,
+            ERROR.invalidParams,
+            `Missing argument: ${missing.map((a) => a.name).join(", ")}.`,
+          );
+        }
+        // Only the arguments the prompt declares reach it.
+        const known = Object.fromEntries(
+          prompt.arguments.flatMap((a) =>
+            given[a.name] === undefined ? [] : [[a.name, given[a.name]!]],
+          ),
+        );
+        return success(request.id, {
+          description: prompt.description,
+          messages: [
+            { role: "user", content: { type: "text", text: prompt.text(known, context) } },
+          ],
+        });
+      }
     }
+    return failure(request.id, ERROR.methodNotFound, "Method not found.");
   }
 
   return {

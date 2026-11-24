@@ -191,15 +191,21 @@ describe("no CORS", () => {
 });
 
 describe("loopback only", () => {
-  it("the CLI never mentions an all-interfaces address", () => {
+  it("the CLI never mentions an all-interfaces address, except in the one file that guards `--host` (a container needs it)", () => {
     const files = walk(path.join(root, "packages/cli/src")).filter((f) => f.endsWith(".ts"));
+    const hostOption = "packages/cli/src/host-option.ts";
     for (const file of files) {
       if (file.endsWith(".test.ts")) continue;
       const code = readFileSync(file, "utf8");
       // Comments may warn about it; code must not use it.
       const withoutComments = code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      if (rel(file) === hostOption) continue;
       expect(withoutComments, rel(file)).not.toContain("0.0.0.0");
     }
+    // The exception is only as wide as its guard: the address is accepted only when the environment says so.
+    const guard = readFileSync(path.join(root, hostOption), "utf8");
+    expect(guard).toMatch(/DATACANVAS_ALLOW_ANY_INTERFACE/);
+    expect(guard).toMatch(/env\[ALLOW_ANY_INTERFACE_ENV\] === "1"/);
   });
 });
 
@@ -1680,6 +1686,11 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
       "read_rows",
       "run_readonly_query",
       "explain_query",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
+      "check_migration_against_data",
     ]);
     expect((code.match(/annotations: READ_ONLY/g) ?? []).length).toBe(names.length);
     for (const name of names)

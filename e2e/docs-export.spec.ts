@@ -129,21 +129,32 @@ test.describe("documentation exports", () => {
     await expect(page.locator(".react-flow__node").first()).toBeVisible();
     await page.getByRole("button", { name: "Export", exact: true }).click();
     // Nothing may stick out of the dialog: the notice and all four buttons stay inside its box (it once fell back to the
-    // narrowest size and the footer overflowed).
+    // narrowest size and the footer overflowed). Measured once the dialog has stopped zooming in, all in one pass.
     const exportDialog = page.getByRole("dialog", { name: "Export diagram" });
     await expect(exportDialog).toBeVisible();
-    await settleForAxe(page); // the dialog zooms in; measure it at rest
-    const box = await exportDialog.boundingBox();
-    expect(box).not.toBeNull();
-    for (const part of [
-      exportDialog.getByRole("alert").or(exportDialog.locator("[data-slot=dialog-footer]")),
-      exportDialog.getByRole("button", { name: "Cancel" }),
-      exportDialog.getByRole("button", { name: /^Documentation and diagram text/ }),
-      exportDialog.getByRole("button", { name: /Save as PNG/ }),
+    const outside = await exportDialog.evaluate(async (root) => {
+      await Promise.all(
+        root.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)),
+      );
+      const box = root.getBoundingClientRect();
+      const bad: string[] = [];
+      for (const el of root.querySelectorAll("button, p, [data-slot=dialog-footer]")) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.left < box.left - 1 || r.right > box.right + 1) {
+          bad.push(`${el.tagName} "${(el.textContent ?? "").slice(0, 30)}" sticks out`);
+        }
+      }
+      return bad;
+    });
+    expect(outside).toEqual([]);
+    for (const name of [
+      /^Cancel$/,
+      /^Documentation and diagram text/,
+      /Save as SVG/,
+      /Save as PNG/,
     ]) {
-      const inner = await part.first().boundingBox();
-      expect(inner!.x).toBeGreaterThanOrEqual(box!.x - 1);
-      expect(inner!.x + inner!.width).toBeLessThanOrEqual(box!.x + box!.width + 1);
+      await expect(exportDialog.getByRole("button", { name })).toBeVisible();
     }
     await page.getByRole("button", { name: /^Documentation and diagram text/ }).click();
     await expect(page.getByRole("dialog", { name: "Export documentation" })).toBeVisible();

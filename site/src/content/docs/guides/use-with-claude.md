@@ -66,28 +66,68 @@ test on each platform and records no result. If the first start is slow, install
 and using `datacanvas mcp` as the command is the plan's own fallback (**Inference**: the plan says the
 setup text should then say so).
 
-## What Claude can do: eight tools
+## What Claude can do: thirteen tools
 
-Claude gets **eight tools and no more**; a test pins the list. **There is no tool that writes.**
+Claude gets **thirteen tools and no more**; a test pins the list. **There is no tool that writes.**
 
-| Tool                 | Level     | What it does                                                                                         |
-| -------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
-| `list_connections`   | structure | The connections you shared: an id, the name you gave, the database name, the level. No host or user. |
-| `list_schemas`       | structure | Schemas with how many tables and views each has.                                                     |
-| `list_tables`        | structure | Tables and views of a schema, with estimated rows; up to 500 a call, then a cursor.                  |
-| `describe_table`     | structure | Columns, keys, constraints, indexes, foreign keys both ways and the table's statistics.              |
-| `search_objects`     | structure | Tables and columns whose **name** contains a word; up to 50 results.                                 |
-| `read_rows`          | data      | One page of rows (up to 100 rows, 50 by default), with filters and a sort, by the page reader.       |
-| `run_readonly_query` | data      | **One** read-only statement (`SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`).                           |
-| `explain_query`      | data      | The planner's plan (JSON) for one statement, **without running it** (never `ANALYZE`).               |
+| Tool                           | Level     | What it does                                                                                                                                                           |
+| ------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_connections`             | structure | The connections you shared: an id, the name you gave, the database name, the level. No host or user.                                                                   |
+| `list_schemas`                 | structure | Schemas with how many tables and views each has.                                                                                                                       |
+| `list_tables`                  | structure | Tables and views of a schema, with estimated rows; up to 500 a call, then a cursor.                                                                                    |
+| `describe_table`               | structure | Columns, keys, constraints, indexes, foreign keys both ways and the table's statistics.                                                                                |
+| `search_objects`               | structure | Tables and columns whose **name** contains a word; up to 50 results.                                                                                                   |
+| `read_rows`                    | data      | One page of rows (up to 100 rows, 50 by default), with filters and a sort, by the page reader.                                                                         |
+| `run_readonly_query`           | data      | **One** read-only statement (`SELECT`, `WITH`, `VALUES`, `TABLE`, `SHOW`).                                                                                             |
+| `explain_query`                | data      | The planner's plan (JSON) for one statement, **without running it** (never `ANALYZE`).                                                                                 |
+| `get_health`                   | structure | The Health tab's checks (missing keys, unindexed foreign keys, type mismatches, duplicate and unused indexes...) with the suggested SQL as text; 200 findings at most. |
+| `find_path`                    | structure | The shortest chains of foreign keys between two tables, the columns joined, and the join as text.                                                                      |
+| `compare_structure`            | structure | What was added, removed or changed going from one **shared** connection to another (staging against production).                                                       |
+| `generate_migration`           | structure | The SQL, its rollback and its risks that turn one shared connection into another, **as text: nothing is run**.                                                         |
+| `check_migration_against_data` | data      | How many rows would make each step of that migration fail: **counts, never a row**. `from` must be at the data level.                                                  |
 
 The data tools appear in Claude's tool list only while some connection is shared at the data level. The
 limits of each are in [Limits](/reference/limits/#claude-reading-a-connection-mcp-1110); how they work is in
 [MCP server](/architecture/mcp/).
 
+### The migration loop, and what it leaves out
+
+`generate_migration` between two shared connections (a scratch copy or staging as the target) returns the
+steps with what each risks (a lock, a rewrite, it can fail on existing rows, it destroys data) and whether its
+reverse brings everything back; `check_migration_against_data` adds how many of your rows would break each
+step. **The SQL is text for you to review and run yourself.** A rename is only applied when Claude passes the
+id of the suggestion you agree with; otherwise it is a drop and an add, which loses the rows. **Views,
+functions, triggers, types and other objects are not compared** (a function body is code and can hold a
+literal), and the default, comment and check of a hidden column are left out. A snapshot is not a source:
+snapshots are not tied to a connection you shared.
+
+### The schema as a document, and prompts
+
+Each shared connection's schema is a **resource** Claude can read (`datacanvas://connection/<id>/schema`, a
+Markdown data dictionary, and `/diagram`, a Mermaid diagram; no row). There are also six **prompts** your
+Claude app can offer: find tables without a primary key, review the schema's health, explain the schema, how
+two tables are related, review a migration, and (data level only) tune a query. A prompt holds only what you
+typed.
+
 Statements run through **the SQL tab's runner**: a read-only transaction on a connection of its own, one
 statement, the first-word list, and the row and time limits. Pages run through **the page reader** that
 already hides sensitive-named columns. Nothing new reaches the database.
+
+## Connecting your Claude app
+
+The share dialog has a **Your app** picker with copy-paste text for **Claude Code** (a command, or a
+`.mcp.json` you commit so that a whole team gets it), **Claude Desktop**, **Cursor** and **VS Code**. Every one
+starts the same bridge, `npx --yes @shubhamtiwari909/datacanvas mcp`, which finds the running DataCanvas by
+itself, so no token, port or password is ever in a config file. The file formats are the editors' own and can
+change; if one is not accepted, check the editor's MCP documentation (VS Code's own agent harness may read a
+different file). For **Claude Code** there is also a **plugin** with a skill that teaches an agent the
+workflow (`integrations/claude-code` in the repository; `/plugin marketplace add ShubhamTiwari909/pg-visualizer`
+then `/plugin install datacanvas@datacanvas`), and in a **Docker container** the bridge is
+`docker exec -i <container> datacanvas mcp` (see
+[docs/docker.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/docker.md) and
+[docs/agent-setup.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/agent-setup.md)).
+**Unverified:** none of the editor files was tried in a real editor, and the GitHub install form of the plugin
+works only once this release is merged.
 
 ## You stay in control
 

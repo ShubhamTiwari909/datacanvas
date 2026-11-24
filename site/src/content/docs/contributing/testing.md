@@ -62,7 +62,7 @@ used by UI tests and demos.
   `node:http`, `node:net` or `process.`).
 - `tests/security.test.ts` also has rules for the MCP door (1.11.0): `/mcp` has its own guard in `proxy.ts` and
   in the route and the cookie guard never reads an `Authorization` header; no MCP file logs; the tool list is
-  pinned at eight read-only tools; the MCP files import nothing that writes; the data tools reach data only
+  pinned at thirteen read-only tools; the MCP files import nothing that writes; the data tools reach data only
   through the SQL service and the page reader; `mcp.json` holds only the pid, the port and the MCP token and is
   written `0600`.
 - `e2e/csp.spec.ts` and the end-to-end fixture: every end-to-end test fails when a page breaks the

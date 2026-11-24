@@ -109,7 +109,7 @@ None of these writes to a database.
 
 **Off until you press Share with Claude** under a connection. A Claude app you already use (Claude Desktop,
 Claude Code, any MCP client) asks DataCanvas, on your machine, for things to read, and DataCanvas answers.
-Nothing in it writes to a database, to a file or anywhere else: there are **eight tools** and a test pins the
+Nothing in it writes to a database, to a file or anywhere else: there are **thirteen tools** and a test pins the
 list; none changes anything. Guide: [Use DataCanvas from Claude](/guides/use-with-claude/). Design:
 [MCP server](/architecture/mcp/).
 

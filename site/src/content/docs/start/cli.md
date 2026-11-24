@@ -9,6 +9,7 @@ datacanvas mcp                A bridge for a Claude app (read only)
 
   --port <number>   Port to listen on (default 4747, or the next free port)
   --no-open         Do not open the browser automatically
+  --host <address>  127.0.0.1 (default) or 0.0.0.0 (a container only: needs DATACANVAS_ALLOW_ANY_INTERFACE=1)
   --enable-writes   Allow editing rows and changing table structure on local databases (off by default)
   -v, --version     Print the version
   -h, --help        Show help
@@ -26,6 +27,17 @@ after `--`: `npm run app -- --port 4900`.
 Must be a whole number from 1 to 65535. An explicit port that is busy is an error. Without the flag,
 DataCanvas tries 4747 and quietly falls back to the next free port. Passing a port that differs from an
 already-running instance starts a new instance on that port.
+
+### `--host <address>`
+
+`127.0.0.1` (the default) or `0.0.0.0`. DataCanvas listens on your own computer only; `0.0.0.0` exists for a
+**container**, where a published port reaches the program through the container's own network interface. It is
+accepted only when the environment variable `DATACANVAS_ALLOW_ANY_INTERFACE` is exactly `1` (the Docker image
+sets it, a normal computer does not); otherwise the CLI exits with an explanation. Nothing else is loosened:
+the Host check accepts only `127.0.0.1:<port>` and `localhost:<port>`, and the session token and the token of
+`/mcp` are still required, so a request through a LAN address is refused. Publish the port to `127.0.0.1` of
+the host only, with the same port on both sides. The full recipe is in
+[docs/docker.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/docker.md).
 
 ### `--no-open`
 

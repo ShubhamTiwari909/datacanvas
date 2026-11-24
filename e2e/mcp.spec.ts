@@ -108,6 +108,10 @@ test.describe("the MCP server", () => {
       "list_tables",
       "describe_table",
       "search_objects",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
     ]);
     const called = await client.callTool({ name: "list_connections", arguments: {} });
     expect(called.isError).toBeFalsy();
@@ -173,6 +177,10 @@ test.describe("the MCP server", () => {
       "list_tables",
       "describe_table",
       "search_objects",
+      "get_health",
+      "find_path",
+      "compare_structure",
+      "generate_migration",
     ]);
     const schemas = await client.callTool({ name: "list_schemas", arguments: { connection: id } });
     expect(JSON.stringify(schemas.structuredContent)).toContain('"schema":"public"');
@@ -523,6 +531,143 @@ test.describe("the data level, against a real database", () => {
     await client.close();
   });
 
+  test("the analysis tools on two real databases: health, path, comparison, a migration as text, its check against the data, the schema as a document and the prompts", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const targetName = `${database.name}_to`;
+    const onTarget = async (text: string) => {
+      const c = new pg.Client({
+        host: database.host,
+        port: database.port,
+        user: database.user,
+        password: database.password,
+        database: targetName,
+      });
+      await c.connect();
+      try {
+        await c.query(text);
+      } finally {
+        await c.end();
+      }
+    };
+    await admin(database, `CREATE DATABASE "${targetName}"`);
+    try {
+      await onTarget(`CREATE TABLE public.rv_orders (id int PRIMARY KEY, total numeric NOT NULL, note text);
+         CREATE TABLE public.rv_secrets (id int PRIMARY KEY, api_token text DEFAULT 'DEFAULT-SECRET-VALUE');`);
+      await admin(
+        database,
+        `CREATE TABLE public.rv_orders (id int PRIMARY KEY, note text);
+         INSERT INTO public.rv_orders VALUES (1, 'a'), (2, 'b');
+         CREATE TABLE public.rv_nokey (a int);`,
+      );
+      const from = await connect(page, app, database);
+      const toResponse = await page.request.post(`${app.origin}/api/connections`, {
+        data: {
+          mode: "fields",
+          name: "Claude target",
+          host: database.host,
+          port: database.port,
+          database: targetName,
+          username: database.user,
+          password: database.password,
+          sslMode: "disable",
+        },
+      });
+      expect(toResponse.status()).toBe(201);
+      const to = ((await toResponse.json()) as { connection: { id: string } }).connection.id;
+      for (const id of [from, to]) {
+        await page.request.put(`${app.origin}/api/connections/${id}/data-access`, {
+          data: { enabled: true },
+        });
+        const shared = await page.request.put(`${app.origin}/api/connections/${id}/claude`, {
+          data: { level: "data", acknowledgeRole: true, approval: false },
+        });
+        expect(shared.status()).toBe(200);
+      }
+      const { port, token } = mcpFile(app);
+      const client = new Client({ name: "e2e-analysis", version: "1.0.0" });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        }),
+      );
+      type Out = { isError?: boolean; structuredContent?: Record<string, unknown> };
+      const tool = async (name: string, args: Record<string, unknown>) =>
+        (await client.callTool({ name, arguments: args })) as unknown as Out;
+      const all = (r: unknown) => JSON.stringify(r);
+
+      const health = await tool("get_health", { connection: from });
+      expect(health.isError).toBeFalsy();
+      expect(
+        (health.structuredContent!["findings"] as Array<{ check: string; table: string }>).some(
+          (f) => f.check === "no_primary_key" && f.table === "rv_nokey",
+        ),
+      ).toBe(true);
+
+      const path = await tool("find_path", {
+        connection: from,
+        from: { schema: "public", table: "orders" },
+        to: { schema: "public", table: "users" },
+      });
+      expect(path.structuredContent!["status"]).toBe("found");
+
+      const diff = await tool("compare_structure", { from, to });
+      expect(diff.isError).toBeFalsy();
+      expect(diff.structuredContent!["identical"]).toBe(false);
+      expect(all(diff)).toContain("rv_secrets");
+      expect(all(diff)).not.toContain("DEFAULT-SECRET-VALUE");
+
+      const migration = await tool("generate_migration", { from, to });
+      const steps = migration.structuredContent!["steps"] as Array<{ kind: string; up?: string }>;
+      expect(steps.some((st) => st.kind === "create_table" && /rv_secrets/.test(st.up ?? ""))).toBe(
+        true,
+      );
+      expect(all(migration)).not.toContain("DEFAULT-SECRET-VALUE");
+      expect(String(migration.structuredContent!["instructions"])).toMatch(/was not run/);
+      // It is text: the source database still has no rv_secrets.
+      const stillThere = await tool("run_readonly_query", {
+        connection: from,
+        sql: "SELECT to_regclass('public.rv_secrets') IS NULL AS missing",
+      });
+      expect((stillThere.structuredContent!["rows"] as string[][])[0]![0]).toBe("true");
+
+      // The data would break the new NOT NULL column: the check says so, with counts only.
+      const checked = await tool("check_migration_against_data", { from, to });
+      expect(checked.isError).toBeFalsy();
+      expect(Number(checked.structuredContent!["failing"])).toBeGreaterThanOrEqual(1);
+      expect(all(checked)).not.toMatch(/'a'|'b'/);
+
+      const resources = await client.listResources();
+      expect(resources.resources.map((r) => r.uri)).toContain(
+        `datacanvas://connection/${to}/schema`,
+      );
+      const doc = await client.readResource({ uri: `datacanvas://connection/${to}/schema` });
+      const text = String((doc.contents[0] as { text: string }).text);
+      expect(text).toContain("rv_secrets");
+      expect(text).not.toContain("DEFAULT-SECRET-VALUE");
+      const prompts = await client.listPrompts();
+      expect(prompts.prompts.map((p) => p.name)).toEqual(
+        expect.arrayContaining(["review_migration", "find_tables_without_keys", "tune_query"]),
+      );
+      const prompt = await client.getPrompt({
+        name: "review_migration",
+        arguments: { from, to },
+      });
+      expect(String((prompt.messages[0]!.content as { text: string }).text)).toMatch(
+        /generate_migration/,
+      );
+      await client.close();
+    } finally {
+      await admin(
+        database,
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${targetName}' AND pid <> pg_backend_pid()`,
+      ).catch(() => undefined);
+      await admin(database, `DROP DATABASE IF EXISTS "${targetName}"`).catch(() => undefined);
+    }
+  });
+
   test("twenty questions about the shop: each can be answered by the tools, in the sequence a model would use", async ({
     page,
     app,
@@ -843,8 +988,24 @@ test.describe("Share with Claude, in the app", () => {
     await expect(dialog.getByLabel("Command for Claude Code", { exact: true })).toContainText(
       "claude mcp add datacanvas -- npx --yes @shubhamtiwari909/datacanvas mcp",
     );
+    // One app's text is shown at a time (Claude Code first); the picker shows the others.
+    const picker = dialog.getByLabel("Your app", { exact: true });
+    await picker.selectOption({ label: "Claude Desktop" });
     await expect(dialog.getByLabel("Config for Claude Desktop", { exact: true })).toContainText(
       '"command": "npx"',
+    );
+    await expect(dialog.getByLabel("Command for Claude Code", { exact: true })).toHaveCount(0);
+    await picker.selectOption({ label: "Cursor" });
+    await expect(dialog.getByLabel("Config for Cursor", { exact: true })).toContainText(
+      '"mcpServers"',
+    );
+    await picker.selectOption({ label: "VS Code" });
+    await expect(dialog.getByLabel("Config for VS Code", { exact: true })).toContainText(
+      '"servers"',
+    );
+    await picker.selectOption({ label: "Claude Code (shared with a project)" });
+    await expect(dialog.getByLabel("Project file for Claude Code", { exact: true })).toContainText(
+      "@shubhamtiwari909/datacanvas",
     );
     // Nothing is shared yet.
     const { port, token } = mcpFile(app);

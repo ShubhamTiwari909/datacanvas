@@ -139,7 +139,7 @@ the app shell and the setup text) and `stores/claude-store.ts`, which **polls th
 seconds only while something is shared** and takes its state from the answer, so a sharing the server forgot
 disappears from the screen too. The approval prompt ignores Escape and a click outside.
 
-## The eight tools and their limits
+## The thirteen tools and their limits
 
 All have a strict input schema, the read-only annotations, and are wrapped by `track`.
 
@@ -154,11 +154,21 @@ All have a strict input schema, the read-only annotations, and are wrapped by `t
 | `run_readonly_query` | data      | `connection`, `sql` (1 to 20,000 characters), `max_rows?`, `timeout_seconds?`          | `max_rows` 1 to **1,000**, default 200; `timeout_seconds` 1 to **30**, default 10; cells **500**; about **100,000** characters.                                                                                                           |
 | `explain_query`      | data      | `connection`, `sql` (1 to 20,000 characters)                                           | Runs `EXPLAIN (FORMAT JSON)` through the same runner (10 s), never `ANALYZE`. The plan is returned whole (the runner keeps a plan up to 2 MB); the protocol's 200,000-character limit applies; the text copy is cut at 20,000 characters. |
 
+| `get_health` | structure | `connection`, `schema?` | The Health tab's checks over at most **2,000** tables; **200** findings, serious first; suggested SQL as text. |
+| `find_path` | structure | `connection`, `from`, `to` (schema and table) | The shortest paths (at most **5**), the join as text. |
+| `compare_structure` | structure | `from`, `to` (two shared connections) | At most **200** tables listed; views, functions and other objects not compared; hidden columns' defaults, comments and checks left out. |
+| `generate_migration` | structure | `from`, `to`, `concurrent_indexes?`, `safe_constraints?`, `renames?` | Text only, never run; up to **100,000** characters of SQL (the rest of the steps are listed without it). |
+| `check_migration_against_data` | data | the same | Counts only (the pre-flight); `from` at the data level, `to` shared; approved, counted and listed under `from`. |
+
+Every structure that reaches Claude passes `redactStructure` / `redactEntries` in `mcp-insight.ts` first, and
+`objects` is dropped. Resources: `list` offers the schema and the diagram of each shared connection and `read`
+serves only a listed uri; prompts (`PROMPTS`) carry only the person's typed text.
+
 Common to every call: connection id 1 to 64 characters; names 1 to 255 characters; the request body at most
 256 KB.
 
-**Not in this version:** MCP resources and prompts, `read_rows` by a list of keys, a paths tool, and anything
-that needs a session.
+**Not in this version:** `read_rows` by a list of keys, saved snapshots as a source, and anything that needs a
+session.
 
 ---
 

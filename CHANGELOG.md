@@ -4,6 +4,12 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-24
+
+A patch to the 1.11.0 MCP server. Version 1.12.0 stays reserved for the write side's second part (`docs/write-side-v2-plan.md`). Nothing in this release writes.
+
+**Upgrading:** the Claude app keeps its tool list until it reconnects, so restart Claude Desktop (or reconnect `datacanvas` in Claude Code) after updating.
+
 ### Fixed
 
 - **Claude could not read rows or run queries when the data level was shared after it connected.** The data tools (`read_rows`, `run_readonly_query`, `explain_query`, `check_migration_against_data`) were listed only while some connection was shared at the data level, but a Claude app reads the tool list once, when it connects, and the server cannot tell it the list changed. Every tool is now listed at every level, and each call checks the level of its connection (a structure-level connection answers that it needs the data level; nothing runs). The prompts are listed the same way.

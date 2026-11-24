@@ -108,10 +108,16 @@ test.describe("the MCP server", () => {
       "list_tables",
       "describe_table",
       "search_objects",
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
       "get_health",
+      "get_sizes",
+      "list_objects",
       "find_path",
       "compare_structure",
       "generate_migration",
+      "check_migration_against_data",
     ]);
     const called = await client.callTool({ name: "list_connections", arguments: {} });
     expect(called.isError).toBeFalsy();
@@ -177,10 +183,16 @@ test.describe("the MCP server", () => {
       "list_tables",
       "describe_table",
       "search_objects",
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
       "get_health",
+      "get_sizes",
+      "list_objects",
       "find_path",
       "compare_structure",
       "generate_migration",
+      "check_migration_against_data",
     ]);
     const schemas = await client.callTool({ name: "list_schemas", arguments: { connection: id } });
     expect(JSON.stringify(schemas.structuredContent)).toContain('"schema":"public"');

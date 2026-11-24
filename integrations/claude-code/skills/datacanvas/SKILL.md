@@ -27,18 +27,20 @@ All are read-only.
 - `describe_table`: columns, types, keys, unique constraints, indexes, foreign keys in both directions, and the table's statistics. Columns whose names look sensitive are marked `hidden`.
 - `search_objects`: tables and columns whose name contains a word, across schemas.
 - `get_health`: the health checks of the schema (missing primary keys, unindexed foreign keys, duplicate indexes and similar), with a suggestion for each finding.
+- `get_sizes`: the size of the database, of each schema and of the largest tables (no row is read). `describe_table` also gives one table's size, live and dead rows and last vacuum and analyse.
+- `list_objects`: views, types, sequences, functions, triggers, extensions and row-level security policies, as names and settings (definitions are not returned).
 - `find_path`: the foreign-key route between two tables, with the join as SQL and whether it multiplies rows.
 - `compare_structure`: the difference between the structures of two shared connections (for example staging and production).
 - `generate_migration`: a migration written as text that would turn one shared connection's structure into another's, with the risk of every step. It is text only: it is never run.
 
-**Data level** (offered only when the person shared the data):
+**Data level** (always listed, but they work only on a connection the person shared at the data level; `list_connections` shows the level, and on a structure-level connection they say so):
 
 - `read_rows`: a page of rows of one table, with a filter and a sort (at most 100 a page).
 - `run_readonly_query`: the result of exactly one read-only statement.
 - `explain_query`: the plan of a statement, not run.
 - When a data-level check of a migration is offered (`check_migration_against_data`), it runs fixed read-only counts on the real data to find out whether a step would fail on the rows that exist.
 
-The server also offers **resources** (the schema of each shared connection as a Markdown data dictionary, `datacanvas://connection/<id>/schema`, and a Mermaid diagram at `.../diagram`) and **prompts** (`find_tables_without_keys`, `review_schema_health`, `explain_schema`, `how_are_tables_related`, `review_migration`, and `tune_query` at the data level). A resource is cheaper than many tool calls; use one when it fits. Each tool's own description lists its parameters and limits: read it, do not guess a parameter.
+The server also offers **resources** (the schema of each shared connection as a Markdown data dictionary, `datacanvas://connection/<id>/schema`, and a Mermaid diagram at `.../diagram`) and **prompts** (`find_tables_without_keys`, `review_schema_health`, `explain_schema`, `how_are_tables_related`, `review_migration`, and `tune_query`, which needs the data level). A resource is cheaper than many tool calls; use one when it fits. Each tool's own description lists its parameters and limits: read it, do not guess a parameter.
 
 ## How to work
 

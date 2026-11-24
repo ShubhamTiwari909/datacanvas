@@ -40,6 +40,7 @@ import type {
   IndexInfo,
   IndexUsageReport,
   TableStatistics,
+  DatabaseSizes,
   RelationshipInfo,
   RowPage,
   RowsOptions,
@@ -182,6 +183,13 @@ export interface DatabaseAdapter {
    * name is not a table, a partitioned table or a materialized view.
    */
   getTableStatistics(table: TableRef): Promise<TableStatistics | null>;
+
+  /**
+   * The size of the database, of each user schema, and of its largest tables (heap, indexes and TOAST), from the
+   * server's size functions. **No row is read.** System schemas are left out; partitions count toward their parent.
+   * @param options.schema only this schema's tables; options.limit how many tables (largest first).
+   */
+  getSizes(options: { schema?: string; limit: number }): Promise<DatabaseSizes>;
 
   /**
    * One page of the ROWS of a table, view or materialized view, read-only and

@@ -45,6 +45,7 @@ import {
   type IndexInfo,
   type IndexUsageReport,
   type TableStatistics,
+  type DatabaseSizes,
   type RowPage,
   type ExportSignal,
   type CancelSignal,
@@ -84,6 +85,7 @@ import { assertRelationExists, assertSchemaExists } from "./introspection/existe
 import { listIndexes } from "./introspection/indexes.js";
 import { listIndexUsage } from "./introspection/index-usage.js";
 import { readTableStatistics } from "./introspection/statistics.js";
+import { readSizes } from "./introspection/sizes.js";
 import { readDdlDetail } from "./introspection/ddl-detail.js";
 import { listObjects } from "./introspection/objects.js";
 import { readCell, readRows } from "./introspection/rows.js";
@@ -270,6 +272,10 @@ export class PostgresAdapter implements DatabaseAdapter, WritableAdapter, SqlRun
 
   getTableStatistics(table: TableRef): Promise<TableStatistics | null> {
     return this.read((db) => readTableStatistics(db, table));
+  }
+
+  getSizes(options: { schema?: string; limit: number }): Promise<DatabaseSizes> {
+    return this.read((db) => readSizes(db, options));
   }
 
   getRoleInfo(): Promise<RoleInfo> {

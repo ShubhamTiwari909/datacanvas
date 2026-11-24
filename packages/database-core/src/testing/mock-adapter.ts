@@ -40,6 +40,7 @@ import type {
   TableInfo,
   TableRef,
   TableStatistics,
+  DatabaseSizes,
 } from "../models.js";
 import { normalizeObjects } from "../objects.js";
 import type { ExportEvent, ExportRowsOptions, ExportSignal } from "../rows-export.js";
@@ -535,6 +536,37 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
   async getIndexUsage(): Promise<IndexUsageReport> {
     this.requireConnection();
     return copy(this.data.indexUsage);
+  }
+
+  async getSizes(options: { schema?: string; limit: number }): Promise<DatabaseSizes> {
+    this.requireConnection();
+    // Made up, in the shape of the real thing: 8 KB of heap and 16 KB of indexes per table, no row read.
+    const all = this.data.tables
+      .filter((t) => t.kind === "table" || t.kind === "materialized_view")
+      .filter((t) => options.schema === undefined || t.schema === options.schema)
+      .map((t) => ({
+        schema: t.schema,
+        name: t.name,
+        kind: (t.kind === "materialized_view" ? "materialized" : "table") as
+          "table" | "materialized",
+        totalBytes: 24576,
+        tableBytes: 8192,
+        indexBytes: 16384,
+        estimatedRows: t.estimatedRowCount,
+      }));
+    const perSchema = new Map<string, { schema: string; totalBytes: number; tables: number }>();
+    for (const t of all) {
+      const s = perSchema.get(t.schema) ?? { schema: t.schema, totalBytes: 0, tables: 0 };
+      s.totalBytes += t.totalBytes;
+      s.tables += 1;
+      perSchema.set(t.schema, s);
+    }
+    return {
+      databaseBytes: 8_000_000 + all.length * 24576,
+      schemas: [...perSchema.values()],
+      tables: all.slice(0, options.limit),
+      tableCount: all.length,
+    };
   }
 
   async getTableStatistics(table: TableRef): Promise<TableStatistics | null> {

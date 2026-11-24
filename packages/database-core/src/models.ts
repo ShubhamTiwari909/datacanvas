@@ -367,6 +367,31 @@ export interface ColumnStatistics {
   correlation: number | null;
 }
 
+/** The disk space of one table (heap, indexes and TOAST together) and the planner's row estimate. */
+export interface TableSize {
+  schema: string;
+  name: string;
+  kind: "table" | "partitioned" | "materialized";
+  /** `pg_total_relation_size`: the table, its indexes and its TOAST data (for a partitioned table, all its partitions). */
+  totalBytes: number;
+  tableBytes: number;
+  indexBytes: number;
+  estimatedRows: number | null;
+}
+
+/**
+ * How much disk space a database takes, from the server's own size functions. No row is read: these are file sizes.
+ * The largest tables come first; `tableCount` says how many there are in all.
+ */
+export interface DatabaseSizes {
+  /** `pg_database_size(current_database())`, or null when the role may not see it. */
+  databaseBytes: number | null;
+  /** Total of the user schemas, per schema, largest first. */
+  schemas: Array<{ schema: string; totalBytes: number; tables: number }>;
+  tables: TableSize[];
+  tableCount: number;
+}
+
 /** The size and the upkeep of a table, with the statistics of its columns. Estimates: nothing here scans the table. */
 export interface TableStatistics {
   table: TableRef;

@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 export function GET(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
   return handleRoute(request, async () => {
     const { id } = await params;
-    return jsonResponse({ sharing: { level: getServerContext().mcp.levelOf(id) } });
+    const mcp = getServerContext().mcp;
+    return jsonResponse({ sharing: { level: mcp.levelOf(id), approval: mcp.approvalOf(id) } });
   });
 }
 
@@ -27,9 +28,11 @@ export function PUT(request: Request, { params }: RouteParams<{ id: string }>): 
     const { id } = await params;
     const parsed = await parseJsonBody(request, claudeSharingRequestSchema);
     if (!parsed.ok) return parsed.response;
-    const level = await getServerContext().mcp.share(id, parsed.data.level, {
+    const mcp = getServerContext().mcp;
+    const level = await mcp.share(id, parsed.data.level, {
       acknowledgeRole: parsed.data.acknowledgeRole === true,
+      approval: parsed.data.approval,
     });
-    return jsonResponse({ sharing: { level } });
+    return jsonResponse({ sharing: { level, approval: mcp.approvalOf(id) } });
   });
 }

@@ -251,7 +251,7 @@ test.describe("the data level, against a real database", () => {
       "claude_role_not_acknowledged",
     );
     const ok = await page.request.put(`${app.origin}/api/connections/${id}/claude`, {
-      data: { level: "data", acknowledgeRole: true },
+      data: { level: "data", acknowledgeRole: true, approval: false },
     });
     expect(ok.status()).toBe(200);
     const { port, token } = mcpFile(app);
@@ -328,6 +328,126 @@ test.describe("the data level, against a real database", () => {
       },
     });
     expect(filtered.isError).toBe(true);
+    await client.close();
+  });
+
+  test("the data level asks before each call: nothing runs before Approve, Deny and Pause refuse, the list holds no value", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await admin(
+      database,
+      `CREATE TABLE public.claude_notes (id int PRIMARY KEY, title text);
+       INSERT INTO public.claude_notes VALUES (1, 'first-VALUE'), (2, 'second-VALUE');`,
+    );
+    const id = await connect(page, app, database);
+    expect(
+      (
+        await page.request.put(`${app.origin}/api/connections/${id}/data-access`, {
+          data: { enabled: true },
+        })
+      ).status(),
+    ).toBe(200);
+    await page.goto(app.link);
+    await page.getByRole("button", { name: "Share with Claude: Claude shop" }).click();
+    const dialog = page.getByRole("dialog", { name: "Share Claude shop with Claude" });
+    await dialog.getByRole("radio", { name: /Structure and data/ }).check();
+    // Rows are sent to Anthropic: nothing starts until the person says they understand, and approval is on.
+    await expect(dialog.getByLabel("Ask me before each call")).toBeChecked();
+    const start = dialog.getByRole("button", { name: "Start sharing the data" });
+    await expect(start).toBeDisabled();
+    await dialog.getByLabel(/I understand that rows Claude reads are sent to Anthropic/).check();
+    await start.click();
+    // The test role is a superuser: a second, plainer step ("Share anyway") is needed.
+    await expect(dialog.getByRole("alert")).toContainText(/read-only database user/);
+    await dialog.getByRole("button", { name: "Share anyway" }).click();
+    await expect(dialog.getByRole("button", { name: "Stop sharing" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click();
+
+    const { port, token } = mcpFile(app);
+    const client = new Client({ name: "e2e-approval", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    const ask = (sql: string) =>
+      client.callTool({ name: "run_readonly_query", arguments: { connection: id, sql } });
+    const settled = (promise: Promise<unknown>) =>
+      Promise.race([
+        promise.then(() => true),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
+      ]);
+
+    // 1. The call waits: the person is shown what Claude asked, and nothing has run.
+    const first = ask("SELECT id, title FROM claude_notes ORDER BY id");
+    const prompt = page.getByRole("dialog", { name: /Claude wants to read Claude shop/ });
+    await expect(prompt).toBeVisible();
+    await expect(prompt.getByLabel("What Claude asked")).toContainText(
+      "SELECT id, title FROM claude_notes",
+    );
+    expect(await settled(first)).toBe(false);
+    await settleForAxe(page);
+    await page.addScriptTag({ content: axeSource });
+    const found = await page.evaluate(async () => {
+      const axe = (
+        window as unknown as {
+          axe: {
+            run: (c: Element, o: object) => Promise<{ violations: Array<{ id: string }> }>;
+          };
+        }
+      ).axe;
+      const result = await axe.run(document.querySelector('[role="dialog"]') ?? document.body, {
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+      });
+      return result.violations.map((v) => v.id);
+    });
+    expect(found, "axe on the approval prompt").toEqual([]);
+    // Escape does not answer it.
+    await page.keyboard.press("Escape");
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole("button", { name: "Approve" }).click();
+    expect((await first).structuredContent).toMatchObject({
+      rows: [
+        ["1", "first-VALUE"],
+        ["2", "second-VALUE"],
+      ],
+    });
+    await expect(prompt).toHaveCount(0);
+
+    // 2. Deny: it never runs, and Claude is told in words.
+    const second = ask("SELECT count(*) FROM claude_notes");
+    await prompt.getByRole("button", { name: "Deny" }).click();
+    const denied = await second;
+    expect(denied.isError).toBe(true);
+    expect(textOf(denied)).toMatch(/did not approve/);
+
+    // 3. Pause: the next call is refused at once, with no prompt; Resume lets calls through to the prompt again.
+    await page.getByRole("button", { name: "Pause Claude" }).click();
+    await expect(page.getByRole("button", { name: "Resume Claude" })).toBeVisible();
+    const paused = await ask("SELECT 1");
+    expect(paused.isError).toBe(true);
+    expect(textOf(paused)).toMatch(/paused/);
+    await expect(prompt).toHaveCount(0);
+    await page.getByRole("button", { name: "Resume Claude" }).click();
+    await expect(page.getByRole("button", { name: "Pause Claude" })).toBeVisible();
+
+    // 4. The list says what was asked and how it ended, and holds no value that came back.
+    await page.getByRole("button", { name: /^Shared with Claude: Claude shop/ }).click();
+    const list = page.getByRole("dialog", { name: "Share Claude shop with Claude" });
+    await expect(list).toContainText("What Claude asked");
+    await expect(list).toContainText("SELECT id, title FROM claude_notes");
+    await expect(list).toContainText("answered, 2 rows");
+    await expect(list).toContainText("not approved");
+    await expect(list).not.toContainText("VALUE");
+    const raw = await page.request.get(`${app.origin}/api/claude/activity`);
+    expect(JSON.stringify(await raw.json())).not.toContain("VALUE");
+    // The routes behind the cookie are not open to a program with the token of /mcp.
+    const bare = await fetch(`${app.origin}/api/claude/activity`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(bare.status).toBeGreaterThanOrEqual(400);
     await client.close();
   });
 

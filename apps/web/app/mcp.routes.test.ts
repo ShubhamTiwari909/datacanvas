@@ -9,6 +9,9 @@ import { POST as createConnection } from "./api/connections/route";
 import { DELETE as disconnect } from "./api/connections/[id]/route";
 import { PUT as setDataAccess } from "./api/connections/[id]/data-access/route";
 import { GET as getSharing, PUT as putSharing } from "./api/connections/[id]/claude/route";
+import { GET as getActivity } from "./api/claude/activity/route";
+import { POST as decide } from "./api/claude/pending/[id]/route";
+import { PUT as setPause } from "./api/claude/pause/route";
 import { DELETE as mcpDelete, GET as mcpGet, POST as mcpPost } from "./mcp/route";
 
 const BASE = "http://127.0.0.1:4747";
@@ -42,20 +45,27 @@ async function connect(extra: Record<string, unknown> = {}): Promise<string> {
   );
   return ((await response.json()) as { connection: { id: string } }).connection.id;
 }
-const share = (id: string, level: string) =>
+// The data level asks for the person's Approve on each call unless said otherwise: these tests turn it off, except the ones about it.
+const share = (id: string, level: string, extra: Record<string, unknown> = {}) =>
   putSharing(
     new Request(`${BASE}/api/connections/${id}/claude`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Host: "127.0.0.1:4747", ...cookie },
-      body: JSON.stringify({ level }),
+      body: JSON.stringify({ level, ...(level === "data" ? { approval: false } : {}), ...extra }),
     }),
     params({ id }),
   );
 const rpc = (method: string, params?: unknown, id = 1) => ({ jsonrpc: "2.0", id, method, params });
-const post = (body: unknown, headers: Record<string, string> = {}, token: string | null = MCP) =>
+const post = (
+  body: unknown,
+  headers: Record<string, string> = {},
+  token: string | null = MCP,
+  signal?: AbortSignal,
+) =>
   mcpPost(
     new Request(`${BASE}/mcp`, {
       method: "POST",
+      signal,
       headers: {
         "Content-Type": "application/json",
         Host: "127.0.0.1:4747",
@@ -658,5 +668,218 @@ describe("the data tools (M3)", () => {
     expect(acknowledged.status).toBe(200);
     // Structure level needs no acknowledgment, whatever the role.
     expect((await share(risky, "structure")).status).toBe(200);
+  });
+
+  describe("approval, pause, the rate limit and the activity list", () => {
+    const api = (path: string, method: string, body?: unknown) =>
+      new Request(`${BASE}${path}`, {
+        method,
+        headers: { "Content-Type": "application/json", Host: "127.0.0.1:4747", ...cookie },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const activity = async () =>
+      (await (await getActivity(api("/api/claude/activity", "GET"))).json()) as {
+        paused: boolean;
+        shared: Array<{ id: string; level: string; approval: boolean }>;
+        pending: Array<{ id: string; tool: string; request: string }>;
+        activity: Array<{ outcome: string; request: string; rows?: number; size?: number }>;
+      };
+    const answer = (id: string, decision: string) =>
+      decide(api(`/api/claude/pending/${id}`, "POST", { decision }), params({ id }));
+    const sqlCall = (id: string, sql = "SELECT n FROM t") =>
+      call("run_readonly_query", { connection: id, sql });
+    const rowsReturned = () => {
+      context.createdAdapters[0]!.sqlHandler = async () => ({
+        columns: [{ name: "n", dataType: "integer" }],
+        rows: [["1"], ["2"], ["3"]],
+        truncated: false,
+        command: "SELECT",
+        cutCells: 0,
+        elapsedMs: 1,
+      });
+    };
+    const waitForPending = async () => {
+      for (let i = 0; i < 100; i++) {
+        const state = await activity();
+        if (state.pending.length > 0) return state.pending[0]!;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error("nothing is waiting");
+    };
+
+    it("the data level asks for Approve by default, and nothing runs before it", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: undefined });
+      const ran = vi.fn();
+      context.createdAdapters[0]!.sqlHandler = async () => {
+        ran();
+        return {
+          columns: [{ name: "n", dataType: "integer" }],
+          rows: [["1"]],
+          truncated: false,
+          command: "SELECT",
+          cutCells: 0,
+          elapsedMs: 1,
+        };
+      };
+      expect((await activity()).shared).toEqual([
+        { id, name: expect.any(String), level: "data", approval: true },
+      ]);
+      const waiting = sqlCall(id, "SELECT n FROM t WHERE n = 1");
+      const pending = await waitForPending();
+      expect(pending).toMatchObject({
+        tool: "run_readonly_query",
+        request: "SELECT n FROM t WHERE n = 1",
+      });
+      expect(ran).not.toHaveBeenCalled();
+      expect((await answer(pending.id, "approve")).status).toBe(200);
+      const r = await waiting;
+      expect(r.isError).toBeFalsy();
+      expect(ran).toHaveBeenCalledTimes(1);
+      expect((await answer(pending.id, "approve")).status).toBe(404);
+      expect((await activity()).pending).toEqual([]);
+    });
+
+    it("a denied call never runs, and tells Claude in plain words", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: true });
+      const ran = vi.fn();
+      context.createdAdapters[0]!.sqlHandler = async () => {
+        ran();
+        throw new Error("must not run");
+      };
+      const waiting = sqlCall(id);
+      await answer((await waitForPending()).id, "deny");
+      const r = await waiting;
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toMatch(/did not approve/);
+      expect(ran).not.toHaveBeenCalled();
+      expect((await activity()).activity[0]).toMatchObject({ outcome: "not_approved" });
+    });
+
+    it("a call that is given up (the client went away) stops waiting", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: true });
+      const controller = new AbortController();
+      const waiting = post(
+        rpc("tools/call", {
+          name: "run_readonly_query",
+          arguments: { connection: id, sql: "SELECT 1" },
+        }),
+        {},
+        MCP,
+        controller.signal,
+      );
+      await waitForPending();
+      controller.abort();
+      await waiting;
+      expect((await activity()).pending).toEqual([]);
+      expect((await activity()).activity[0]).toMatchObject({ outcome: "not_approved" });
+    });
+
+    it("with approval off the call runs at once, and structure tools never wait", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: false });
+      rowsReturned();
+      expect((await sqlCall(id)).isError).toBeFalsy();
+      const tables = await call("list_schemas", { connection: id });
+      expect(tables.isError).toBeFalsy();
+      const asked = await share(id, "data", { approval: true });
+      expect(((await asked.json()) as { sharing: { approval: boolean } }).sharing.approval).toBe(
+        true,
+      );
+      expect(
+        (
+          (await (await getSharing(api("/x", "GET"), params({ id }))).json()) as {
+            sharing: { approval: boolean };
+          }
+        ).sharing.approval,
+      ).toBe(true);
+    });
+
+    it("the activity list holds what was asked and counts, and no value that came back", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data");
+      rowsReturned();
+      await sqlCall(id, "SELECT n FROM t");
+      const state = await activity();
+      expect(state.activity[0]).toMatchObject({
+        outcome: "ok",
+        request: "SELECT n FROM t",
+        rows: 3,
+      });
+      expect(state.activity[0]!.size).toBeGreaterThan(0);
+      expect(JSON.stringify(state)).not.toMatch(/"1"|"2"|"3"/);
+      // A refusal is listed as refused; a hidden value never appears in the list.
+      await sqlCall(id, "SELECT password FROM users");
+      expect((await activity()).activity[0]).toMatchObject({ outcome: "refused" });
+    });
+
+    it("Pause refuses every call at once, even a structure one, and Resume lets the next through", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data");
+      rowsReturned();
+      expect(
+        (
+          (await (await setPause(api("/api/claude/pause", "PUT", { paused: true }))).json()) as {
+            paused: boolean;
+          }
+        ).paused,
+      ).toBe(true);
+      for (const [name, args] of [
+        ["list_schemas", { connection: id }],
+        ["run_readonly_query", { connection: id, sql: "SELECT 1" }],
+      ] as const) {
+        const r = await call(name, args);
+        expect(r.isError).toBe(true);
+        expect(r.content[0]!.text).toMatch(/paused/);
+      }
+      expect((await activity()).activity[0]).toMatchObject({ outcome: "paused" });
+      await setPause(api("/api/claude/pause", "PUT", { paused: false }));
+      expect((await sqlCall(id)).isError).toBeFalsy();
+    });
+
+    it("Pause answers a waiting approval with a denial", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: true });
+      const waiting = sqlCall(id);
+      await waitForPending();
+      await setPause(api("/api/claude/pause", "PUT", { paused: true }));
+      expect((await waiting).isError).toBe(true);
+      expect((await activity()).pending).toEqual([]);
+    });
+
+    it("serves 30 calls a minute and then says so, and stopping the sharing forgets the list and the pause", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "structure");
+      for (let i = 0; i < 30; i++)
+        expect((await call("list_schemas", { connection: id })).isError).toBeFalsy();
+      const limited = await call("list_schemas", { connection: id });
+      expect(limited.isError).toBe(true);
+      expect(limited.content[0]!.text).toMatch(/Too many calls/);
+      await setPause(api("/api/claude/pause", "PUT", { paused: true }));
+      await share(id, "off");
+      const state = await activity();
+      expect(state).toMatchObject({ paused: false, shared: [], pending: [], activity: [] });
+    });
+
+    it("a disconnect denies what waits, and the routes are behind the cookie", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: true });
+      const waiting = sqlCall(id);
+      await waitForPending();
+      await disconnect(api(`/api/connections/${id}`, "DELETE"), params({ id }));
+      expect((await waiting).isError).toBe(true);
+      const bare = (path: string, method: string) =>
+        new Request(`${BASE}${path}`, { method, headers: { Host: "127.0.0.1:4747" } });
+      for (const response of [
+        await getActivity(bare("/api/claude/activity", "GET")),
+        await setPause(bare("/api/claude/pause", "PUT")),
+        await decide(bare("/api/claude/pending/c1", "POST"), params({ id: "c1" })),
+      ]) {
+        expect(response.status).toBeGreaterThanOrEqual(400);
+        expect(response.status).toBeLessThan(500);
+      }
+    });
   });
 });

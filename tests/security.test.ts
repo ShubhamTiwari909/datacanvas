@@ -1793,3 +1793,74 @@ describe("the MCP data tools reach the data only through the services that guard
     expect(data).toMatch(/startsWith\("42"\)/);
   });
 });
+
+describe("what the person sees and stops while Claude reads: approval, pause, the list (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+  const control = stripComments(read("apps/web/lib/server/mcp-control.ts"));
+
+  it("every tool is wrapped, and a call is paused, rate limited and (data tools) approved BEFORE it runs", () => {
+    expect(service).toMatch(/TOOLS\.map\(\(tool\) => \(\{\s*\.\.\.tool,\s*run:/);
+    const track = service.slice(service.indexOf("private async track("));
+    const paused = track.indexOf("this.control.paused");
+    const limited = track.indexOf("this.control.allowCall()");
+    const approved = track.indexOf("this.control.requestApproval(");
+    const ran = track.indexOf("await tool.run(");
+    expect(paused).toBeGreaterThan(-1);
+    expect(paused).toBeLessThan(limited);
+    expect(limited).toBeLessThan(approved);
+    expect(approved).toBeLessThan(ran);
+    // Only an explicit "approved" lets the call go on: a timeout, a denial and a client that gave up all stop it.
+    expect(track).toMatch(/decision !== "approved"/);
+  });
+
+  it("approval is ON unless the person turned it off, and only the person's routes can change it or answer", () => {
+    expect(service).toMatch(/approval\.get\(id\) \?\? true/);
+    for (const file of [
+      "apps/web/app/api/claude/pending/[id]/route.ts",
+      "apps/web/app/api/claude/pause/route.ts",
+      "apps/web/app/api/claude/activity/route.ts",
+    ]) {
+      expect(stripComments(read(file)), file).toContain("handleRoute(request");
+    }
+    // Nothing on the MCP path (the tools, the route of /mcp) can reach the decision or the pause.
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).not.toMatch(/\.decide\(|setPaused|control\./);
+    expect(stripComments(read("apps/web/app/mcp/route.ts"))).not.toMatch(
+      /decide|setPaused|control/,
+    );
+  });
+
+  it("the control state is memory only and an entry holds no returned value: a request, an outcome and two counts", () => {
+    expect(control).not.toMatch(/\bfs\b|node:fs|writeFile|localStorage|console\.|process\.env/);
+    const entry = control.slice(
+      control.indexOf("export interface ActivityEntry"),
+      control.indexOf("export interface PendingApproval"),
+    );
+    const fields = [...entry.matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]);
+    expect(fields).toEqual([
+      "id",
+      "at",
+      "tool",
+      "connection",
+      "connectionName",
+      "request",
+      "outcome",
+      "rows",
+      "size",
+    ]);
+    // What is recorded after a call is a count of rows and a size, never the rows.
+    const track = service.slice(service.indexOf("private async track("));
+    expect(track).toMatch(/rows: Array\.isArray\(rows\) \? rows\.length : undefined/);
+    expect(track).toMatch(/size: result\.text\.length/);
+  });
+
+  it("stopping the sharing, or a disconnect, answers what waits and forgets the list when nothing is shared", () => {
+    expect(service).toMatch(/onRemove\(\(id\) => this\.stop\(id\)\)/);
+    const stop = service.slice(service.indexOf("private stop("));
+    expect(stop.slice(0, 400)).toMatch(/denyAll\(id\)/);
+    expect(stop.slice(0, 400)).toMatch(/control\.reset\(\)/);
+  });
+});

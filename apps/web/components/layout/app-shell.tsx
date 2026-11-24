@@ -5,6 +5,7 @@
  *
  * A Server Component: it only arranges layout, so it needs no client JavaScript.
  */
+import { ClaudeActivityHost } from "@/features/claude/activity-host";
 import { Header } from "./header";
 import { Sidebar } from "./sidebar";
 
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar />
         <main className="min-h-0 flex-1 overflow-auto">{children}</main>
       </div>
+      <ClaudeActivityHost />
     </div>
   );
 }

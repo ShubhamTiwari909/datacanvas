@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Pause, Play, Sparkles } from "lucide-react";
 import type { ConnectionSummary } from "@datacanvas/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { ShareWithClaudeDialog } from "./share-dialog";
 export function ClaudeControl({ connection }: { connection: ConnectionSummary }) {
   const level = useClaudeLevel(connection.id);
   const load = useClaudeStore((s) => s.load);
+  const paused = useClaudeStore((s) => s.activity?.paused === true);
+  const setPaused = useClaudeStore((s) => s.setPaused);
   const [open, setOpen] = useState(false);
 
   // The server forgets a sharing on its own (data viewing switched off takes the data level back): ask again then.
@@ -20,7 +22,7 @@ export function ClaudeControl({ connection }: { connection: ConnectionSummary })
   }, [connection.id, connection.dataAccess, load]);
 
   return (
-    <div className="flex items-center gap-2 px-2 pb-1">
+    <div className="flex flex-wrap items-center gap-2 px-2 pb-1">
       <Button
         type="button"
         variant="ghost"
@@ -36,7 +38,21 @@ export function ClaudeControl({ connection }: { connection: ConnectionSummary })
         <Sparkles aria-hidden="true" />
         {level === "off" ? "Share with Claude" : "Shared with Claude"}
       </Button>
-      {level !== "off" ? <Badge variant="outline">{level}</Badge> : null}
+      {level !== "off" ? (
+        <Badge variant="outline">{paused ? `${level}, paused` : level}</Badge>
+      ) : null}
+      {level !== "off" ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => void setPaused(!paused)}
+          aria-label={paused ? "Resume Claude" : "Pause Claude"}
+        >
+          {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+          {paused ? "Resume" : "Pause"}
+        </Button>
+      ) : null}
       <ShareWithClaudeDialog connection={connection} open={open} onClose={() => setOpen(false)} />
     </div>
   );

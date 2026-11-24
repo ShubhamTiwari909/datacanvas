@@ -14,8 +14,10 @@ import {
   READ_ONLY,
   ToolError,
   createMcpServer,
+  type CancelSignal,
   type HandleResult,
   type ToolDefinition,
+  type ToolResult,
 } from "@datacanvas/mcp";
 import type { ClaudeLevel } from "@datacanvas/shared-types";
 import { z } from "zod";
@@ -23,6 +25,7 @@ import type { DatabaseAdapter } from "@datacanvas/database-core";
 import { MAX_ROW_FILTERS, rowFilterSchema, rowSortSchema } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
 import type { ConnectionService } from "./connection-service";
+import { McpControl } from "./mcp-control";
 import { failureWords, sensitiveNamesIn, shapePage, shapeQueryResult } from "./mcp-data";
 import { ServiceError } from "./service-error";
 import type { SqlService } from "./sql-service";
@@ -88,7 +91,11 @@ interface Context {
 export class McpService {
   private readonly connections: ConnectionRegistry;
   private readonly shared = new Map<string, ShareLevel>();
+  /** Per connection: does each data call wait for the person's Approve? On by default. */
+  private readonly approval = new Map<string, boolean>();
   private readonly server;
+  /** The activity list, the approvals that wait, the pause and the rate limit (in memory). */
+  readonly control: McpControl;
 
   private readonly sql: SqlService;
   private readonly rows: ConnectionService;
@@ -98,12 +105,14 @@ export class McpService {
     sql: SqlService;
     rows: ConnectionService;
     version?: string;
+    control?: McpControl;
   }) {
+    this.control = dependencies.control ?? new McpControl();
     this.connections = dependencies.connections;
     this.sql = dependencies.sql;
     this.rows = dependencies.rows;
     // A disconnect ends the sharing: a connection that comes back is a new connection and is not shared.
-    this.connections.onRemove((id) => this.shared.delete(id));
+    this.connections.onRemove((id) => this.stop(id));
     this.server = createMcpServer<Context>({
       name: "datacanvas",
       title: "DataCanvas",
@@ -111,8 +120,109 @@ export class McpService {
       instructions: MCP_INSTRUCTIONS,
       // The data tools exist for a caller only while some connection is shared at the data level.
       tools: (context) =>
-        context.service.anyData() ? TOOLS : TOOLS.filter((t) => !DATA_TOOLS.has(t.name)),
+        context.service.anyData() ? this.tools : this.tools.filter((t) => !DATA_TOOLS.has(t.name)),
     });
+  }
+
+  /** Every tool, each wrapped so that a call is listed, can be paused, is rate limited and (data tools) can wait for Approve. */
+  private readonly tools: ReadonlyArray<ToolDefinition<Context>> = TOOLS.map((tool) => ({
+    ...tool,
+    run: (args, context, signal) => this.track(tool, args, context, signal),
+  }));
+
+  /** Stop sharing a connection: its waiting approvals are denied, and when nothing is shared the list and the pause go. */
+  private stop(id: string): void {
+    this.shared.delete(id);
+    this.approval.delete(id);
+    this.control.denyAll(id);
+    if (!this.anyShared()) this.control.reset();
+  }
+
+  /** Does each data call on this connection wait for Approve? */
+  approvalOf(id: string): boolean {
+    return this.approval.get(id) ?? true;
+  }
+
+  /** The state for the activity panel. */
+  snapshot() {
+    return {
+      paused: this.control.paused,
+      shared: this.listShared().map((c) => ({
+        id: c.id,
+        name: c.name,
+        level: c.level,
+        approval: this.approvalOf(c.id),
+      })),
+      pending: this.control.pending(),
+      activity: this.control.activity(),
+    };
+  }
+
+  /** Pause or resume every call. Pausing answers the waiting approvals with a denial. */
+  setPaused(paused: boolean): void {
+    this.control.paused = paused;
+    if (paused) this.control.denyAll();
+  }
+
+  private async track(
+    tool: ToolDefinition<Context>,
+    args: unknown,
+    context: Context,
+    signal?: CancelSignal,
+  ): Promise<ToolResult> {
+    const connection = (args as { connection?: unknown } | null)?.connection;
+    const connectionId = typeof connection === "string" ? connection : null;
+    const summary = connectionId ? this.connections.getSummary(connectionId) : undefined;
+    const entry = this.control.begin({
+      tool: tool.name,
+      connection: connectionId,
+      connectionName: summary?.name ?? null,
+      request: describeRequest(tool.name, args),
+    });
+    try {
+      if (this.control.paused) {
+        this.control.finish(entry, "paused");
+        throw new ToolError(
+          "The person has paused Claude's access to their database. Nothing can be read until they resume it.",
+        );
+      }
+      if (!this.control.allowCall()) {
+        this.control.finish(entry, "rate_limited");
+        throw new ToolError("Too many calls in a minute. Wait a little before asking again.");
+      }
+      // A data call waits for the person's Approve (an unshared connection is not asked about: the tool answers "not shared").
+      if (
+        DATA_TOOLS.has(tool.name) &&
+        connectionId !== null &&
+        this.levelOf(connectionId) === "data" &&
+        this.approvalOf(connectionId)
+      ) {
+        const decision = await this.control.requestApproval(
+          entry,
+          connectionId,
+          summary?.name ?? null,
+          signal as Parameters<McpControl["requestApproval"]>[3],
+        );
+        if (decision !== "approved") {
+          this.control.finish(entry, "not_approved");
+          throw new ToolError(
+            decision === "timeout"
+              ? "The person did not approve this in time. Nothing was run."
+              : "The person did not approve this. Nothing was run.",
+          );
+        }
+      }
+      const result = await tool.run(args, context, signal);
+      const rows = (result.data as { rows?: unknown } | undefined)?.rows;
+      this.control.finish(entry, result.isError ? "error" : "ok", {
+        rows: Array.isArray(rows) ? rows.length : undefined,
+        size: result.text.length,
+      });
+      return result;
+    } catch (error) {
+      this.control.finish(entry, error instanceof ToolError ? "refused" : "error");
+      throw error;
+    }
   }
 
   /** The level this connection is shared at right now (the data level needs viewing table data), or "off". */
@@ -145,12 +255,12 @@ export class McpService {
   async share(
     id: string,
     level: ClaudeLevel,
-    options: { acknowledgeRole?: boolean } = {},
+    options: { acknowledgeRole?: boolean; approval?: boolean } = {},
   ): Promise<ClaudeLevel> {
     const summary = this.connections.getSummary(id);
     if (!summary) throw new ServiceError("connection_not_found", MCP_MESSAGES.connectionNotFound);
     if (level === "off") {
-      this.shared.delete(id);
+      this.stop(id);
       return "off";
     }
     if (level === "data" && !summary.dataAccess) {
@@ -165,6 +275,8 @@ export class McpService {
       }
     }
     this.shared.set(id, level);
+    // A new choice of approval counts at once; sharing again without saying keeps what it was (on, the first time).
+    if (options.approval !== undefined) this.approval.set(id, options.approval);
     return level;
   }
 
@@ -624,6 +736,26 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
     },
   },
 ];
+
+/** What Claude asked, as words for the activity list (the statement, or the table and its filters): never a returned value. */
+function describeRequest(tool: string, args: unknown): string {
+  const a = (args ?? {}) as Record<string, unknown>;
+  if ((tool === "run_readonly_query" || tool === "explain_query") && typeof a.sql === "string") {
+    return a.sql;
+  }
+  if (tool === "read_rows") {
+    const filters = Array.isArray(a.filters) ? a.filters.length : 0;
+    const sort =
+      a.sort && typeof a.sort === "object"
+        ? ` sorted by ${String((a.sort as { column?: unknown }).column)}`
+        : "";
+    return `${String(a.schema)}.${String(a.table)}${sort}${filters > 0 ? `, ${filters} filter${filters === 1 ? "" : "s"}` : ""}`;
+  }
+  const parts = Object.entries(a)
+    .filter(([key, value]) => key !== "connection" && typeof value === "string")
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return parts.join(", ");
+}
 
 /** The tools that need the data level: they exist for a caller only while a connection is shared at that level. */
 const DATA_TOOLS: ReadonlySet<string> = new Set([

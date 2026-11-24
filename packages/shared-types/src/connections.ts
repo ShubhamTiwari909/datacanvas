@@ -113,13 +113,72 @@ export const claudeSharingRequestSchema = z.strictObject({
   level: claudeLevelSchema,
   /** The person read the warning about a risky database role (a superuser, or one that can read server files) and shares anyway. */
   acknowledgeRole: z.boolean().optional(),
+  /** At the data level: each call waits for the person's Approve. On unless the person turns it off. */
+  approval: z.boolean().optional(),
 });
 export type ClaudeSharingRequest = z.infer<typeof claudeSharingRequestSchema>;
 
 export const claudeSharingResponseSchema = z.object({
-  sharing: z.object({ level: claudeLevelSchema }),
+  sharing: z.object({ level: claudeLevelSchema, approval: z.boolean() }),
 });
 export type ClaudeSharingResponse = z.infer<typeof claudeSharingResponseSchema>;
+
+/** How a call of Claude ended, for the activity list. */
+export const claudeOutcomeSchema = z.enum([
+  "waiting",
+  "ok",
+  "error",
+  "refused",
+  "not_approved",
+  "paused",
+  "rate_limited",
+]);
+export type ClaudeOutcome = z.infer<typeof claudeOutcomeSchema>;
+
+/** `GET /api/claude/activity`: what Claude asked (never what came back: only counts), what waits for an answer, and the pause. */
+export const claudeActivitySchema = z.object({
+  paused: z.boolean(),
+  shared: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      level: claudeLevelSchema,
+      approval: z.boolean(),
+    }),
+  ),
+  pending: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      tool: z.string(),
+      connection: z.string(),
+      connectionName: z.string().nullable(),
+      request: z.string(),
+    }),
+  ),
+  activity: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      tool: z.string(),
+      connection: z.string().nullable(),
+      connectionName: z.string().nullable(),
+      request: z.string(),
+      outcome: claudeOutcomeSchema,
+      rows: z.number().optional(),
+      size: z.number().optional(),
+    }),
+  ),
+});
+export type ClaudeActivity = z.infer<typeof claudeActivitySchema>;
+
+/** `POST /api/claude/pending/:id`: answer a call that waits for approval. */
+export const claudeDecisionRequestSchema = z.strictObject({
+  decision: z.enum(["approve", "deny"]),
+});
+
+/** `PUT /api/claude/pause`: stop every call of Claude until the person resumes (or sharing ends). */
+export const claudePauseRequestSchema = z.strictObject({ paused: z.boolean() });
 
 // --- Table data (rows) ------------------------------------------------------
 

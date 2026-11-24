@@ -33,12 +33,21 @@ export const EXPORT_CELL_CHARS = 1_000_000;
 export const ROWS_EXPORT_FORMATS = ["csv", "tsv", "json", "ndjson", "sql"] as const;
 export type ExportRowsFormat = (typeof ROWS_EXPORT_FORMATS)[number];
 
+/** The most rows an export of chosen rows can name. */
+export const EXPORT_MAX_KEYS = 500;
+
 /** What the rows are read with: the same sort and conditions as on screen. No paging. */
 export interface ExportRowsOptions {
   /** Columns whose names look sensitive are left OUT of the file unless named here. */
   revealColumns: string[];
   sort?: RowSort | null;
   filters?: RowFilter[];
+  /**
+   * Only these rows (decision 168): each one named by the table's WHOLE key (one entry per key column, in any
+   * order), at most `EXPORT_MAX_KEYS`. A key that matches no row gives no row. A table without a key, a key that
+   * is not the table's key, and a key column that looks sensitive and was not revealed are refused.
+   */
+  keys?: ReadonlyArray<ReadonlyArray<{ column: string; value: string }>>;
 }
 
 /** The part of an `AbortSignal` a reader of rows looks at (this package has no DOM types). */

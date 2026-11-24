@@ -48,7 +48,9 @@ const filterButton = (page: Page) => page.getByRole("button", { name: /^Filter\b
 
 async function shownIds(page: Page): Promise<string[]> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-  return (await grid(page).locator("tbody tr td:first-child").allInnerTexts()).map((t) => t.trim());
+  return (await grid(page).locator("tbody tr td[data-col='0']").allInnerTexts()).map((t) =>
+    t.trim(),
+  );
 }
 
 interface Condition {

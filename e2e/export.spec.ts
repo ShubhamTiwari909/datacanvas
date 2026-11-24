@@ -170,6 +170,37 @@ test.describe("export", () => {
     expect(file.text.match(/^ {2}\('/gm)).toHaveLength(120);
   });
 
+  test("exports only the chosen rows, with no write unlocked, read again by their keys on the server", async ({
+    page,
+  }) => {
+    // Writes are off in this app: the checkboxes are there for exporting.
+    await page.getByRole("checkbox", { name: "Select row 3", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Select row 1", exact: true }).click();
+    const bar = page.getByRole("group", { name: "Chosen rows" });
+    await expect(bar.getByRole("status")).toContainText("2 rows chosen");
+    await bar.getByRole("button", { name: "Export chosen" }).click();
+    const dialog = page.getByRole("dialog", { name: /^Export / });
+    await expect(dialog).toContainText("the 2 chosen rows");
+    await dialog.getByLabel("Format").selectOption("csv");
+    const download = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Export", exact: true }).click();
+    const file = await download;
+    const text = new TextDecoder().decode(readFileSync((await file.path())!));
+    // Header and the two rows, in the order of the key, whatever order they were chosen in; the hidden column is left out.
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split("\r\n")
+      .filter((l) => l !== "" && !l.startsWith("#"));
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^1,Ann,/);
+    expect(lines[2]).toMatch(/^3,Cy,/);
+    expect(text).not.toContain("tok-");
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click();
+    // A selection can be cleared.
+    await bar.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByRole("group", { name: "Chosen rows" })).toHaveCount(0);
+  });
+
   test("passes axe in light, in dark and on a phone", async ({ page }) => {
     await page.getByRole("button", { name: "Export", exact: true }).click();
     await expect(page.getByRole("dialog", { name: /^Export / })).toBeVisible();

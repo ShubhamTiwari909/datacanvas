@@ -128,7 +128,7 @@ describe.skipIf(!testDatabaseUrl())("the INSERT script round trip", () => {
     // The comment lines flatten the name: no line of the file starts with anything but a statement or a comment.
     for (const line of text.split("\n")) {
       expect(
-        line === "" || /^(--|SET |BEGIN;|COMMIT;|ROLLBACK;|INSERT |  \(|name")/.test(line),
+        line === "" || /^(--|SET |BEGIN;|COMMIT;|ROLLBACK;|INSERT | {2}\(|name")/.test(line),
         line,
       ).toBe(true);
     }

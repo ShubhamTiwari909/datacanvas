@@ -71,7 +71,7 @@ async function openTable(page: Page, name: RegExp): Promise<void> {
 const grid = (page: Page) => page.getByRole("grid");
 /** The header of a column (a `th`), found by its name button or its plain name. */
 const header = (page: Page, name: string) =>
-  page.locator("th").filter({ has: page.getByText(name, { exact: true }) });
+  page.locator('th[scope="col"]').filter({ has: page.getByText(name, { exact: true }) });
 const sortButton = (page: Page, name: string) =>
   page.getByRole("button", { name: `Sort by ${name}`, exact: true });
 
@@ -81,7 +81,9 @@ const sortButton = (page: Page, name: string) =>
  */
 async function shownIds(page: Page): Promise<string[]> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-  return (await grid(page).locator("tbody tr td:first-child").allInnerTexts()).map((t) => t.trim());
+  return (await grid(page).locator("tbody tr td[data-col='0']").allInnerTexts()).map((t) =>
+    t.trim(),
+  );
 }
 
 /** The ids the database should give, sorted the way it sorts: NULL last when ascending, first when descending; the id breaks ties. */

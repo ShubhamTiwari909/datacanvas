@@ -209,3 +209,10 @@ V1 goes first because it is the only item that can change how every screen loads
 - The dialog first used the default dialog size: on an 800 px window the format list ran under the sticky footer and the note ended outside the dialog. It uses the sized form dialog now (`size="form"`, which scrolls its body and keeps the footer in view), found because the end-to-end test could not click the last radio button.
 - **The snapshot door is not built** (decision 166): the Overview and the canvas export dialog are.
 - Mermaid has no escape for a quote in a name, so a quote becomes an apostrophe there; an attribute name is reduced to word characters (a column called `line break` is `line_break` in the diagram, and exact in the Markdown and DBML files).
+
+## 18. What V5 found (2026-11-24)
+
+- **The INSERT script** passed its round trip on the first run, with every kind of value (see decision 167). Two details of the plan changed: **a statement holds at most 100 rows, but a batch of the reader ends a statement** (the first fetch is 10 rows, so a file of 120 rows is three statements, not two); and the format has no header, delimiter or NULL-word options (the dialog shows them only for the formats that have them).
+- **Chosen rows** need the key: the page reader's own ordering key (`RowOrder`) is used when no write is unlocked, the table's edit key when it is. A table with no usable key has no selection column and the grid already says why a row cannot be edited.
+- **The selection is two states, not one**: the choice for bulk changes (inside `useRowEditing`, which needs the write unlock) and the read-only choice (`useExportSelection`). Both use the same pure functions (`bulk-select.ts`); lifting them into one hook was judged a bigger change of the write side than this release should carry, and a test pins that the two are never both shown (the data section uses the editing one when it exists).
+- The route test found that `sql` as the value of the format list trips the rule that no request schema holds the word `sql`; the rule now reads the schema without the format list (the value is the INSERT script and nothing else).

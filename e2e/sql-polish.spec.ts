@@ -156,7 +156,11 @@ test("passes axe with a result, an error, the menus and the history, in both the
     await axeOn(page, `an error (${label})`);
 
     await page.getByRole("button", { name: "Explain" }).click();
-    await expect(page.getByRole("menuitem", { name: /^Explain analyze/ })).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", {
+        name: /^Explain analyze Runs the statement, and shows the plan/,
+      }),
+    ).toBeVisible();
     await page.waitForTimeout(350); // the open animation: colours are mid-fade before it ends
     // A menu hides the page behind it from assistive technology, so it is checked on its own.
     await axeOn(page, `the explain menu (${label})`, "[role=menu]");

@@ -17,6 +17,7 @@ import {
   EXPORT_BATCH_ROWS,
   EXPORT_FIRST_BATCH_ROWS,
   EXPORT_CELL_CHARS,
+  EXPORT_MAX_KEYS,
   EXPORT_MAX_ROWS,
   checkRowsFilters,
   checkRowsSort,
@@ -73,6 +74,42 @@ async function findColumnGeneration(
   );
 }
 
+/**
+ * The keys of an export of chosen rows, as the values of the table's key columns in key order (decision 168), or
+ * undefined when the export is not of chosen rows. Each key must name EXACTLY the table's key columns (any order): a
+ * part of a key, or a column that is not part of it, would turn the list into a search. A key column that looks
+ * sensitive and was not revealed is refused (a list of guesses against a hidden column would be an oracle), and a table
+ * without a key cannot be named by one. The refusals are fixed messages that name no value.
+ */
+function checkKeys(
+  keys: ExportRowsOptions["keys"],
+  columns: ReadonlyArray<RowColumn>,
+  keyColumns: readonly string[],
+  reveal: ReadonlySet<string>,
+): string[][] | undefined {
+  if (keys === undefined) return undefined;
+  if (keyColumns.length === 0) throw new DatabaseError("not_supported");
+  if (keys.length === 0 || keys.length > EXPORT_MAX_KEYS)
+    throw new DatabaseError("invalid_request");
+  for (const name of keyColumns) {
+    const column = columns.find((c) => c.name === name);
+    if (!column || (isSensitiveColumnName(name) && !reveal.has(name))) {
+      throw new DatabaseError("invalid_request");
+    }
+  }
+  return keys.map((key) => {
+    const byName = new Map(key.map((k) => [k.column, k.value]));
+    if (
+      byName.size !== key.length ||
+      byName.size !== keyColumns.length ||
+      !keyColumns.every((c) => byName.has(c))
+    ) {
+      throw new DatabaseError("invalid_request");
+    }
+    return keyColumns.map((c) => byName.get(c)!);
+  });
+}
+
 export async function exportRows(
   db: Queryable,
   ref: TableRef,
@@ -111,6 +148,7 @@ export async function exportRows(
     kind: kinds.get(c.name) ?? "other",
   }));
   const order = await findRowKey(db, ref);
+  const keys = checkKeys(options.keys, columns, order.columns, reveal);
   const sort = checkRowsSort(requestedSort, columns, order);
   const filters = checkRowsFilters(requestedFilters, columns);
 
@@ -129,6 +167,7 @@ export async function exportRows(
     offset: 0,
     limit: EXPORT_MAX_ROWS + 1,
     cellChars: EXPORT_CELL_CHARS,
+    keys,
   });
 
   const started = Date.now();

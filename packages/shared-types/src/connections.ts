@@ -273,6 +273,17 @@ export const exportRequestSchema = z.strictObject({
   sort: rowSortSchema.nullable().default(null),
   filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
   format: z.enum(["csv", "tsv", "json", "ndjson", "sql"]),
+  /** Only these rows, each by the table's whole key (the chosen rows of the grid): at most 500. */
+  keys: z
+    .array(
+      z
+        .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+        .min(1)
+        .max(32),
+    )
+    .min(1)
+    .max(500)
+    .optional(),
   /** For CSV: a comma or a semicolon (a tab is TSV). */
   delimiter: z.enum([",", ";"]).default(","),
   header: z.boolean().default(true),

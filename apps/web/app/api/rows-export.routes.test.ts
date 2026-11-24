@@ -82,6 +82,17 @@ describe("POST /connections/:id/rows/export", () => {
       { ...ask, filters: Array(11).fill({ column: "a", op: "is_null" }) },
     ],
     ["a limit field", { ...ask, limit: 5 }],
+    ["an empty list of keys", { ...ask, keys: [] }],
+    ["more than 500 keys", { ...ask, keys: Array(501).fill([{ column: "id", value: "1" }]) }],
+    ["a key with no column", { ...ask, keys: [[]] }],
+    [
+      "a key with a field that is not a column and a value",
+      { ...ask, keys: [[{ column: "id", value: "1", where: "x" }]] },
+    ],
+    [
+      "a key value over 4,096 characters",
+      { ...ask, keys: [[{ column: "id", value: "x".repeat(4097) }]] },
+    ],
     ["a header that is not a boolean", { ...ask, header: "yes" }],
   ])("refuses %s with 400 validation_error", async (_name, body) => {
     const id = await connect({ dataAccess: true });
@@ -104,6 +115,34 @@ describe("POST /connections/:id/rows/export", () => {
     expect(response.headers.get("content-disposition")).toBe("attachment");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toBe("id\r\n1\r\n2\r\n");
+  });
+
+  it("passes the chosen keys to the reader, says a count (never the keys) in the notes, and writes the SQL script as a file", async () => {
+    const id = await connect({ dataAccess: true });
+    let received: unknown;
+    vi.spyOn(context.createdAdapters[0]!, "exportRows").mockImplementation(
+      async (_t, options, sink) => {
+        received = options.keys;
+        const emit = sink as (e: ExportEvent) => unknown;
+        await emit({ kind: "start", columns, leftOut: [] });
+        await emit({ kind: "rows", rows: [["7"]], cellsCut: 0 });
+        await emit({ kind: "end", rows: 1, cut: null, cellsCut: 0 });
+      },
+    );
+    const secretKey = "key-value-SECRET";
+    const response = await post(id, {
+      ...ask,
+      format: "sql",
+      keys: [[{ column: "id", value: secretKey }]],
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/sql; charset=utf-8");
+    expect(received).toEqual([[{ column: "id", value: secretKey }]]);
+    const text = await response.text();
+    expect(text).toContain("BEGIN;");
+    expect(text.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(text).not.toContain(secretKey);
+    expect(JSON.stringify(logged)).not.toContain(secretKey);
   });
 
   it("answers an error known before the first byte in the usual JSON, with no value in it or in a log", async () => {

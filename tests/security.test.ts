@@ -713,7 +713,7 @@ describe("an export of rows is table data behind the data-access check, bounded,
     expect(notes).not.toMatch(/\.value\b|\.values\b|\brows\[/);
     const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
     expect(service).toMatch(
-      /filters: request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
+      /\.\.\.request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
     );
   });
 
@@ -1567,5 +1567,62 @@ describe("the documentation exports are made in the browser from the structure, 
     // No generator writes a template literal with a raw `.name` straight into a line.
     const mermaid = read("apps/web/features/docs/mermaid.ts");
     expect(mermaid).not.toMatch(/\$\{c\.name\}|\$\{entry\.table\.name\}/);
+  });
+});
+
+describe("an export of chosen rows names rows by the whole key and is read by the page reader's own statement", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("the keys of the request are strict and bounded: 500 keys of up to 32 parts, a value of 4,096 characters", () => {
+    const code = read("packages/shared-types/src/connections.ts");
+    const part = code.slice(
+      code.indexOf("exportRequestSchema = z.strictObject"),
+      code.indexOf("ParsedExportRequest"),
+    );
+    expect(part).toMatch(
+      /keys: z\s*\.array\(\s*z\s*\.array\(z\.strictObject\(\{ column: identifierSchema, value: z\.string\(\)\.max\(4096\) \}\)\)\s*\.min\(1\)\s*\.max\(32\),?\s*\)\s*\.min\(1\)\s*\.max\(500\)\s*\.optional\(\)/,
+    );
+  });
+
+  it("the adapter checks the keys against the catalog's key before the statement is built", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/export-rows.ts"));
+    expect(code).toContain("checkKeys(options.keys, columns, order.columns, reveal)");
+    expect(code).toMatch(/keyColumns\.length === 0\) throw new DatabaseError\("not_supported"\)/);
+    expect(code).toMatch(/isSensitiveColumnName\(name\) && !reveal\.has\(name\)/);
+    expect(code).toMatch(/byName\.size !== keyColumns\.length/);
+    expect(code).toContain("EXPORT_MAX_KEYS");
+  });
+
+  it("the keys reach the statement only as bound values, in the page reader's one builder", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    const at = code.indexOf("plan.keys && plan.keys.length > 0");
+    expect(at).toBeGreaterThan(-1);
+    const part = code.slice(at, at + 420);
+    expect(part).toContain("param(value)");
+    expect(part).toContain("ROW(${keyList}) IN (");
+    // No value is written into the text: nothing but `param(...)` is interpolated from a key.
+    expect(part).not.toMatch(/\$\{value\}|\$\{key\}|\$\{key\[/);
+  });
+
+  it("the notes of the file say how many rows were chosen and never their keys", () => {
+    const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
+    expect(service).toMatch(/request\.keys\.length\} chosen/);
+    expect(service).not.toMatch(/JSON\.stringify\(request\.keys|request\.keys\.map\(/);
+  });
+
+  it("the choice of rows to export is kept in memory only: no store, no storage", () => {
+    const hook = read("apps/web/features/data/use-export-selection.ts");
+    expect(hook).not.toMatch(/localStorage|sessionStorage|indexedDB|zustand|persist/);
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /use-export-selection|useExportSelection/,
+      );
+    }
   });
 });

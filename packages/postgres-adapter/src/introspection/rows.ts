@@ -214,6 +214,8 @@ export interface RowsQueryPlan {
   limit: number;
   /** The characters of a cell kept (a page keeps `ROWS_CELL_CHARS`; an export keeps more). */
   cellChars?: number;
+  /** Only the rows with one of these keys: each is the values of `keyColumns`, in that order (an export of chosen rows). */
+  keys?: ReadonlyArray<readonly string[]>;
 }
 
 /**
@@ -422,6 +424,11 @@ export function buildRowsQuery(plan: RowsQueryPlan): { text: string; values: unk
       return dataType === undefined ? undefined : { dataType };
     }),
   );
+  if (keyed && plan.keys && plan.keys.length > 0) {
+    // `ROW(k1, k2) IN (ROW($1, $2), ...)`: the names are the table's key columns, every value is bound.
+    const rows = plan.keys.map((key) => `ROW(${key.map((value) => param(value)).join(", ")})`);
+    conditions.push(`ROW(${keyList}) IN (${rows.join(", ")})`);
+  }
   if (keyed && plan.after) {
     const marks = plan.after.map((value) => param(value));
     const afterKey = `ROW(${keyList}) > ROW(${marks.join(", ")})`;

@@ -4,7 +4,7 @@ Written 2026-11-20 for whoever continues this work (a person or a fresh Claude s
 
 ## 1. Where things stand
 
-**Repository:** `/Users/shubham/Desktop/Repos/NEXT JS/pg-visualizer` (GitHub: `ShubhamTiwari909/pg-visualizer`, a monorepo: `apps/web` Next.js, `packages/{cli,database-core,postgres-adapter,shared-types,canvas-engine}`).
+**Repository:** `/Users/shubham/Desktop/Repos/NEXT JS/pg-visualizer` (GitHub: `ShubhamTiwari909/datacanvas`, a monorepo: `apps/web` Next.js, `packages/{cli,database-core,postgres-adapter,shared-types,canvas-engine}`).
 
 **Released and merged to `main`** (none of these is published to npm: that is the owner's step):
 

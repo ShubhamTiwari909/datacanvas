@@ -39,8 +39,11 @@ nothing for the maintainer. Run `npm run package` first.
 
 `.github/workflows/release.yml` runs when a `v*` tag is pushed: the full check, the audit, the tarball test and
 the release gate, then `npm publish --provenance`. It needs npm **trusted publishing** configured on npmjs.com
-for this repository and workflow (no token is stored in GitHub). Until that is set up, use the local script and
-expect that workflow to fail on a pushed tag. **Do not publish the same version both ways.**
+for this repository and workflow (no token is stored in GitHub): a trusted publisher of type GitHub Actions with
+owner `ShubhamTiwari909`, repository `datacanvas` (renamed from `pg-visualizer` on 2026-11-24) and workflow
+`release.yml`. The workflow installs npm 11.5.1 or newer first: older npm never uses trusted publishing, and the
+registry answers 404. Until that is set up, use the local script and expect that workflow to fail on a pushed
+tag. **Do not publish the same version both ways.**
 
 ## Repository settings (one-off)
 
@@ -59,9 +62,9 @@ expect that workflow to fail on a pushed tag. **Do not publish the same version 
 
 ---
 
-**Sources:** [`docs/releasing.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/releasing.md),
-[`scripts/release-check.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/release-check.mjs),
-[`scripts/publish.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/publish.mjs),
-[`.github/workflows/release.yml`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.github/workflows/release.yml),
-[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md).
+**Sources:** [`docs/releasing.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/releasing.md),
+[`scripts/release-check.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/scripts/release-check.mjs),
+[`scripts/publish.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/scripts/publish.mjs),
+[`.github/workflows/release.yml`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.github/workflows/release.yml),
+[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md).
 `release.yml` and `publish.mjs` were not opened; their behaviour is as described in `docs/releasing.md`.

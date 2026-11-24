@@ -74,7 +74,7 @@ unused tables, and index usage across several servers.
 
 ---
 
-**Sources:** [`apps/web/features/overview/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/overview),
-[`apps/web/features/paths/path-finder.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/paths/path-finder.ts),
-[`apps/web/features/health/health-checks.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/health/health-checks.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Schema overview, Health checks, Path finder).
+**Sources:** [`apps/web/features/overview/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/overview),
+[`apps/web/features/paths/path-finder.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/paths/path-finder.ts),
+[`apps/web/features/health/health-checks.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/health/health-checks.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Schema overview, Health checks, Path finder).

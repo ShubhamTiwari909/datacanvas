@@ -12,8 +12,8 @@ versions. Users of the published package still need only Node.js 20.9.
 ## Get running
 
 ```bash
-git clone https://github.com/ShubhamTiwari909/pg-visualizer.git
-cd pg-visualizer
+git clone https://github.com/ShubhamTiwari909/datacanvas.git
+cd datacanvas
 npm install              # installs every workspace and links them together
 npm run app              # builds the app and runs it from this clone (about a minute the first time)
 npm run dev              # builds the packages, then starts the web app at http://127.0.0.1:4747
@@ -76,10 +76,10 @@ not a route handler.
 
 ---
 
-**Sources:** [`README.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/README.md),
-[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CONTRIBUTING.md),
-root [`package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/package.json),
-[`eslint.config.js`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/eslint.config.js),
-[`.prettierignore`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.prettierignore),
-[`tsconfig.base.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tsconfig.base.json).
+**Sources:** [`README.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/README.md),
+[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CONTRIBUTING.md),
+root [`package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/package.json),
+[`eslint.config.js`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/eslint.config.js),
+[`.prettierignore`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.prettierignore),
+[`tsconfig.base.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tsconfig.base.json).
 `CONTRIBUTING.md`'s script table is shorter than the root `package.json`; this page follows the manifest.

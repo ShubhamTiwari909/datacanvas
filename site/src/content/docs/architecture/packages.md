@@ -97,9 +97,9 @@ The Next.js app. See [Web app](/architecture/web-app/).
 
 ---
 
-**Sources:** [`packages/mcp/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/mcp/src), each package's `package.json` and `src/` under
-[`packages/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages),
-[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/architecture.test.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md).
+**Sources:** [`packages/mcp/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/mcp/src), each package's `package.json` and `src/` under
+[`packages/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages),
+[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/architecture.test.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md).
 Per-file descriptions are summarised from file headers and the repository file list; this page does not describe every
 file.

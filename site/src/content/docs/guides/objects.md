@@ -41,6 +41,6 @@ The queries are written for **PostgreSQL 12 and newer**.
 
 ---
 
-**Sources:** [`packages/postgres-adapter/src/introspection/objects.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/objects.ts),
-[`apps/web/features/objects/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/objects),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Database objects).
+**Sources:** [`packages/postgres-adapter/src/introspection/objects.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/introspection/objects.ts),
+[`apps/web/features/objects/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/objects),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Database objects).

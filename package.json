@@ -4,11 +4,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ShubhamTiwari909/pg-visualizer.git"
+    "url": "git+https://github.com/ShubhamTiwari909/datacanvas.git"
   },
-  "homepage": "https://github.com/ShubhamTiwari909/pg-visualizer#readme",
+  "homepage": "https://github.com/ShubhamTiwari909/datacanvas#readme",
   "bugs": {
-    "url": "https://github.com/ShubhamTiwari909/pg-visualizer/issues"
+    "url": "https://github.com/ShubhamTiwari909/datacanvas/issues"
   },
   "private": true,
   "description": "DataCanvas: a local-first visual PostgreSQL explorer (monorepo root, not published).",

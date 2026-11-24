@@ -47,9 +47,9 @@ ones you confirm.)
 
 ---
 
-**Sources:** [`packages/database-core/src/structure.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/structure.ts),
-[`packages/database-core/src/diff.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/diff.ts),
-[`apps/web/features/snapshots/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/snapshots),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Schema snapshots and diff).
+**Sources:** [`packages/database-core/src/structure.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/structure.ts),
+[`packages/database-core/src/diff.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/diff.ts),
+[`apps/web/features/snapshots/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/snapshots),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Schema snapshots and diff).
 See also [Snapshots and diff](/architecture/snapshots-and-diff/).

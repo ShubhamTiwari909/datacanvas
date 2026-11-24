@@ -195,13 +195,13 @@ query, `getRoleInfo`).
 
 ---
 
-**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md),
-[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md) (sections 7 to 13),
-[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-service.ts),
-[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-control.ts),
-[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-data.ts),
-[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/mcp-server-plan.md) (sections 8 and 17 to 21),
-[`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/write-service.ts),
-[`apps/web/lib/server/sql-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/sql-service.ts),
-[`packages/database-core/src/sql-run.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/sql-run.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Editing rows and designing tables, data viewer M2).
+**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md),
+[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/threat-model.md) (sections 7 to 13),
+[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-service.ts),
+[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-control.ts),
+[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-data.ts),
+[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/mcp-server-plan.md) (sections 8 and 17 to 21),
+[`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/write-service.ts),
+[`apps/web/lib/server/sql-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/sql-service.ts),
+[`packages/database-core/src/sql-run.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/sql-run.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Editing rows and designing tables, data viewer M2).

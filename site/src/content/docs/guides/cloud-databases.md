@@ -58,7 +58,7 @@ weaken them.
 
 ---
 
-**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (Cloud databases),
-[`docs/releasing.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/releasing.md) (Still open),
-[`packages/shared-types/src/postgres-connection.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/postgres-connection.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 5, Connection strings).
+**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (Cloud databases),
+[`docs/releasing.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/releasing.md) (Still open),
+[`packages/shared-types/src/postgres-connection.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/postgres-connection.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phase 5, Connection strings).

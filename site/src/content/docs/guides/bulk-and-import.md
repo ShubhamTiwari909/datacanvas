@@ -67,8 +67,8 @@ To skip bad rows, fix the file and try again.
 
 ---
 
-**Sources:** [`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md) (1.9.0),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (Bulk changes and import),
-[`packages/database-core/src/changes.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/changes.ts) (`MAX_BULK_ROWS`, `IMPORT_MAX_*`),
-[`apps/web/features/import/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/import),
-[`apps/web/features/writes/bulk-dialogs.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/writes/bulk-dialogs.tsx).
+**Sources:** [`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md) (1.9.0),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md) (Bulk changes and import),
+[`packages/database-core/src/changes.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/changes.ts) (`MAX_BULK_ROWS`, `IMPORT_MAX_*`),
+[`apps/web/features/import/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/import),
+[`apps/web/features/writes/bulk-dialogs.tsx`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/writes/bulk-dialogs.tsx).

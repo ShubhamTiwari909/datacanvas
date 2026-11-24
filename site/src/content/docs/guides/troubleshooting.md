@@ -35,6 +35,6 @@ folder. **Report vulnerabilities privately** through GitHub's private vulnerabil
 
 ---
 
-**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (When something goes wrong),
-[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts),
-[`packages/shared-types/src/api-error.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/api-error.ts).
+**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (When something goes wrong),
+[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/index.ts),
+[`packages/shared-types/src/api-error.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/api-error.ts).

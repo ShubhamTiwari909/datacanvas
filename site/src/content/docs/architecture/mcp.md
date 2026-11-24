@@ -172,19 +172,19 @@ session.
 
 ---
 
-**Sources:** [`packages/mcp/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/mcp/src) (`protocol.ts`, `jsonrpc.ts`, `tools.ts`),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
-[`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/proxy.ts),
-[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/request-guard.ts),
-[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-service.ts),
-[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-control.ts),
-[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-data.ts),
-[`apps/web/app/api/claude/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/app/api/claude),
-[`apps/web/app/api/connections/[id]/claude/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/api/connections/%5Bid%5D/claude/route.ts),
-[`apps/web/features/claude/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/claude),
-[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-bridge.ts),
-[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-file.ts),
-[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/architecture.test.ts),
-[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/mcp-server-plan.md),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Claude reading a connection).
+**Sources:** [`packages/mcp/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/mcp/src) (`protocol.ts`, `jsonrpc.ts`, `tools.ts`),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts),
+[`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/proxy.ts),
+[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/request-guard.ts),
+[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-service.ts),
+[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-control.ts),
+[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-data.ts),
+[`apps/web/app/api/claude/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/app/api/claude),
+[`apps/web/app/api/connections/[id]/claude/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/api/connections/%5Bid%5D/claude/route.ts),
+[`apps/web/features/claude/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/claude),
+[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-bridge.ts),
+[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-file.ts),
+[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/architecture.test.ts),
+[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/mcp-server-plan.md),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Claude reading a connection).
 Where the plan's section 4 gives other numbers (page of 200, a plan of 1 MB), the code was followed.

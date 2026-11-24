@@ -89,9 +89,9 @@ change history can also be read as a migration script (`GET /api/connections/:id
 
 ---
 
-**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 5),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md),
-[`apps/web/features/writes/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/writes),
-[`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/write-service.ts),
-[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts).
+**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (section 5),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md),
+[`apps/web/features/writes/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/writes),
+[`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/write-service.ts),
+[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/index.ts).
 Internals: [Write pipeline](/architecture/write-pipeline/).

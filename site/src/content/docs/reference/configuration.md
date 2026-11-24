@@ -65,12 +65,12 @@ server and sends what it reads on.
 
 ---
 
-**Sources:** [`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-file.ts),
-[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/request-guard.ts),
-[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts),
-[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/web-server.ts),
-[`apps/web/lib/server/storage/data-dir.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/storage/data-dir.ts),
-[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.github/workflows/ci.yml),
-[`examples/docker-compose.yml`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/examples/docker-compose.yml),
-[`.gitignore`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.gitignore),
-[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CONTRIBUTING.md).
+**Sources:** [`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-file.ts),
+[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/request-guard.ts),
+[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/index.ts),
+[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/web-server.ts),
+[`apps/web/lib/server/storage/data-dir.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/storage/data-dir.ts),
+[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.github/workflows/ci.yml),
+[`examples/docker-compose.yml`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/examples/docker-compose.yml),
+[`.gitignore`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.gitignore),
+[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CONTRIBUTING.md).

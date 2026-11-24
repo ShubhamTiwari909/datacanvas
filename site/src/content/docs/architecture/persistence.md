@@ -85,8 +85,8 @@ a saved profile. Switching or creating a workspace flushes the current one first
 
 ---
 
-**Sources:** [`apps/web/lib/server/storage/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/lib/server/storage),
-[`packages/shared-types/src/versioned-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/versioned-file.ts),
-[`apps/web/features/workspaces/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/workspaces),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 8).
+**Sources:** [`apps/web/lib/server/storage/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/lib/server/storage),
+[`packages/shared-types/src/versioned-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/versioned-file.ts),
+[`apps/web/features/workspaces/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/workspaces),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phase 8).
 Limit figures other than `MAX_PROFILES`, `MAX_WORKSPACES` and `MAX_SNAPSHOTS` are taken from `docs/architecture.md`.

@@ -63,10 +63,10 @@ the adapter to expose one; it is not done.
 
 ---
 
-**Sources:** [`packages/database-core/src/structure.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/structure.ts),
-[`packages/database-core/src/diff.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/diff.ts),
-[`apps/web/lib/server/snapshot-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/snapshot-service.ts),
-[`apps/web/lib/server/storage/snapshot-storage.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/storage/snapshot-storage.ts),
-[`packages/shared-types/src/snapshots.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/snapshots.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Schema snapshots and diff). The mention of
+**Sources:** [`packages/database-core/src/structure.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/structure.ts),
+[`packages/database-core/src/diff.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/diff.ts),
+[`apps/web/lib/server/snapshot-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/snapshot-service.ts),
+[`apps/web/lib/server/storage/snapshot-storage.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/storage/snapshot-storage.ts),
+[`packages/shared-types/src/snapshots.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/snapshots.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Schema snapshots and diff). The mention of
 `ddl` in the structure follows `database-core/src/ddl.ts` (header says a structure that never recorded it has `ddl: null`).

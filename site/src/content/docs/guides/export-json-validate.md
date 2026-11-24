@@ -127,11 +127,11 @@ See also [Security: writes, SQL and migrations](/security/risky-features/).
 
 ---
 
-**Sources:** [`apps/web/features/docs/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/docs) (`docs-export-dialog.tsx`, `generate.ts`, `markdown.ts`, `mermaid.ts`, `dbml.ts`, `plantuml.ts`),
-[`apps/web/app/api/connections/[id]/rows/export/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/api/connections/%5Bid%5D/rows/export/route.ts),
-[`packages/shared-types/src/connections.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/connections.ts) (`exportRequestSchema`, `EXPORT_MAX_BODY_BYTES`),
-[`packages/database-core/src/rows-export.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows-export.ts),
-[`packages/database-core/src/validation.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/validation.ts),
-[`apps/web/features/json/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/json),
-[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md) (1.8.0, 1.10.0), [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md).
+**Sources:** [`apps/web/features/docs/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/docs) (`docs-export-dialog.tsx`, `generate.ts`, `markdown.ts`, `mermaid.ts`, `dbml.ts`, `plantuml.ts`),
+[`apps/web/app/api/connections/[id]/rows/export/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/api/connections/%5Bid%5D/rows/export/route.ts),
+[`packages/shared-types/src/connections.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/connections.ts) (`exportRequestSchema`, `EXPORT_MAX_BODY_BYTES`),
+[`packages/database-core/src/rows-export.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/rows-export.ts),
+[`packages/database-core/src/validation.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/validation.ts),
+[`apps/web/features/json/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/json),
+[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md) (1.8.0, 1.10.0), [`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md).

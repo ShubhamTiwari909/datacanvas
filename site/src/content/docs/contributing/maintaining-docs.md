@@ -93,7 +93,7 @@ the code and changelog:
 
 ---
 
-**Sources:** [`site/astro.config.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/site/astro.config.mjs),
-[`site/package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/site/package.json),
-root [`package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/package.json) (`workspaces`),
-[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md).
+**Sources:** [`site/astro.config.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/site/astro.config.mjs),
+[`site/package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/site/package.json),
+root [`package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/package.json) (`workspaces`),
+[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md).

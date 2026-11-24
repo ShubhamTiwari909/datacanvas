@@ -131,17 +131,17 @@ buffer of 36 MB is configured so a larger body is not cut short.
 
 ---
 
-**Sources:** [`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/proxy.ts),
-[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/request-guard.ts),
-[`apps/web/lib/security/csp.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/csp.ts),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
-[`apps/web/app/layout.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/layout.tsx),
-[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-file.ts),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) ("How the local server is protected", items 7 and 8),
-[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md) (sections 12 and 13),
-[`apps/web/lib/server/parse-request.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/parse-request.ts),
-[`apps/web/next.config.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/next.config.ts),
-[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/web-server.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 3 and 10).
+**Sources:** [`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/proxy.ts),
+[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/request-guard.ts),
+[`apps/web/lib/security/csp.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/csp.ts),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts),
+[`apps/web/app/layout.tsx`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/layout.tsx),
+[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-file.ts),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md) ("How the local server is protected", items 7 and 8),
+[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/threat-model.md) (sections 12 and 13),
+[`apps/web/lib/server/parse-request.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/parse-request.ts),
+[`apps/web/next.config.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/next.config.ts),
+[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/web-server.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 3 and 10).
 The "framework telemetry" and `DATACANVAS_SESSION_TOKEN` details come from the CLI and `docs/architecture.md`; the
 exact per-route body limits were not individually verified.

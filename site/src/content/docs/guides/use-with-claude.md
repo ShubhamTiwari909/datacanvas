@@ -121,11 +121,11 @@ starts the same bridge, `npx --yes @shubhamtiwari909/datacanvas mcp`, which find
 itself, so no token, port or password is ever in a config file. The file formats are the editors' own and can
 change; if one is not accepted, check the editor's MCP documentation (VS Code's own agent harness may read a
 different file). For **Claude Code** there is also a **plugin** with a skill that teaches an agent the
-workflow (`integrations/claude-code` in the repository; `/plugin marketplace add ShubhamTiwari909/pg-visualizer`
+workflow (`integrations/claude-code` in the repository; `/plugin marketplace add ShubhamTiwari909/datacanvas`
 then `/plugin install datacanvas@datacanvas`), and in a **Docker container** the bridge is
 `docker exec -i <container> datacanvas mcp` (see
-[docs/docker.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/docker.md) and
-[docs/agent-setup.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/agent-setup.md)).
+[docs/docker.md](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/docker.md) and
+[docs/agent-setup.md](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/agent-setup.md)).
 **Unverified:** none of the editor files was tried in a real editor, and the GitHub install form of the plugin
 works only once this release is merged.
 
@@ -220,12 +220,12 @@ DataCanvas. The structure level and the approval prompt are the answers.
 
 ---
 
-**Sources:** [`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md) (1.11.0),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (Letting Claude read a connection),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 8),
-[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/mcp-server-plan.md) (sections 4 to 8 and 17 to 21),
-[`apps/web/features/claude/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/claude) (`share-dialog.tsx`, `claude-control.tsx`, `activity-host.tsx`, `setup-text.ts`),
-[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-service.ts),
-[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-control.ts),
-[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-data.ts),
-[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-bridge.ts).
+**Sources:** [`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md) (1.11.0),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md) (Letting Claude read a connection),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (section 8),
+[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/mcp-server-plan.md) (sections 4 to 8 and 17 to 21),
+[`apps/web/features/claude/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/claude) (`share-dialog.tsx`, `claude-control.tsx`, `activity-host.tsx`, `setup-text.ts`),
+[`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-service.ts),
+[`apps/web/lib/server/mcp-control.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-control.ts),
+[`apps/web/lib/server/mcp-data.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-data.ts),
+[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-bridge.ts).

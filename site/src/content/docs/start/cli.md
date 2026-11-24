@@ -37,7 +37,7 @@ sets it, a normal computer does not); otherwise the CLI exits with an explanatio
 the Host check accepts only `127.0.0.1:<port>` and `localhost:<port>`, and the session token and the token of
 `/mcp` are still required, so a request through a LAN address is refused. Publish the port to `127.0.0.1` of
 the host only, with the same port on both sides. The full recipe is in
-[docs/docker.md](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/docker.md).
+[docs/docker.md](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/docker.md).
 
 ### `--no-open`
 
@@ -121,9 +121,9 @@ server running until you stop it by hand (a documented limit).
 
 ---
 
-**Sources:** [`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts),
-[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/web-server.ts),
-[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-bridge.ts),
-[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-file.ts),
-[`packages/cli/src/instance.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/instance.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 11).
+**Sources:** [`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/index.ts),
+[`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/web-server.ts),
+[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-bridge.ts),
+[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-file.ts),
+[`packages/cli/src/instance.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/instance.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phase 11).

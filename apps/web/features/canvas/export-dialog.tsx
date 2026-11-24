@@ -38,7 +38,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="form">
         <DialogHeader>
           <DialogTitle>Export diagram</DialogTitle>
           <DialogDescription>

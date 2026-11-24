@@ -128,6 +128,23 @@ test.describe("documentation exports", () => {
     await page.getByRole("button", { name: "Add all tables of public to the canvas" }).click();
     await expect(page.locator(".react-flow__node").first()).toBeVisible();
     await page.getByRole("button", { name: "Export", exact: true }).click();
+    // Nothing may stick out of the dialog: the notice and all four buttons stay inside its box (it once fell back to the
+    // narrowest size and the footer overflowed).
+    const exportDialog = page.getByRole("dialog", { name: "Export diagram" });
+    await expect(exportDialog).toBeVisible();
+    await settleForAxe(page); // the dialog zooms in; measure it at rest
+    const box = await exportDialog.boundingBox();
+    expect(box).not.toBeNull();
+    for (const part of [
+      exportDialog.getByRole("alert").or(exportDialog.locator("[data-slot=dialog-footer]")),
+      exportDialog.getByRole("button", { name: "Cancel" }),
+      exportDialog.getByRole("button", { name: /^Documentation and diagram text/ }),
+      exportDialog.getByRole("button", { name: /Save as PNG/ }),
+    ]) {
+      const inner = await part.first().boundingBox();
+      expect(inner!.x).toBeGreaterThanOrEqual(box!.x - 1);
+      expect(inner!.x + inner!.width).toBeLessThanOrEqual(box!.x + box!.width + 1);
+    }
     await page.getByRole("button", { name: /^Documentation and diagram text/ }).click();
     await expect(page.getByRole("dialog", { name: "Export documentation" })).toBeVisible();
   });

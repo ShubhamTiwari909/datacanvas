@@ -214,3 +214,11 @@ Measured on 2026-11-24, with the real Claude Code (2.1.261) started with `--mcp-
 - **404 before anything is shared**, checked before the body is read, so a program that finds the port and has the token learns nothing.
 - Sharing is `PUT /api/connections/:id/claude` (cookie-guarded, `off` / `structure` / `data`, memory only, the data level needs viewing table data and falls back to structure when it is switched off, a disconnect ends it).
 - Only `list_connections` exists so far (M2 adds the structure tools).
+
+## 19. What M2 found
+
+- **Five tools exist**: `list_connections`, `list_schemas`, `list_tables` (500 a call, a numeric cursor), `describe_table` (columns with a `hidden` flag, keys, indexes, foreign keys in both directions, and, from 1.10.0, the table's statistics) and `search_objects` (names only, 50 results). All take a connection id and names; **none takes SQL**, a test checks that no input field is called anything like it.
+- **One sentence for every refusal about a connection**: not shared, paused, never existed and a malformed id all answer "That connection is not shared with Claude, or does not exist", identical for every tool (tested with a shared and an unshared connection side by side).
+- **The database's own message is never used**: a failure reading the structure is "The database could not be read right now." and a missing table is "There is no such table or schema." (a test makes the adapter throw an error that holds a password and checks it is nowhere in the answer).
+- **The switch** is "Share with Claude" under each connection (a store of levels in memory, read again whenever the connection or its data access changes), and its dialog says what leaves the machine and what hidden columns are **before** anything is shared, and carries the setup text for Claude Code and Claude Desktop (no token in it: the same text works on every run). **The data level is shown disabled** ("not available yet: it comes with its own approval step") rather than hidden, so nobody looks for it; M3 and M4 turn it on.
+- A hidden column is still **listed** at the structure level (its name and type are structure) but is marked `hidden`, and the answer says its values are never returned to Claude.

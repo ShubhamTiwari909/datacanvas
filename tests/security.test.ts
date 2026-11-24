@@ -1665,7 +1665,13 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
     const tools = code.slice(code.indexOf("const TOOLS"));
     const names = [...tools.matchAll(/^\s+name: "([a-z_]+)",$/gm)].map((m) => m[1]);
     // A new tool is a deliberate change of this list: a decision, a review and a test of its own.
-    expect(names).toEqual(["list_connections"]);
+    expect(names).toEqual([
+      "list_connections",
+      "list_schemas",
+      "list_tables",
+      "describe_table",
+      "search_objects",
+    ]);
     expect((code.match(/annotations: READ_ONLY/g) ?? []).length).toBe(names.length);
     for (const name of names)
       expect(name).not.toMatch(/write|insert|update|delete|drop|create|alter|import|exec|run_sql/);
@@ -1704,6 +1710,25 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
     expect(stripComments(read("packages/shared-types/src/postgres-connection.ts"))).not.toMatch(
       /claude|mcp/i,
     );
+  });
+
+  it("the browser keeps the level of a sharing in memory only: no storage, no persistence, no token, no profile", () => {
+    for (const file of [
+      "apps/web/stores/claude-store.ts",
+      "apps/web/features/claude/api.ts",
+      "apps/web/features/claude/setup-text.ts",
+    ]) {
+      expect(read(file), file).not.toMatch(
+        /localStorage|sessionStorage|indexedDB|persist|document\.cookie|Bearer|mcpToken/,
+      );
+    }
+    for (const file of walk(path.join(root, "apps/web/features/workspaces")).filter((f) =>
+      /\.(ts|tsx)$/.test(f),
+    )) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /claude-store|useClaude|claudeSharing/,
+      );
+    }
   });
 
   it("mcp.json holds the token of /mcp and nothing of the browser's session, and is written 0600", () => {

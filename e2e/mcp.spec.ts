@@ -4,13 +4,19 @@
  * starts. Nothing is shared until the app shares it, and the two tokens are never interchangeable.
  */
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Page } from "@playwright/test";
-import { expect, test, type RunningApp, type TestDb } from "./fixtures";
+import { expect, settleForAxe, test, type RunningApp, type TestDb } from "./fixtures";
+
+const axeSource = readFileSync(
+  createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
+  "utf8",
+);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(root, ".package/bin/datacanvas.mjs");
@@ -78,7 +84,7 @@ test.describe("the MCP server", () => {
     expect((await ping({ Authorization: `Bearer ${token}` })).status).toBe(404);
   });
 
-  test("the official client lists the shared connection and nothing else, over HTTP", async ({
+  test("the official client lists the tools and the one shared connection, over HTTP", async ({
     page,
     app,
     database,
@@ -95,7 +101,13 @@ test.describe("the MCP server", () => {
     expect(client.getServerVersion()).toMatchObject({ name: "datacanvas" });
     expect(client.getInstructions()).toMatch(/READ-ONLY/);
     const tools = await client.listTools();
-    expect(tools.tools.map((t) => t.name)).toEqual(["list_connections"]);
+    expect(tools.tools.map((t) => t.name)).toEqual([
+      "list_connections",
+      "list_schemas",
+      "list_tables",
+      "describe_table",
+      "search_objects",
+    ]);
     const called = await client.callTool({ name: "list_connections", arguments: {} });
     expect(called.isError).toBeFalsy();
     const connections = (called.structuredContent as { connections: Array<Record<string, string>> })
@@ -138,5 +150,148 @@ test.describe("the MCP server", () => {
     const orphan = new Client({ name: "e2e-lonely", version: "1.0.0" });
     await expect(orphan.connect(lonely)).rejects.toThrow(/Start DataCanvas/);
     await orphan.close().catch(() => {});
+  });
+
+  test("the structure tools answer the official client for a shared connection, and a table is described with its keys", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const id = await connect(page, app, database);
+    await share(page, app, id, "structure");
+    const { port, token } = mcpFile(app);
+    const client = new Client({ name: "e2e", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual([
+      "list_connections",
+      "list_schemas",
+      "list_tables",
+      "describe_table",
+      "search_objects",
+    ]);
+    const schemas = await client.callTool({ name: "list_schemas", arguments: { connection: id } });
+    expect(JSON.stringify(schemas.structuredContent)).toContain('"schema":"public"');
+    const tables = await client.callTool({
+      name: "list_tables",
+      arguments: { connection: id, schema: "public" },
+    });
+    const names = (tables.structuredContent as { tables: Array<{ name: string }> }).tables.map(
+      (t) => t.name,
+    );
+    expect(names).toEqual(expect.arrayContaining(["users", "orders", "products"]));
+    const described = await client.callTool({
+      name: "describe_table",
+      arguments: { connection: id, schema: "public", table: "orders" },
+    });
+    const data = described.structuredContent as {
+      columns: Array<{ name: string }>;
+      constraints: Array<{ kind: string }>;
+      references: Array<{ references: string }>;
+    };
+    expect(data.columns.map((c) => c.name)).toContain("id");
+    expect(data.constraints.some((c) => c.kind === "primary_key")).toBe(true);
+    expect(data.references.map((r) => r.references)).toContain("public.users");
+    // Another connection id, shared or not, gets the same sentence as one that never existed.
+    const refusal = await client.callTool({
+      name: "list_schemas",
+      arguments: { connection: "0".repeat(32) },
+    });
+    expect(refusal.isError).toBe(true);
+    // No row of any table reaches this level: a search is by name.
+    const found = await client.callTool({
+      name: "search_objects",
+      arguments: { connection: id, query: "email" },
+    });
+    expect(found.isError).toBeFalsy();
+    await client.close();
+  });
+});
+
+test.describe("Share with Claude, in the app", () => {
+  async function connectInApp(page: Page, app: RunningApp, database: TestDb) {
+    await page.goto(app.link);
+    await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+    await page.getByLabel("Connection name").fill("UI shop");
+    await page.getByRole("tab", { name: /connection string/i }).click();
+    await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+    await page.getByRole("button", { name: /^Connect$/ }).click();
+    await expect(page.getByRole("button", { name: "Disconnect UI shop" })).toBeVisible();
+  }
+
+  test("says what leaves the machine before anything is shared, shares the structure, and stops", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await connectInApp(page, app, database);
+    await page.getByRole("button", { name: "Share with Claude: UI shop" }).click();
+    const dialog = page.getByRole("dialog", { name: "Share UI shop with Claude" });
+    await expect(dialog).toContainText("sent to Anthropic by the Claude app you use");
+    await expect(dialog).toContainText("cannot stop that or take it back");
+    await expect(dialog).toContainText("never saved");
+    await expect(dialog.getByLabel("Command for Claude Code", { exact: true })).toContainText(
+      "claude mcp add datacanvas -- npx --yes @shubhamtiwari909/datacanvas mcp",
+    );
+    await expect(dialog.getByLabel("Config for Claude Desktop", { exact: true })).toContainText(
+      '"command": "npx"',
+    );
+    // Nothing is shared yet.
+    const { port, token } = mcpFile(app);
+    const ping = () =>
+      fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+    expect((await ping()).status).toBe(404);
+    await dialog.getByRole("button", { name: "Start sharing the structure" }).click();
+    await expect(dialog.getByRole("button", { name: "Stop sharing" })).toBeVisible();
+    expect((await ping()).status).toBe(200);
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click();
+    await expect(page.getByText("structure", { exact: true }).first()).toBeVisible();
+    // Stop it again from the dialog.
+    await page.getByRole("button", { name: /^Shared with Claude: UI shop/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Stop sharing" }).click();
+    await expect(page.getByRole("button", { name: "Share with Claude: UI shop" })).toBeVisible();
+    expect((await ping()).status).toBe(404);
+  });
+
+  test("passes axe in light and in dark", async ({ page, app, database }) => {
+    await connectInApp(page, app, database);
+    await page.getByRole("button", { name: "Share with Claude: UI shop" }).click();
+    await expect(page.getByRole("dialog", { name: "Share UI shop with Claude" })).toBeVisible();
+    const check = async (name: string) => {
+      await settleForAxe(page);
+      await page.addScriptTag({ content: axeSource });
+      const found = await page.evaluate(async () => {
+        const axe = (
+          window as unknown as {
+            axe: {
+              run: (
+                c: Element,
+                o: object,
+              ) => Promise<{ violations: Array<{ id: string; impact: string | null }> }>;
+            };
+          }
+        ).axe;
+        const result = await axe.run(document.querySelector('[role="dialog"]') ?? document.body, {
+          runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+        });
+        return result.violations.map((v) => `${v.id} (${v.impact})`);
+      });
+      expect.soft(found, `axe on Share with Claude (${name})`).toEqual([]);
+    };
+    await check("light");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /^Theme:/ }).click();
+    await page.getByRole("menuitemradio", { name: "Dark" }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await page.getByRole("button", { name: "Share with Claude: UI shop" }).click();
+    await expect(page.getByRole("dialog", { name: "Share UI shop with Claude" })).toBeVisible();
+    await check("dark");
   });
 });

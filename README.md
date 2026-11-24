@@ -88,8 +88,8 @@ Your data lives in `~/.datacanvas` (set `DATACANVAS_HOME` to change it). Startin
 Requirements: Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21) and npm 10 or newer. Building needs more than running: the build tool loads an ES-module-only dependency with `require()`, which Node supports only from those versions. Users of the published package still need only Node.js 20.9.
 
 ```bash
-git clone https://github.com/ShubhamTiwari909/pg-visualizer.git
-cd pg-visualizer
+git clone https://github.com/ShubhamTiwari909/datacanvas.git
+cd datacanvas
 npm install              # installs every workspace and links them together
 npm run app              # builds the app and runs it from this clone (about a minute the first time)
 npm run dev              # development mode: builds the packages, then starts the web app at http://127.0.0.1:4747

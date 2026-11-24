@@ -8,7 +8,7 @@ DataCanvas is one npm **workspace monorepo** (`workspaces: ["apps/*", "packages/
 `datacanvas-monorepo` is private and never published.
 
 ```text
-pg-visualizer/
+datacanvas/
 ├── apps/web/            Next.js 16 app: the interface and every /api route handler
 ├── packages/
 │   ├── shared-types/    constants and Zod schemas (API contracts)
@@ -95,11 +95,11 @@ image export and `monaco-editor` 0.57.0 for the SQL and JSON editors. These are 
 
 ---
 
-**Sources:** root [`package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/package.json),
-[`tsconfig.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tsconfig.json), each
-`packages/*/package.json`, [`apps/web/package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/package.json),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md),
-[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/mcp-server-plan.md),
-[`docs/decisions.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/decisions.md),
-[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/architecture.test.ts).
+**Sources:** root [`package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/package.json),
+[`tsconfig.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tsconfig.json), each
+`packages/*/package.json`, [`apps/web/package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/package.json),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md),
+[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/mcp-server-plan.md),
+[`docs/decisions.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/decisions.md),
+[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/architecture.test.ts).
 The ASCII diagram is a summary (**Inference**) of the target architecture in `docs/architecture.md`.

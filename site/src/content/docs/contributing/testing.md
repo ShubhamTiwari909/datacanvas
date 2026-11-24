@@ -98,11 +98,11 @@ value and assert it never appears in a response, log or error.
 
 ---
 
-**Sources:** [`vitest.config.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/vitest.config.ts),
-[`playwright.config.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/playwright.config.ts),
-[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.github/workflows/ci.yml),
-[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CONTRIBUTING.md),
-[`tests/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/tests),
-[`e2e/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/e2e),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 12).
+**Sources:** [`vitest.config.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/vitest.config.ts),
+[`playwright.config.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/playwright.config.ts),
+[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.github/workflows/ci.yml),
+[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CONTRIBUTING.md),
+[`tests/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/tests),
+[`e2e/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/e2e),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phase 12).
 Spec contents were inferred from file names and the notes in `docs/architecture.md`; individual specs were not opened.

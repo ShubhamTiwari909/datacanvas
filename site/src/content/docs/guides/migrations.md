@@ -75,7 +75,7 @@ your data; try those in the SQL tab. See [Migration engine](/architecture/migrat
 
 ---
 
-**Sources:** [`packages/database-core/src/migration/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/database-core/src/migration),
-[`apps/web/features/migrations/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/migrations),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 7),
-[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md) (1.7.0, 1.7.1, 1.8.0), [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md).
+**Sources:** [`packages/database-core/src/migration/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/database-core/src/migration),
+[`apps/web/features/migrations/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/migrations),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (section 7),
+[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md) (1.7.0, 1.7.1, 1.8.0), [`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md).

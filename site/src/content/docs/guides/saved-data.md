@@ -63,8 +63,8 @@ there is no white flash. The canvas and image export follow the theme.
 
 ---
 
-**Sources:** [`apps/web/lib/server/storage/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/lib/server/storage),
-[`apps/web/features/workspaces/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/workspaces),
-[`apps/web/lib/theme.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/theme.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 8, Theme),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md). See also [Persistence](/architecture/persistence/).
+**Sources:** [`apps/web/lib/server/storage/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/lib/server/storage),
+[`apps/web/features/workspaces/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/workspaces),
+[`apps/web/lib/theme.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/theme.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phase 8, Theme),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md). See also [Persistence](/architecture/persistence/).

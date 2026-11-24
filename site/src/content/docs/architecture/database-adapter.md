@@ -91,9 +91,9 @@ inheritance; nested partitions; and more) used to pin down adapter behaviour.
 
 ---
 
-**Sources:** [`packages/database-core/src/adapter.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/adapter.ts),
-[`packages/postgres-adapter/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/postgres-adapter/src),
-[`packages/postgres-adapter/src/connection/config.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/config.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 4 and 5, Robustness, Foreign tables),
-[`examples/odd-schema.sql`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/examples/odd-schema.sql).
+**Sources:** [`packages/database-core/src/adapter.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/adapter.ts),
+[`packages/postgres-adapter/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/postgres-adapter/src),
+[`packages/postgres-adapter/src/connection/config.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/config.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 4 and 5, Robustness, Foreign tables),
+[`examples/odd-schema.sql`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/examples/odd-schema.sql).
 Method names in the table were checked against the interface in `adapter.ts`; see that file for exact signatures.

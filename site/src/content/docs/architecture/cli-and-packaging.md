@@ -99,11 +99,11 @@ belong to the maintainer. See [Releasing](/contributing/releasing/).
 
 ---
 
-**Sources:** [`packages/cli/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/cli/src) (`index.ts`, `mcp-bridge.ts`, `mcp-file.ts`, `web-server.ts`),
-[`scripts/build-package.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/build-package.mjs),
-[`scripts/release-check.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/release-check.mjs),
-[`scripts/verify-package.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/verify-package.mjs),
-[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/.github/workflows/ci.yml),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 2, 11, 13).
+**Sources:** [`packages/cli/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/cli/src) (`index.ts`, `mcp-bridge.ts`, `mcp-file.ts`, `web-server.ts`),
+[`scripts/build-package.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/scripts/build-package.mjs),
+[`scripts/release-check.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/scripts/release-check.mjs),
+[`scripts/verify-package.mjs`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/scripts/verify-package.mjs),
+[`.github/workflows/ci.yml`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/.github/workflows/ci.yml),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 2, 11, 13).
 The "22 checks" figure and the `NEXT_MANUAL_SIG_HANDLE` detail come from `docs/architecture.md`; the release-gate list was read
 from only the first part of `release-check.mjs`, so later checks (including the changelog section) are taken from the docs.

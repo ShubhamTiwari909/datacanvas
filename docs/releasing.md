@@ -16,7 +16,7 @@ A **pre-release** version (for example `1.1.0-rc.1`) is published under the `nex
 
 ### Tag-driven release (optional)
 
-`.github/workflows/release.yml` runs when a `v*` tag is pushed: the full check, the audit, the tarball test and the release gate, then `npm publish --provenance`. It needs npm "trusted publishing" configured on npmjs.com for this repository and workflow (no token is stored in GitHub). Until that is set up, use the local script and expect that workflow to fail on a pushed tag. Do not publish the same version both ways.
+`.github/workflows/release.yml` runs when a `v*` tag is pushed: the full check, the audit, the tarball test and the release gate, then `npm publish --provenance`. It needs npm "trusted publishing" configured on npmjs.com for this repository and workflow (no token is stored in GitHub): on the package's **Settings** page, add a trusted publisher of type **GitHub Actions** with owner `ShubhamTiwari909`, repository `datacanvas` (the repository was called `pg-visualizer` until 2026-11-24; a publisher saved with the old name must be changed) and workflow file `release.yml`, no environment. The workflow installs npm 11.5.1 or newer first, because older npm never uses trusted publishing and the registry answers 404 (that is how the `v1.11.0` tag failed). Until that is set up, use the local script and expect that workflow to fail on a pushed tag. Do not publish the same version both ways.
 
 ## Repository settings (one-off)
 

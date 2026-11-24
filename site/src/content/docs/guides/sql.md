@@ -105,9 +105,9 @@ cancel.
 
 ---
 
-**Sources:** [`packages/database-core/src/sql-run.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/sql-run.ts) (`SQL_LIMITS`, `ALLOWED_FIRST_WORDS`),
-[`apps/web/lib/server/sql-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/sql-service.ts),
-[`apps/web/features/sql/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/sql) (`plan.ts`, `plan-view.tsx`, `sql-view.tsx`),
-[`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (The SQL tab),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md) (section 6),
-[`docs/insight-release-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/insight-release-plan.md) (section 5), `docs/decisions.md` decision 164.
+**Sources:** [`packages/database-core/src/sql-run.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/sql-run.ts) (`SQL_LIMITS`, `ALLOWED_FIRST_WORDS`),
+[`apps/web/lib/server/sql-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/sql-service.ts),
+[`apps/web/features/sql/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/sql) (`plan.ts`, `plan-view.tsx`, `sql-view.tsx`),
+[`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md) (The SQL tab),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md) (section 6),
+[`docs/insight-release-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/insight-release-plan.md) (section 5), `docs/decisions.md` decision 164.

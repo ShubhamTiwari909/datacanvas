@@ -46,10 +46,10 @@ licensing questions with the relevant internal team.
 
 ---
 
-**Sources:** [`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CONTRIBUTING.md),
-[`eslint.config.js`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/eslint.config.js),
-[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/security.test.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md),
-[`README.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/README.md) (License).
+**Sources:** [`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CONTRIBUTING.md),
+[`eslint.config.js`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/eslint.config.js),
+[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/security.test.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md),
+[`README.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/README.md) (License).
 The "Enforced by" column mixes verified mechanisms (lint rule, build script guards, named tests) with review as stated in
 `CONTRIBUTING.md`.

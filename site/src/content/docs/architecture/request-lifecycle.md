@@ -129,13 +129,13 @@ the adapter package: `mapPgError` maps them to codes with fixed messages and kee
 
 ---
 
-**Sources:** [`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/proxy.ts),
-[`apps/web/lib/security/csp.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/csp.ts),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
-[`apps/web/lib/server/context.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/context.ts),
-[`apps/web/lib/server/error-response.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/error-response.ts),
-[`apps/web/lib/server/connection-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/connection-service.ts),
-[`apps/web/lib/api-client.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/api-client.ts),
-[`apps/web/app/api/connections/[id]/run/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/api/connections/%5Bid%5D/run/route.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 2, 5, 6).
+**Sources:** [`apps/web/proxy.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/proxy.ts),
+[`apps/web/lib/security/csp.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/csp.ts),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts),
+[`apps/web/lib/server/context.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/context.ts),
+[`apps/web/lib/server/error-response.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/error-response.ts),
+[`apps/web/lib/server/connection-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/connection-service.ts),
+[`apps/web/lib/api-client.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/api-client.ts),
+[`apps/web/app/api/connections/[id]/run/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/api/connections/%5Bid%5D/run/route.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 2, 5, 6).
 The handler snippet is a simplified illustration, not a verbatim copy.

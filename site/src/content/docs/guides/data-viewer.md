@@ -87,11 +87,11 @@ typed values are held the same way.
 
 ---
 
-**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md),
-[`README.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/README.md),
-[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CHANGELOG.md) (1.8.0 filters),
-[`packages/database-core/src/rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows.ts),
-[`apps/web/features/data/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/data).
+**Sources:** [`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md),
+[`README.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/README.md),
+[`CHANGELOG.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CHANGELOG.md) (1.8.0 filters),
+[`packages/database-core/src/rows.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/rows.ts),
+[`apps/web/features/data/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/data).
 `docs/getting-started.md` still describes "up to three conditions" and a shorter operator list; the ten-condition,
 grouped model here follows the README and the 1.8.0 changelog entry. See
 [Reading table data](/architecture/data-access/) for how this is built.

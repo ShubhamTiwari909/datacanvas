@@ -84,9 +84,9 @@ then **Report a vulnerability**). Do not open a public issue with exploit detail
 
 ---
 
-**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md),
-[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md),
-[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/security.test.ts),
-[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/architecture.test.ts),
-[`README.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/README.md).
+**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md),
+[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/threat-model.md),
+[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/security.test.ts),
+[`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/architecture.test.ts),
+[`README.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/README.md).
 The diagram is a summary (**Inference**) of the layers described in `docs/architecture.md` (Phases 5, 6 and 10).

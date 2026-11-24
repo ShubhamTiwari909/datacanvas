@@ -148,14 +148,14 @@ Rows live only in component state (`useRows`): never in a Zustand store, `localS
 
 ---
 
-**Sources:** [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Reading table rows, M1 to M4, S1 to S3),
-[`packages/database-core/src/rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows.ts),
-[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
-[`packages/postgres-adapter/src/introspection/export-rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/export-rows.ts),
-[`packages/database-core/src/rows-export.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/rows-export.ts),
-[`packages/database-core/src/validation.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/validation.ts),
-[`packages/postgres-adapter/src/connection/checking-transaction.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/checking-transaction.ts),
-[`packages/postgres-adapter/src/connection/run-statement.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/run-statement.ts),
-[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/security.test.ts).
+**Sources:** [`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Reading table rows, M1 to M4, S1 to S3),
+[`packages/database-core/src/rows.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/rows.ts),
+[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
+[`packages/postgres-adapter/src/introspection/export-rows.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/introspection/export-rows.ts),
+[`packages/database-core/src/rows-export.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/rows-export.ts),
+[`packages/database-core/src/validation.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/validation.ts),
+[`packages/postgres-adapter/src/connection/checking-transaction.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/checking-transaction.ts),
+[`packages/postgres-adapter/src/connection/run-statement.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/run-statement.ts),
+[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/security.test.ts).
 The SQL statement shape is quoted from `docs/architecture.md`; the current 1.8.0 filter grammar adds the extra operators
 and groups, so treat the exact text as illustrative.

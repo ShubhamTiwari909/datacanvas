@@ -13,11 +13,11 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/ShubhamTiwari909/pg-visualizer",
+          href: "https://github.com/ShubhamTiwari909/datacanvas",
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/ShubhamTiwari909/pg-visualizer/edit/main/site/",
+        baseUrl: "https://github.com/ShubhamTiwari909/datacanvas/edit/main/site/",
       },
       sidebar: [
         {

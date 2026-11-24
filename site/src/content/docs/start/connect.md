@@ -68,10 +68,10 @@ The full path is described in [Request lifecycle](/architecture/request-lifecycl
 ---
 
 **Sources:**
-[`packages/shared-types/src/postgres-connection.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/postgres-connection.ts),
-[`apps/web/lib/server/connection-registry.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/connection-registry.ts),
-[`packages/postgres-adapter/src/connection/config.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/config.ts),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 3 and 6).
+[`packages/shared-types/src/postgres-connection.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/postgres-connection.ts),
+[`apps/web/lib/server/connection-registry.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/connection-registry.ts),
+[`packages/postgres-adapter/src/connection/config.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/config.ts),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 3 and 6).
 The 10-connection limit and 30-minute idle time are taken from `docs/architecture.md` and the registry's
 default in `connection-registry.ts`.

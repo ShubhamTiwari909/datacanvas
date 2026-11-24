@@ -76,7 +76,7 @@ See [Use DataCanvas from Claude](/guides/use-with-claude/).
 
 ---
 
-**Sources:** [`README.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/README.md),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md),
-[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts),
-[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/CONTRIBUTING.md).
+**Sources:** [`README.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/README.md),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md),
+[`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/index.ts),
+[`CONTRIBUTING.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/CONTRIBUTING.md).

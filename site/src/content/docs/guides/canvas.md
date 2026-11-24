@@ -94,14 +94,14 @@ in the browser tests (**Inference**; this documentation did not verify where or 
 
 ---
 
-**Sources:** [`apps/web/features/explorer/table-details.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/table-details.tsx),
-[`apps/web/features/explorer/statistics-body.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/statistics-body.tsx),
-[`apps/web/features/explorer/statistics-format.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/statistics-format.ts),
-[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
-[`apps/web/app/api/connections/[id]/tables/[table]/statistics/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/api/connections/%5Bid%5D/tables/%5Btable%5D/statistics/route.ts),
-[`apps/web/features/canvas/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/features/canvas),
-[`packages/canvas-engine/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/canvas-engine/src),
-[`apps/web/features/explorer/workspace.tsx`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/explorer/workspace.tsx),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 7 to 9, sidebar search),
-[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/getting-started.md). The 1,000-table cap is `MAX_TABLES_ADDED_AT_ONCE` in `add-tables.ts`
+**Sources:** [`apps/web/features/explorer/table-details.tsx`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/explorer/table-details.tsx),
+[`apps/web/features/explorer/statistics-body.tsx`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/explorer/statistics-body.tsx),
+[`apps/web/features/explorer/statistics-format.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/explorer/statistics-format.ts),
+[`packages/postgres-adapter/src/introspection/statistics.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/introspection/statistics.ts),
+[`apps/web/app/api/connections/[id]/tables/[table]/statistics/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/api/connections/%5Bid%5D/tables/%5Btable%5D/statistics/route.ts),
+[`apps/web/features/canvas/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/features/canvas),
+[`packages/canvas-engine/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/canvas-engine/src),
+[`apps/web/features/explorer/workspace.tsx`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/explorer/workspace.tsx),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 7 to 9, sidebar search),
+[`docs/getting-started.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/getting-started.md). The 1,000-table cap is `MAX_TABLES_ADDED_AT_ONCE` in `add-tables.ts`
 (`docs/architecture.md` still says 200, which is out of date).

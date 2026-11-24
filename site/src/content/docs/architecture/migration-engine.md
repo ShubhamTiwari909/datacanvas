@@ -109,11 +109,11 @@ The adapter package has round-trip tests that run generated migrations on a real
 
 ---
 
-**Sources:** [`packages/database-core/src/migration/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/database-core/src/migration)
+**Sources:** [`packages/database-core/src/migration/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/database-core/src/migration)
 (file headers of `plan.ts`, `classify.ts`, `rename.ts`, `objects.ts`, `script.ts`, `sql.ts`, `export.ts`, `preflight.ts`),
-[`packages/database-core/src/ddl.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/ddl.ts),
-[`apps/web/lib/server/migration-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/migration-file.ts) (session script only),
-[`docs/migration-studio-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/migration-studio-plan.md),
-[`packages/postgres-adapter/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/postgres-adapter/src) (round-trip tests).
+[`packages/database-core/src/ddl.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/ddl.ts),
+[`apps/web/lib/server/migration-file.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/migration-file.ts) (session script only),
+[`docs/migration-studio-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/migration-studio-plan.md),
+[`packages/postgres-adapter/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/postgres-adapter/src) (round-trip tests).
 The pipeline diagram is a summary (**Inference**) of the module headers; the property-test environment variables come from a
 source search and their semantics were not read in detail.

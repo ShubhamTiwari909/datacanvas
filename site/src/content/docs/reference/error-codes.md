@@ -122,8 +122,8 @@ user-facing sentences are fixed strings in the adapter and service code and are 
 
 ---
 
-**Sources:** [`packages/shared-types/src/api-error.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/api-error.ts),
-[`apps/web/lib/server/error-response.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/error-response.ts),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
-[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/request-guard.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md).
+**Sources:** [`packages/shared-types/src/api-error.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/shared-types/src/api-error.ts),
+[`apps/web/lib/server/error-response.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/error-response.ts),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts),
+[`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/security/request-guard.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md).

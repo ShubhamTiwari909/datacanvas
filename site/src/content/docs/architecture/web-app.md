@@ -98,8 +98,8 @@ the structure of many tables is fetched with **four queries** regardless of how 
 
 ---
 
-**Sources:** [`apps/web/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web) (folder listing and file
-headers), [`apps/web/package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/package.json),
-[`apps/web/stores/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/stores),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phases 1, 6, 7, 9; Claude reading a connection).
+**Sources:** [`apps/web/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web) (folder listing and file
+headers), [`apps/web/package.json`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/package.json),
+[`apps/web/stores/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/stores),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Phases 1, 6, 7, 9; Claude reading a connection).
 Store descriptions for `persistence-store` and `nav-store` beyond their names and the nav drawer flag are **Inference**.

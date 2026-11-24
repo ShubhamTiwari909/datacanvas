@@ -33,6 +33,9 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+      # Trusted publishing (OIDC) needs npm 11.5.1 or newer. Node 22 ships npm 10, which never asks for the OIDC token
+      # and publishes without credentials: the registry then answers 404 (seen on the v1.11.0 tag).
+      - run: npm install -g npm@^11.5.1 && npm --version
       - run: npm ci
       - run: npm run check
       - run: npm audit --omit=dev --audit-level=moderate

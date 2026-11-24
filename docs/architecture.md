@@ -7,7 +7,7 @@ This page is extended in every phase. It describes how the pieces fit together t
 Nothing user-facing exists yet. The repo contains the build tooling and two placeholder packages that prove the workspace wiring.
 
 ```text
-pg-visualizer/
+datacanvas/
 ├── package.json          root: workspaces, shared scripts, dev tooling
 ├── tsconfig.base.json    compiler settings shared by every package
 ├── tsconfig.json         "solution" file: lists the packages for `tsc -b`

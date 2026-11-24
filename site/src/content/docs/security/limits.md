@@ -109,6 +109,6 @@ relevant internal team; this documentation gives general guidance only.
 
 ---
 
-**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (Known limits),
-[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md) (sections 12 and 13, Not covered),
-[`docs/releasing.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/releasing.md) (Still open).
+**Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/SECURITY.md) (Known limits),
+[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/threat-model.md) (sections 12 and 13, Not covered),
+[`docs/releasing.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/releasing.md) (Still open).

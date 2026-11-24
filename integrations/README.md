@@ -21,14 +21,14 @@ Both ways below were checked with Claude Code 2.1.261 (`claude plugin validate -
 The repository root has a marketplace file (`.claude-plugin/marketplace.json`) that lists the plugin. In a Claude Code session:
 
 ```text
-/plugin marketplace add ShubhamTiwari909/pg-visualizer
+/plugin marketplace add ShubhamTiwari909/datacanvas
 /plugin install datacanvas@datacanvas
 ```
 
 Or from a shell, without starting a session:
 
 ```bash
-claude plugin marketplace add ShubhamTiwari909/pg-visualizer
+claude plugin marketplace add ShubhamTiwari909/datacanvas
 claude plugin install datacanvas@datacanvas
 ```
 

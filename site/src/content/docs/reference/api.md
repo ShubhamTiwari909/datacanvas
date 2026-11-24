@@ -137,10 +137,10 @@ own. See [Protecting the local server](/security/local-server/#the-door-for-clau
 ---
 
 **Sources:** the `route.ts` files under
-[`apps/web/app/api/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/app/api),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts), [`apps/web/app/api/claude/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web/app/api/claude),
-[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/security.test.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (API tables in Phases 6 and 8 and the snapshot section).
+[`apps/web/app/api/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/app/api),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts), [`apps/web/app/api/claude/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web/app/api/claude),
+[`tests/security.test.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/tests/security.test.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (API tables in Phases 6 and 8 and the snapshot section).
 Request and response schemas are defined in
-[`packages/shared-types/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/shared-types/src); this page does not reproduce them.
+[`packages/shared-types/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/shared-types/src); this page does not reproduce them.
 The purposes of `…/role`, `…/index-usage` and `…/rows/preflight` come from route and module headers; the HTTP methods were all read from source.

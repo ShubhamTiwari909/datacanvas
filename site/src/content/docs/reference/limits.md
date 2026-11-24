@@ -149,16 +149,16 @@ the code allows 100 rows and the limits above, and this page follows the code.
 
 ---
 
-**Sources:** [`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-service.ts),
-[`mcp-control.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-control.ts),
-[`mcp-data.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/mcp-data.ts),
-[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
-[`packages/mcp/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/mcp/src),
-[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-bridge.ts),
-[`packages/postgres-adapter/src/introspection/export-rows.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/introspection/export-rows.ts),
-[`apps/web/features/sql/plan.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/features/sql/plan.ts), and the constants named above in
-[`packages/shared-types/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/shared-types/src),
-[`packages/database-core/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/database-core/src),
-[`apps/web/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/apps/web), and
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) for entries marked as notes.
+**Sources:** [`apps/web/lib/server/mcp-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-service.ts),
+[`mcp-control.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-control.ts),
+[`mcp-data.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/mcp-data.ts),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/app/mcp/route.ts),
+[`packages/mcp/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/mcp/src),
+[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/cli/src/mcp-bridge.ts),
+[`packages/postgres-adapter/src/introspection/export-rows.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/introspection/export-rows.ts),
+[`apps/web/features/sql/plan.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/features/sql/plan.ts), and the constants named above in
+[`packages/shared-types/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/shared-types/src),
+[`packages/database-core/src/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/packages/database-core/src),
+[`apps/web/`](https://github.com/ShubhamTiwari909/datacanvas/tree/main/apps/web), and
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) for entries marked as notes.
 Limits change between releases; check the constant in source before relying on one.

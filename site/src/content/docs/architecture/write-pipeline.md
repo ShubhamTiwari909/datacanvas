@@ -102,11 +102,11 @@ imports), `POST writes/apply`, `GET writes/history`, `GET writes/migration`, and
 
 ---
 
-**Sources:** [`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/write-service.ts),
-[`apps/web/lib/server/preview-store.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/preview-store.ts),
-[`packages/postgres-adapter/src/connection/write.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/write.ts),
-[`packages/postgres-adapter/src/connection/write-errors.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/postgres-adapter/src/connection/write-errors.ts),
-[`packages/database-core/src/changes.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/database-core/src/changes.ts),
-[`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Editing rows and designing tables),
-[`docs/data-editing-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/data-editing-plan.md).
+**Sources:** [`apps/web/lib/server/write-service.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/write-service.ts),
+[`apps/web/lib/server/preview-store.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/apps/web/lib/server/preview-store.ts),
+[`packages/postgres-adapter/src/connection/write.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/write.ts),
+[`packages/postgres-adapter/src/connection/write-errors.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/postgres-adapter/src/connection/write-errors.ts),
+[`packages/database-core/src/changes.ts`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/packages/database-core/src/changes.ts),
+[`docs/architecture.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/architecture.md) (Editing rows and designing tables),
+[`docs/data-editing-plan.md`](https://github.com/ShubhamTiwari909/datacanvas/blob/main/docs/data-editing-plan.md).
 The "fourteen alter operations" and statement-timeout figures come from `docs/architecture.md` and were not recounted in source.

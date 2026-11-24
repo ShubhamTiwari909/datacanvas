@@ -832,6 +832,7 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
 /** Control and direction characters are shown as escapes: a statement must not be able to disguise what it says. */
 const showControls = (text: string): string =>
   text.replace(
+    // eslint-disable-next-line no-control-regex -- the point is to find control characters
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g,
     (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`,
   );

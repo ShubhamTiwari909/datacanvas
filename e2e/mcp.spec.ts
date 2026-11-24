@@ -733,7 +733,7 @@ test.describe("the data level, against a real database", () => {
     const first = (await client.callTool({
       name: "read_rows",
       arguments: { connection: id, schema: "public", table: "rv_keyed", page_size: 1 },
-    })) as { structuredContent: { nextCursor: string | null; rows: unknown[][] } };
+    })) as unknown as { structuredContent: { nextCursor: string | null; rows: unknown[][] } };
     const cursor = first.structuredContent.nextCursor;
     expect(cursor).not.toBeNull();
     expect(Buffer.from(cursor!, "base64url").toString("latin1")).not.toContain("TOKEN");
@@ -753,7 +753,7 @@ test.describe("the data level, against a real database", () => {
         page_size: 1,
         cursor: cursor!,
       },
-    })) as { isError?: boolean; structuredContent: { rows: unknown[][] } };
+    })) as unknown as { isError?: boolean; structuredContent: { rows: unknown[][] } };
     expect(second.isError).toBeFalsy();
     expect(second.structuredContent.rows).toHaveLength(1);
     // The default and the check of a hidden column are not described.

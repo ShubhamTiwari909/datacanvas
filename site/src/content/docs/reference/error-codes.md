@@ -100,6 +100,23 @@ errors come from the request parser and the guard.
 | `has_dependents`          | 409    | A drop is refused while something depends on the object.        |
 | `already_exists`          | 409    | The name is already taken.                                      |
 
+## Claude reading a connection (1.11.0)
+
+| Code                           | Status | Meaning                                                                                                                                                                                                                      |
+| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude_role_not_acknowledged` | 409    | `PUT /api/connections/:id/claude` at the `data` level, and the connected role is a superuser or can read server files or run programs. Send `acknowledgeRole: true` (the dialog's **Share anyway**) or use a read-only role. |
+
+`PUT /api/connections/:id/claude` can also answer `404 connection_not_found` and `403 data_access_disabled` (the
+data level needs viewing table data), and `POST /api/claude/pending/:id` answers `404 not_found` ("That request
+is no longer waiting.") when the call was already answered, timed out or was given up.
+
+**`/mcp` does not use this shape.** `POST /mcp` answers a guard refusal as `{ "error": { "message": "…" } }`
+with no `code`: **401** (a valid token is required), **403** (Host, `Origin` or `Sec-Fetch-Site`), **404**
+(no token configured, or nothing shared), **405** for `GET` and `DELETE`. A tool's own failure is **not** an
+HTTP error: it is a JSON-RPC result with `isError: true` (or a JSON-RPC error `-32602` for an unknown tool),
+with a fixed sentence. A body that is too large or not JSON gets the usual `payload_too_large` or
+`invalid_json`.
+
 The "Meaning" text is an interpretation of each code's name and where the project uses it; the exact
 user-facing sentences are fixed strings in the adapter and service code and are not reproduced here.
 
@@ -107,5 +124,6 @@ user-facing sentences are fixed strings in the adapter and service code and are 
 
 **Sources:** [`packages/shared-types/src/api-error.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/shared-types/src/api-error.ts),
 [`apps/web/lib/server/error-response.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/server/error-response.ts),
+[`apps/web/app/mcp/route.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/app/mcp/route.ts),
 [`apps/web/lib/security/request-guard.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/lib/security/request-guard.ts),
 [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md).

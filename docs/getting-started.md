@@ -134,7 +134,7 @@ To find out whether a migration will work on your data, choose a **live database
 3. Ask Claude about the database. At the data level each call opens a prompt that shows what Claude asked (a statement, or a table). Nothing runs until you press **Approve**; **Deny** refuses it; Escape does not answer; after two minutes it is refused. You can turn the prompt off in the dialog if you accept calls without looking.
 4. **Pause** (next to the sharing in the sidebar) refuses every call at once; **Resume** lets the next through. **Stop sharing** ends it. The dialog lists **what Claude asked** and how each call ended, with counts, never a value that came back.
 
-What to know: sharing is kept in memory only and ends when you stop it, disconnect, switch off viewing table data or close DataCanvas. There is no tool that changes anything. Columns whose names look sensitive are never returned, but a name is only a hint. At most 30 calls a minute are served. **Anything Claude reads is sent to Anthropic by the Claude app, and DataCanvas cannot take it back.**
+What to know: sharing is kept in memory only and ends when you stop it, disconnect, switch off viewing table data or close DataCanvas. There is no tool that changes anything. Columns whose names look sensitive are left out of what Claude gets, but that is a safety net against accidents, not a barrier (a model that is told to can get around it); use a database user that cannot read what must not leave. A Claude app that can run commands on your computer (Claude Code) can also approve its own calls. At most 30 calls a minute are served. **Anything Claude reads is sent to Anthropic by the Claude app, and DataCanvas cannot take it back.**
 
 ## 9. Keep and share
 

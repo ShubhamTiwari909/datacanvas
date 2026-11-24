@@ -3,7 +3,7 @@ title: Known limits
 description: What DataCanvas does not defend against, taken from the project's own security notes.
 ---
 
-These are the project's stated limits at 1.9.0. They are not a complete list of everything that could go
+These are the project's stated limits at 1.11.0. They are not a complete list of everything that could go
 wrong; they are what the maintainers have written down.
 
 ## The machine and the browser
@@ -14,7 +14,9 @@ wrong; they are what the maintainers have written down.
   loopback traffic, but this is not hardened against a hostile administrator.
 - Cookies are not isolated by port; other web apps on `127.0.0.1` receive the cookie. The Origin and
   `Sec-Fetch-Site` checks stop them from using it from a browser.
-- There is **no full Content-Security-Policy** yet.
+- The **Content-Security-Policy** (1.10.0) allows inline styles (the canvas and the menus set `style`
+  attributes, which a nonce cannot cover), and `'strict-dynamic'` lets a script that already runs add
+  scripts: markup that the parser reads cannot run, but a script that is already running is trusted.
 - Passwords live in memory, so they are present in a memory dump of the process. So are the rows of any page
   you have open, in the server and in your browser, and they can end up in the operating system's swap.
 - **Browser extensions** with access to the page can read what the page shows, including rows.
@@ -31,6 +33,31 @@ wrong; they are what the maintainers have written down.
   put in an error.
 - A file you **export** is yours: DataCanvas cannot protect it after your browser saved it, and a column
   whose name does not look sensitive can still hold a secret.
+
+## Letting Claude read a connection (1.11.0)
+
+- **What Claude reads is sent to Anthropic by the Claude app**, and DataCanvas cannot stop that or take it
+  back. Share only what may leave your machine.
+- A **prompt-injected or hostile model** can ask for any rows you approve. A value in a table can say
+  anything, and a model may read it as an instruction. Read what you approve; the approval prompt and the
+  database user are the controls.
+- **Hidden columns are a hint:** `SELECT *` returns such a column as NULL, but a whole-row value
+  (`row_to_json(t)`) carries it inside one value.
+- A database's own error text is withheld except for errors about names, time and limits.
+- Another program running as you can read `mcp.json` and use the door while a connection is shared; it
+  cannot approve calls or change the sharing.
+- A superuser, or a role that can read server files or run programs, can do outside a read-only transaction
+  what it does not stop: use a read-only database user.
+- The approval prompt and Pause are guards against a distracted model, not against someone who holds the
+  session token.
+
+## Statistics, plans and INSERT scripts (1.10.0)
+
+- A column's null share and distinct count are metadata, but they say something about the data.
+- A plan of many thousands of steps takes a moment to draw (the steps beyond the first levels start
+  collapsed); a plan larger than 2 MB is refused.
+- A script of INSERT statements is text you run: run it in a test copy first. A file you export is yours.
+- A text diagram from **Export documentation** shows names that can reveal how your system works.
 
 ## The SQL tab
 
@@ -83,5 +110,5 @@ relevant internal team; this documentation gives general guidance only.
 ---
 
 **Sources:** [`SECURITY.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/SECURITY.md) (Known limits),
-[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md) (Not covered),
+[`docs/threat-model.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/threat-model.md) (sections 12 and 13, Not covered),
 [`docs/releasing.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/releasing.md) (Still open).

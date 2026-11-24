@@ -4,7 +4,9 @@ description: Requirements, the one-command install, what DataCanvas prints on st
 ---
 
 DataCanvas is a command-line launcher that starts a local web app and opens your browser. There is
-no account, no cloud service, no `.env` file and no build step for users.
+no account, no cloud service, no `.env` file and no build step for users. (Only if you choose to
+[share a connection with Claude](/guides/use-with-claude/) does anything read through DataCanvas leave your
+machine, and then only through the Claude app you use.)
 
 ## Requirements
 
@@ -55,6 +57,13 @@ The link is private to this run. Press Ctrl+C to stop.
 
 Press **Ctrl+C** to stop. The launcher signals the server, which closes every database session and
 forgets all credentials (within about three seconds) before the process exits.
+
+## Using it from a Claude app (optional)
+
+The same package also contains `datacanvas mcp`, the bridge a Claude app starts. Install nothing extra: the
+**Share with Claude** dialog gives the one line to paste into Claude Code or Claude Desktop, which runs
+`npx --yes @shubhamtiwari909/datacanvas mcp`. With a global install, `datacanvas mcp` is the same command.
+See [Use DataCanvas from Claude](/guides/use-with-claude/).
 
 ## Where your data lives
 

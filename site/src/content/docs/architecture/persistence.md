@@ -11,6 +11,7 @@ connections.json          { format, schemaVersion, profiles: [...] }
 workspaces/<id>.json      { format, schemaVersion, id, name, …, canvas }
 snapshots/<id>.json       { format: "datacanvas-snapshot", schemaVersion: 2, … }
 run.json                  { pid, port, token, version, writes }   (running instance, deleted on exit)
+mcp.json                  { pid, port, token }                     (token of /mcp for the bridge, 0600, deleted on exit)
 ```
 
 The data folder is created owner-only (`0700`) and files are `0600`. Storage classes live in

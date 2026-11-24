@@ -25,8 +25,15 @@ import type { DatabaseAdapter } from "@datacanvas/database-core";
 import { MAX_ROW_FILTERS, rowFilterSchema, rowSortSchema } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
 import type { ConnectionService } from "./connection-service";
-import { McpControl } from "./mcp-control";
-import { failureWords, sensitiveNamesIn, shapePage, shapeQueryResult } from "./mcp-data";
+import { McpControl, REQUEST_CHARS } from "./mcp-control";
+import { CursorSealer } from "./mcp-cursor";
+import {
+  failureWords,
+  forbiddenNamesIn,
+  sensitiveNamesIn,
+  shapePage,
+  shapeQueryResult,
+} from "./mcp-data";
 import { ServiceError } from "./service-error";
 import type { SqlService } from "./sql-service";
 
@@ -97,6 +104,10 @@ export class McpService {
   private readonly server;
   /** The activity list, the approvals that wait, the pause and the rate limit (in memory). */
   readonly control: McpControl;
+  /** Seals the cursors Claude gets (a key made for this run, in memory). */
+  private readonly cursors = new CursorSealer();
+  /** The statements that run for Claude now, so that Pause and stop can cancel them. */
+  private readonly inflight = new Set<{ controller: AbortController; connection: string | null }>();
 
   private readonly sql: SqlService;
   private readonly rows: ConnectionService;
@@ -136,6 +147,7 @@ export class McpService {
     this.shared.delete(id);
     this.approval.delete(id);
     this.control.denyAll(id);
+    this.cancelRunning(id);
     if (!this.anyShared()) this.control.reset();
   }
 
@@ -162,7 +174,17 @@ export class McpService {
   /** Pause or resume every call. Pausing answers the waiting approvals with a denial. */
   setPaused(paused: boolean): void {
     this.control.paused = paused;
-    if (paused) this.control.denyAll();
+    if (paused) {
+      this.control.denyAll();
+      this.cancelRunning();
+    }
+  }
+
+  /** Cancel the statements that run for Claude (of one connection, or all). */
+  private cancelRunning(connection?: string): void {
+    for (const call of this.inflight) {
+      if (connection === undefined || call.connection === connection) call.controller.abort();
+    }
   }
 
   private async track(
@@ -174,13 +196,18 @@ export class McpService {
     const connection = (args as { connection?: unknown } | null)?.connection;
     const connectionId = typeof connection === "string" ? connection : null;
     const summary = connectionId ? this.connections.getSummary(connectionId) : undefined;
+    const request = describeRequest(tool.name, args);
     const entry = this.control.begin({
       tool: tool.name,
       connection: connectionId,
       connectionName: summary?.name ?? null,
-      request: describeRequest(tool.name, args),
+      request,
     });
     try {
+      // What the person approves must be ALL of what runs: a request too long to show whole is refused, not cut.
+      if (request.length > REQUEST_CHARS) {
+        throw new ToolError("This request is too long to show to the person for approval.");
+      }
       if (this.control.paused) {
         this.control.finish(entry, "paused");
         throw new ToolError(
@@ -190,6 +217,13 @@ export class McpService {
       if (!this.control.allowCall()) {
         this.control.finish(entry, "rate_limited");
         throw new ToolError("Too many calls in a minute. Wait a little before asking again.");
+      }
+      // A statement that would be refused is refused BEFORE the person is asked (and never shown as if it could run).
+      if (
+        connectionId !== null &&
+        (tool.name === "run_readonly_query" || tool.name === "explain_query")
+      ) {
+        this.screenStatement(String((args as { sql?: unknown }).sql ?? ""));
       }
       // A data call waits for the person's Approve (an unshared connection is not asked about: the tool answers "not shared").
       if (
@@ -213,7 +247,25 @@ export class McpService {
           );
         }
       }
-      const result = await tool.run(args, context, signal);
+      const controller = new AbortController();
+      const running = { controller, connection: connectionId };
+      this.inflight.add(running);
+      const forward = signal as
+        { aborted?: boolean; addEventListener?: (t: "abort", l: () => void) => void } | undefined;
+      if (forward?.aborted) controller.abort();
+      else forward?.addEventListener?.("abort", () => controller.abort());
+      let result: ToolResult;
+      try {
+        result = await tool.run(args, context, controller.signal);
+      } finally {
+        this.inflight.delete(running);
+      }
+      // Pause or Stop while it ran: nothing that was read is handed over.
+      if (this.control.paused || (connectionId !== null && this.levelOf(connectionId) === "off")) {
+        throw new ToolError(
+          "Claude's access was paused or stopped while this ran. Nothing is returned.",
+        );
+      }
       const rows = (result.data as { rows?: unknown } | undefined)?.rows;
       this.control.finish(entry, result.isError ? "error" : "ok", {
         rows: Array.isArray(rows) ? rows.length : undefined,
@@ -232,7 +284,12 @@ export class McpService {
     if (level === undefined) return "off";
     const summary = this.connections.getSummary(id);
     if (!summary) return "off";
-    return level === "data" && !summary.dataAccess ? "structure" : level;
+    if (level === "data" && !summary.dataAccess) {
+      // Viewing table data was switched off: the data level ends for good (switching it on again must not bring it back).
+      this.shared.set(id, "structure");
+      return "structure";
+    }
+    return level;
   }
 
   /** The connection ids shared at any level. */
@@ -270,8 +327,9 @@ export class McpService {
     if (level === "data" && options.acknowledgeRole !== true) {
       // A superuser, or a role that can read the server's files or run programs, can do outside the transaction what a
       // read-only transaction does not stop: the person must say they know (and is advised to use a read-only role).
+      // A role that cannot be checked is treated as a risky one: the person is asked to confirm.
       const role = await this.rows.getRoleInfo(id).catch(() => null);
-      if (role && (role.superuser || role.powerfulRoles.some((r) => RISKY_ROLES.has(r)))) {
+      if (!role || role.superuser || role.powerfulRoles.some((r) => RISKY_ROLES.has(r))) {
         throw new ServiceError("claude_role_not_acknowledged", MCP_MESSAGES.riskyRole);
       }
     }
@@ -295,6 +353,22 @@ export class McpService {
     }
   }
 
+  /** Refuse a statement that names something sensitive or something Claude may not use (before it is shown or run). */
+  screenStatement(text: string): void {
+    const names = sensitiveNamesIn(text);
+    if (names.length > 0) {
+      throw new ToolError(
+        `This statement names columns that look sensitive (${names.join(", ")}). Their values are never returned to you, so a statement that names them is refused. Ask for other columns.`,
+      );
+    }
+    const forbidden = forbiddenNamesIn(text);
+    if (forbidden.length > 0) {
+      throw new ToolError(
+        `This statement uses ${forbidden.join(", ")}, which is not available to you: it can hold values of other columns or sessions, or has an effect outside the data. Ask for something else.`,
+      );
+    }
+  }
+
   /** Run one read-only statement for Claude (the SQL tab's runner: a read-only transaction, limits, one at a time). */
   async runQuery(
     connection: string,
@@ -304,23 +378,32 @@ export class McpService {
     signal?: AbortSignal,
   ) {
     this.requireData(connection);
-    const names = sensitiveNamesIn(text);
-    if (names.length > 0) {
-      throw new ToolError(
-        `This statement names columns that look sensitive (${names.join(", ")}). Their values are never returned to you, so a statement that names them is refused. Ask for other columns.`,
-      );
-    }
+    this.screenStatement(text);
     try {
       const outcome = await this.sql.run(
         connection,
         { text, maxRows, timeoutMs: timeoutSeconds * 1000 },
         signal,
       );
-      if ("failure" in outcome) throw new ToolError(failureWords(outcome.failure));
+      if ("failure" in outcome) throw new ToolError(failureWords(outcome.failure, text));
       return outcome.result;
     } catch (error) {
       throw asToolError(error);
     }
+  }
+
+  /** Seal a cursor for Claude, for one connection, table and sort. */
+  sealCursor(cursor: string, scope: string): string {
+    return this.cursors.seal(cursor, scope);
+  }
+
+  /** The cursor behind one Claude sends back. @throws ToolError when it was not made here for this table and sort. */
+  openCursor(sealed: string, scope: string): string {
+    const cursor = this.cursors.open(sealed, scope);
+    if (cursor === null) {
+      throw new ToolError("That cursor is not valid for this table. Call again without a cursor.");
+    }
+    return cursor;
   }
 
   /** One page of rows for Claude, by the page reader: a hidden column is never revealed, never sorted or filtered on. */
@@ -526,12 +609,13 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
       });
       const { entry, relationships, statistics } = found;
       const stat = new Map((statistics?.columns ?? []).map((c) => [c.column, c]));
+      // A default, a comment or a check of a hidden column can hold the very value that is hidden: they are left out.
       const columns = entry.columns.map((c) => ({
         name: c.name,
         type: c.dataType,
         nullable: c.nullable,
-        default: c.defaultValue,
-        comment: c.comment,
+        default: isSensitiveColumnName(c.name) ? null : c.defaultValue,
+        comment: isSensitiveColumnName(c.name) ? null : c.comment,
         hidden: isSensitiveColumnName(c.name),
         nullFraction: stat.get(c.name)?.nullFraction ?? null,
         distinct: stat.get(c.name)?.distinctValues ?? stat.get(c.name)?.distinctShare ?? null,
@@ -564,7 +648,10 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
           name: c.name,
           kind: c.kind,
           columns: c.columns,
-          definition: c.definition,
+          definition:
+            c.columns.some(isSensitiveColumnName) || sensitiveNamesIn(c.definition ?? "").length > 0
+              ? null
+              : c.definition,
         })),
         indexes: entry.indexes.map((i) => ({
           name: i.name,
@@ -655,15 +742,19 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
         cursor?: string;
         page_size?: number;
       };
+      const scope = [a.connection, a.schema, a.table, JSON.stringify(a.sort ?? null)].join("\0");
+      const cursor = a.cursor === undefined ? null : context.service.openCursor(a.cursor, scope);
       const page = await context.service.readRows(a.connection, {
         schema: a.schema,
         table: a.table,
         pageSize: a.page_size ?? 50,
-        cursor: a.cursor ?? null,
+        cursor,
         sort: a.sort ?? null,
         filters: a.filters ?? [],
       });
       const shaped = shapePage(page);
+      if (shaped.nextCursor !== null)
+        shaped.nextCursor = context.service.sealCursor(shaped.nextCursor, scope);
       return {
         text:
           `${shaped.rows.length} row${shaped.rows.length === 1 ? "" : "s"} of ${a.schema}.${a.table}. Columns: ${shaped.columns.map((c) => c.name + (c.hidden ? " [hidden]" : "")).join(", ")}.` +
@@ -738,24 +829,29 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
   },
 ];
 
-/** What Claude asked, as words for the activity list (the statement, or the table and its filters): never a returned value. */
+/** Control and direction characters are shown as escapes: a statement must not be able to disguise what it says. */
+const showControls = (text: string): string =>
+  text.replace(
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g,
+    (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`,
+  );
+
+/** What Claude asked, as words for the person (the whole statement, or every argument of a page): never a returned value. */
 function describeRequest(tool: string, args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   if ((tool === "run_readonly_query" || tool === "explain_query") && typeof a.sql === "string") {
-    return a.sql;
+    return showControls(a.sql);
   }
+  const { connection: _connection, ...rest } = a;
   if (tool === "read_rows") {
-    const filters = Array.isArray(a.filters) ? a.filters.length : 0;
-    const sort =
-      a.sort && typeof a.sort === "object"
-        ? ` sorted by ${String((a.sort as { column?: unknown }).column)}`
-        : "";
-    return `${String(a.schema)}.${String(a.table)}${sort}${filters > 0 ? `, ${filters} filter${filters === 1 ? "" : "s"}` : ""}`;
+    const { schema, table, ...options } = rest;
+    const extra = Object.keys(options).length > 0 ? ` ${JSON.stringify(options)}` : "";
+    return showControls(`${String(schema)}.${String(table)}${extra}`);
   }
-  const parts = Object.entries(a)
-    .filter(([key, value]) => key !== "connection" && typeof value === "string")
+  const parts = Object.entries(rest)
+    .filter(([, value]) => typeof value === "string")
     .map(([key, value]) => `${key}: ${String(value)}`);
-  return parts.join(", ");
+  return showControls(parts.join(", "));
 }
 
 /** The tools that need the data level: they exist for a caller only while a connection is shared at that level. */

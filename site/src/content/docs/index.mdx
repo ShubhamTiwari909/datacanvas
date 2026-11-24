@@ -3,7 +3,7 @@ title: DataCanvas documentation
 description: DataCanvas is a local-first visual PostgreSQL explorer. Connect, explore tables and relationships on an interactive canvas, and keep your layouts. Everything runs on your computer.
 template: splash
 hero:
-  tagline: See your PostgreSQL database as a map. It runs on your computer and nothing leaves it.
+  tagline: See your PostgreSQL database as a map. It runs on your computer and nothing leaves it, unless you choose to share a connection with Claude.
   image:
     file: ../../assets/screenshots/canvas.png
     alt: The DataCanvas canvas showing a sample shop database with tables, relationships and the inspector panel.
@@ -18,7 +18,7 @@ hero:
 
 import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-These pages document **DataCanvas 1.9.0**, the version in the repository's root `package.json` and
+These pages document **DataCanvas 1.11.0**, the version in the repository's root `package.json` and
 the top entry of its `CHANGELOG.md`. The package is published to npm as
 `@shubhamtiwari909/datacanvas` and started with one command:
 
@@ -35,7 +35,14 @@ npx --yes @shubhamtiwari909/datacanvas
   </Card>
   <Card title="Look at data" icon="document">
     Optional, off by default: read-only pages of rows with sorting, up to ten filter conditions,
-    export, a JSON editor and a database-side Validate.
+    export (also of the rows you chose, or as an INSERT script), a JSON editor and a database-side
+    Validate. Statistics, a query plan tree and documentation files (Markdown, Mermaid, DBML,
+    PlantUML) need no row at all.
+  </Card>
+  <Card title="Use it from Claude" icon="star">
+    Optional, read-only, off until you share a connection: Claude Desktop or Claude Code can read
+    the structure, or structure and data with your approval on every call. What Claude reads is sent
+    to Anthropic by the Claude app.
   </Card>
   <Card title="Compare and migrate" icon="random">
     Snapshots of structure, a diff between any two sides, and generated migrations with rollback.
@@ -61,6 +68,11 @@ npx --yes @shubhamtiwari909/datacanvas
     description="Every tab of the app, in the order you will use them."
   />
   <LinkCard
+    title="Use DataCanvas from Claude"
+    href="/guides/use-with-claude/"
+    description="Share a connection read-only with a Claude app, with approval, Pause and a list of what it asked."
+  />
+  <LinkCard
     title="Security and privacy"
     href="/security/model/"
     description="What stays on your machine, what is read, and the known limits."
@@ -73,7 +85,7 @@ npx --yes @shubhamtiwari909/datacanvas
   <LinkCard
     title="HTTP API reference"
     href="/reference/api/"
-    description="Every route under /api, with its method and purpose."
+    description="Every route under /api and the /mcp door, with its method and purpose."
   />
   <LinkCard
     title="Contributing"

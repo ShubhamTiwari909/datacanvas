@@ -21,7 +21,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** The largest body of a request: a tool call is a few hundred bytes, a statement at most 200,000 characters. */
+/** The largest body of a request: a tool call is a few hundred bytes, a statement at most 20,000 characters. */
 export const MCP_MAX_BODY_BYTES = 256 * 1024;
 
 const HEADERS = {

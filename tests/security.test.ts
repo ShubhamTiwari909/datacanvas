@@ -1782,12 +1782,14 @@ describe("the MCP data tools reach the data only through the services that guard
       service.indexOf("async runQuery("),
       service.indexOf("async readRows("),
     );
-    expect(run.indexOf("requireData")).toBeLessThan(run.indexOf("sensitiveNamesIn"));
-    expect(run.indexOf("sensitiveNamesIn")).toBeLessThan(run.indexOf("this.sql.run("));
+    expect(run.indexOf("requireData")).toBeLessThan(run.indexOf("this.screenStatement(text)"));
+    expect(run.indexOf("this.screenStatement(text)")).toBeLessThan(run.indexOf("this.sql.run("));
+    const screen = service.slice(service.indexOf("screenStatement(text: string)"));
+    expect(screen.indexOf("sensitiveNamesIn")).toBeLessThan(screen.indexOf("forbiddenNamesIn"));
   });
 
   it("a database failure is passed on only through failureWords, never as the message of the error", () => {
-    expect(service).toMatch(/failureWords\(outcome\.failure\)/);
+    expect(service).toMatch(/failureWords\(outcome\.failure, text\)/);
     expect(service).not.toMatch(/error\.message|\.message\)/);
     const data = stripComments(read("apps/web/lib/server/mcp-data.ts"));
     expect(data).toMatch(/startsWith\("42"\)/);
@@ -1862,5 +1864,28 @@ describe("what the person sees and stops while Claude reads: approval, pause, th
     const stop = service.slice(service.indexOf("private stop("));
     expect(stop.slice(0, 400)).toMatch(/denyAll\(id\)/);
     expect(stop.slice(0, 400)).toMatch(/control\.reset\(\)/);
+  });
+
+  it("the review of 1.11.0: a cursor is sealed both ways, a statement is screened before it is shown, a running call is cancelled and its result withheld", () => {
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).toMatch(/openCursor\(a\.cursor, scope\)/);
+    expect(tools).toMatch(/sealCursor\(shaped\.nextCursor, scope\)/);
+    const track = service.slice(service.indexOf("private async track("));
+    expect(track.indexOf("this.screenStatement(")).toBeGreaterThan(-1);
+    expect(track.indexOf("this.screenStatement(")).toBeLessThan(
+      track.indexOf("this.control.requestApproval("),
+    );
+    expect(track).toMatch(/request\.length > REQUEST_CHARS/);
+    expect(track.indexOf("await tool.run(")).toBeLessThan(track.lastIndexOf("this.control.paused"));
+    expect(service).toMatch(/cancelRunning\(id\)/);
+    // The data level ends for good when viewing table data is switched off; a role that cannot be checked is a risky one.
+    expect(service).toMatch(/this\.shared\.set\(id, "structure"\)/);
+    expect(service).toMatch(/if \(!role \|\| role\.superuser/);
+    const data = stripComments(read("apps/web/lib/server/mcp-data.ts"));
+    expect(data).toMatch(/pg_stats\|pg_statistic/);
+    expect(data).toMatch(/pg_notify/);
+    expect(data).toMatch(/pg_advisory/);
+    const cursor = stripComments(read("apps/web/lib/server/mcp-cursor.ts"));
+    expect(cursor).toMatch(/aes-256-gcm/);
   });
 });

@@ -29,10 +29,10 @@ describe("the activity list", () => {
     ]);
   });
 
-  it("keeps the first outcome of a call, and cuts a very long request", () => {
+  it("keeps the first outcome of a call, and cuts a request that is too long to show", () => {
     const control = new McpControl();
-    const entry = ask(control, "x".repeat(5000));
-    expect(entry.request).toHaveLength(2000);
+    const entry = ask(control, "x".repeat(30000));
+    expect(entry.request).toHaveLength(25000);
     control.finish(entry, "refused");
     control.finish(entry, "ok", { rows: 1 });
     expect(entry).toMatchObject({ outcome: "refused" });

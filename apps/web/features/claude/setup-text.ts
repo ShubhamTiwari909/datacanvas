@@ -21,4 +21,4 @@ export const LEAVES_THE_MACHINE =
 
 /** What the person is told about the hint of hidden columns. */
 export const HIDDEN_COLUMNS_NOTE =
-  "Columns whose names look sensitive are never returned to Claude, but a name is only a hint: use a database user that cannot read what must not leave.";
+  "Columns whose names look sensitive are left out of what DataCanvas hands to Claude, but that is a safety net against accidents, not a barrier: a model that is told to can get around it with a crafted query. Use a database user that cannot read what must not leave. A Claude app that can run commands on this computer can also reach the app's own controls, so the approval prompt protects against mistakes, not against such an app.";

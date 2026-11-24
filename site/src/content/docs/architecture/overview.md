@@ -14,6 +14,7 @@ pg-visualizer/
 │   ├── shared-types/    constants and Zod schemas (API contracts)
 │   ├── database-core/   database-agnostic models, adapter interfaces, errors, pure logic
 │   ├── postgres-adapter/ PostgreSQL implementation (the `pg` driver, catalog queries)
+│   ├── mcp/             the Model Context Protocol (JSON-RPC, tools only): pure, no network, no framework
 │   ├── canvas-engine/   pure canvas logic: sizing, layout, edges, graph, search, filters
 │   └── cli/             the `datacanvas` command
 ├── scripts/             package assembly, verification, release gate, publishing
@@ -38,6 +39,15 @@ Browser ─▶ Next.js app (UI + /api route handlers, one process, 127.0.0.1)
                              ─▶ PostgreSQL
 ```
 
+Since 1.11.0 the same process also answers `POST /mcp` for a Claude app (through the `datacanvas mcp`
+stdio bridge), with a token and a guard of its own. It reaches the database only through the services above
+(the SQL runner and the page reader), and the person's side of it (share, approve, pause) is ordinary
+cookie-guarded `/api` routes. See [MCP server](/architecture/mcp/).
+
+```text
+Claude app ─▶ datacanvas mcp ─▶ POST /mcp ─▶ McpService ─▶ the same services (lib/server) ─▶ …
+```
+
 ## The layering rule
 
 Route handlers stay **thin**: validate with Zod, call a service, return JSON. Database logic lives in
@@ -49,17 +59,18 @@ writing one new adapter and registering it. PostgreSQL is the only provider toda
 
 Declared in each package's `dependencies`:
 
-| Workspace          | Depends on                                                                              |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| `database-core`    | nothing (a test fails if it declares any dependency)                                    |
-| `shared-types`     | `zod`; `database-core` as a dev dependency (types only)                                 |
-| `postgres-adapter` | `database-core`, `shared-types`, `pg`                                                   |
-| `canvas-engine`    | `database-core` only (a test fails otherwise)                                           |
-| `cli`              | `shared-types` (bundled into one file at package time)                                  |
-| `apps/web`         | `canvas-engine`, `database-core`, `postgres-adapter`, `shared-types`, plus the UI stack |
+| Workspace          | Depends on                                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `database-core`    | nothing (a test fails if it declares any dependency)                                                                          |
+| `shared-types`     | `zod`; `database-core` as a dev dependency (types only)                                                                       |
+| `postgres-adapter` | `database-core`, `shared-types`, `pg`                                                                                         |
+| `canvas-engine`    | `database-core` only (a test fails otherwise)                                                                                 |
+| `mcp`              | `zod` only (a test fails if any file imports anything else, or uses `fetch(`, `node:http`, `node:net` or `process.`); private |
+| `cli`              | `shared-types` (bundled into one file at package time)                                                                        |
+| `apps/web`         | `canvas-engine`, `database-core`, `mcp`, `postgres-adapter`, `shared-types`, plus the UI stack                                |
 
 Build time: packages compile with TypeScript project references (`tsc -b`, root `tsconfig.json` lists the
-five packages), each emitting `dist/`. A workspace imports another through the npm symlink to its
+six packages), each emitting `dist/`. A workspace imports another through the npm symlink to its
 `package.json` `exports`, which points at `dist/`, so packages must be built before the web app runs.
 That is why root `dev` and `build` start with `tsc -b`.
 
@@ -72,12 +83,14 @@ image export and `monaco-editor` 0.57.0 for the SQL and JSON editors. These are 
 
 ## Decisions worth knowing
 
-`docs/decisions.md` has 160 numbered records. A few that shape everything:
+`docs/decisions.md` has 169 numbered records (the latest: 163 to 168 for 1.10.0, 169 for the MCP server). A few that shape everything:
 
 - **No native modules and no postinstall scripts** (decision 3): the user needs only Node.js and one `npx`
   command, so no OS-keychain password storage and no Next.js image optimizer (`sharp`).
 - **Files, not browser storage**, for persistence, so a changed port cannot hide your data.
 - **Everything that reads rows is opt-in and gated**; **everything that writes is behind three switches**.
+- **Claude reads only what you share, and cannot change anything**: eight read-only tools pinned by a
+  test, behind a door with its own token (decision 169).
 - **Security rules are tests**, not only prose. See [Security model](/security/model/).
 
 ---
@@ -86,6 +99,7 @@ image export and `monaco-editor` 0.57.0 for the SQL and JSON editors. These are 
 [`tsconfig.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tsconfig.json), each
 `packages/*/package.json`, [`apps/web/package.json`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/apps/web/package.json),
 [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md),
+[`docs/mcp-server-plan.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/mcp-server-plan.md),
 [`docs/decisions.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/decisions.md),
 [`tests/architecture.test.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/tests/architecture.test.ts).
 The ASCII diagram is a summary (**Inference**) of the target architecture in `docs/architecture.md`.

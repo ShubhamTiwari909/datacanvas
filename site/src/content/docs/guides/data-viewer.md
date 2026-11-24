@@ -24,6 +24,8 @@ Anyone holding the session token can switch data viewing on, so treat the printe
 - **Keyboard use.** One cell is a tab stop; arrows, Home, End, Page Up and Page Down move between cells.
 - **Row-level security.** A note appears only when RLS applies to your role: the database decides which
   rows you may read.
+- **Choose rows to export.** Every grid of a table with a key has a checkbox on each row; with rows chosen,
+  **Export chosen** writes just those (up to 500). See [Export](/guides/export-json-validate/).
 - **Blur values.** A switch blurs every value in the grid and the value dialog, for screen sharing. It
   changes only how values look.
 

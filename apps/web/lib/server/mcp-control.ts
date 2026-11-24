@@ -49,8 +49,8 @@ export interface ControlOptions {
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 2 * 60 * 1000;
 export const MAX_ACTIVITY = 200;
 export const CALLS_PER_MINUTE = 30;
-/** The most characters of a request kept in the list. */
-export const REQUEST_CHARS = 2000;
+/** The most characters of a request: the longest statement (20,000) and room for the arguments of a page. */
+export const REQUEST_CHARS = 25_000;
 
 interface Waiter {
   entry: ActivityEntry;

@@ -4,6 +4,7 @@ import {
   CELL_CHARS,
   RESULT_CHARS,
   failureWords,
+  forbiddenNamesIn,
   sensitiveNamesIn,
   shapePage,
   shapeQueryResult,
@@ -42,13 +43,71 @@ describe("the names in a statement that look sensitive", () => {
   });
 });
 
+describe("a statement cannot hide a name from the check (the review of 1.11.0)", () => {
+  it("reads a string and a comment as PostgreSQL does: a comment opener inside a string hides nothing", () => {
+    expect(sensitiveNamesIn("select '/*', password_hash as x, '*/' from acct")).toEqual([
+      "password_hash",
+    ]);
+    expect(sensitiveNamesIn("select '--', password_hash as x from acct")).toEqual([
+      "password_hash",
+    ]);
+    expect(sensitiveNamesIn("select 1 /* a /* nested */ still comment */, secret from t")).toEqual([
+      "secret",
+    ]);
+    expect(sensitiveNamesIn("select E'\\'', token from t")).toEqual(["token"]);
+    expect(sensitiveNamesIn("select $a$ x $a$, api_token from t")).toEqual(["api_token"]);
+    expect(sensitiveNamesIn('select "pass""word" from t')).toEqual(['pass"word']);
+    expect(sensitiveNamesIn("select 'password' /* secret */ -- token\n from t")).toEqual([]);
+  });
+  it("refuses the catalogs that hold values and the functions with an effect outside the data", () => {
+    expect(forbiddenNamesIn("select most_common_vals::text from pg_stats")).toEqual(["pg_stats"]);
+    expect(forbiddenNamesIn("select * from pg_catalog.pg_statistic")).toEqual(["pg_statistic"]);
+    expect(forbiddenNamesIn("select pg_notify('c','x'), pg_advisory_xact_lock(7)")).toEqual([
+      "pg_notify",
+      "pg_advisory_xact_lock",
+    ]);
+    expect(forbiddenNamesIn("select query from pg_stat_activity")).toEqual(["pg_stat_activity"]);
+    expect(forbiddenNamesIn('select "PG_STATS".x from "PG_STATS"')).toEqual(["pg_stats"]);
+    // Ordinary catalog reads, a sleep (the time limit stops it) and a word inside a string are fine.
+    expect(
+      forbiddenNamesIn(
+        "select relname, pg_total_relation_size(oid), pg_sleep(1) from pg_class where relname = 'pg_stats'",
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe("what the database's own sentence may say", () => {
+  it("does not pass on an error about names that quotes something that is not in the statement", () => {
+    const words = failureWords(
+      {
+        code: "42P01",
+        message: 'relation "(1,a@x,s3crethash-aaa,hello)" does not exist',
+        position: null,
+      },
+      "select (t::text)::regclass from acct t",
+    );
+    expect(words).not.toContain("s3crethash");
+    expect(words).toMatch(/SQLSTATE 42P01/);
+    expect(
+      failureWords(
+        { code: "42P01", message: 'relation "orders" does not exist', position: null },
+        "select * from Orders",
+      ),
+    ).toBe('relation "orders" does not exist');
+  });
   it("passes on the words of a syntax error or an unknown name, our own refusals and a time limit", () => {
     expect(
-      failureWords({ code: "42703", message: 'column "emai" does not exist', position: 8 }),
+      failureWords(
+        { code: "42703", message: 'column "emai" does not exist', position: 8 },
+        "SELECT emai FROM users",
+      ),
     ).toBe('column "emai" does not exist');
     expect(
-      failureWords({ code: "42601", message: 'syntax error at or near "FORM"', position: 3 }),
+      failureWords(
+        { code: "42601", message: 'syntax error at or near "FORM"', position: 3 },
+        "SELECT 1 FORM users",
+      ),
     ).toMatch(/syntax error/);
     expect(
       failureWords({

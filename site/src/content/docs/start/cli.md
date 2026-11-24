@@ -5,6 +5,7 @@ description: Every flag of the datacanvas command, its startup order, and how it
 
 ```text
 datacanvas [options]
+datacanvas mcp                A bridge for a Claude app (read only)
 
   --port <number>   Port to listen on (default 4747, or the next free port)
   --no-open         Do not open the browser automatically
@@ -48,6 +49,32 @@ If a DataCanvas is already running with a _different_ write mode than you asked 
 refuses and tells you to stop it and start again, rather than open an instance that behaves differently
 from what you expect.
 
+## `datacanvas mcp`
+
+```text
+npx --yes @shubhamtiwari909/datacanvas mcp
+```
+
+The **bridge** that a Claude app starts (Claude Desktop, Claude Code, any MCP client) to reach the running
+DataCanvas. You do not run it by hand: the **Share with Claude** dialog gives the text to paste into the
+Claude app once, and the text never changes. See [Use DataCanvas from Claude](/guides/use-with-claude/).
+
+- It is a **subcommand, not a flag**, and takes no options. It talks MCP over **stdio**: one JSON-RPC message
+  per line in, one per line out. Nothing else is ever written to stdout; it starts no server and opens no
+  browser.
+- It **finds the running DataCanvas by itself**, from `mcp.json` in the data folder (it honours
+  `DATACANVAS_HOME`), and forwards each message to `POST /mcp` with a token that only DataCanvas and the
+  bridge know. The token changes on every run, which is why the Claude app's config never holds it.
+- If DataCanvas is not running, or no connection is shared with Claude, it answers in plain words:
+  "DataCanvas is not running, or no connection is shared with Claude. Start DataCanvas, connect to your
+  database and switch on Share with Claude." Start `datacanvas` in another terminal and share a connection.
+- If DataCanvas refuses it (after a restart of DataCanvas while the Claude app kept its session), it says to
+  restart DataCanvas and the Claude app.
+- It needs the same Node.js (20.9 or newer).
+
+Everything it can reach is read-only and chosen by you in the app. See
+[CLI and packaging](/architecture/cli-and-packaging/) for how it works.
+
 ## Startup order
 
 1. Check the Node.js version (20.9 or newer).
@@ -57,14 +84,15 @@ from what you expect.
 5. Look for a running instance (`run.json`, with a live process answering `/api/health` as DataCanvas)
    and, if found, open it instead.
 6. Choose the port.
-7. Start the server as a child process on `127.0.0.1` with a fresh 32-byte session token.
-8. Wait for `/api/health`, write `run.json` (port, token, pid, version, writes), print the link, and
-   open the browser.
+7. Start the server as a child process on `127.0.0.1` with a fresh 32-byte session token and a second,
+   separate fresh token for `/mcp` (`DATACANVAS_MCP_TOKEN`).
+8. Wait for `/api/health`, write `run.json` (port, token, pid, version, writes), print the link, write
+   `mcp.json` (pid, port and the MCP token, for `datacanvas mcp`), and open the browser.
 
 ## Shutdown
 
 On Ctrl+C or `SIGTERM` the CLI stops the server (`SIGTERM`, then `SIGKILL` after 5 seconds), removes
-`run.json`, and exits. The server closes every database session and forgets credentials within about
+`run.json` and `mcp.json`, and exits. The server closes every database session and forgets credentials within about
 3 seconds through the hook in `apps/web/instrumentation.ts` and `lib/server/shutdown.ts`. If the server
 dies on its own, the CLI reports the exit code and exits non-zero. A `kill -9` of the CLI leaves the
 server running until you stop it by hand (a documented limit).
@@ -83,5 +111,7 @@ server running until you stop it by hand (a documented limit).
 
 **Sources:** [`packages/cli/src/index.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/index.ts),
 [`packages/cli/src/web-server.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/web-server.ts),
+[`packages/cli/src/mcp-bridge.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-bridge.ts),
+[`packages/cli/src/mcp-file.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/mcp-file.ts),
 [`packages/cli/src/instance.ts`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/packages/cli/src/instance.ts),
 [`docs/architecture.md`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/docs/architecture.md) (Phase 11).

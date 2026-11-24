@@ -10,7 +10,8 @@ description: What DataCanvas keeps on disk, how saved connections and workspaces
 ├── connections.json            saved connection profiles
 ├── workspaces/<id>.json        one file per canvas layout
 ├── snapshots/<id>.json         one file per structure snapshot
-└── run.json                    port, token and pid of the running instance (deleted on exit)
+├── run.json                    port, token and pid of the running instance (deleted on exit)
+└── mcp.json                    port, pid and the token of /mcp, for `datacanvas mcp` (1.11.0; mode 0600, deleted on exit)
 ```
 
 Files are written with owner-only permissions (mode `0600`; the folder is `0700`). Each file records a

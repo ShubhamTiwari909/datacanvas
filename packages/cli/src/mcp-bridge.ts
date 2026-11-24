@@ -55,7 +55,8 @@ export async function forwardLine(
         Authorization: `Bearer ${file.token}`,
       },
       body: line,
-      signal: AbortSignal.timeout(120_000),
+      // Longer than the person's two minutes to approve plus the longest statement (30 s): an approval given late still gets its answer.
+      signal: AbortSignal.timeout(180_000),
     });
   } catch {
     return id === null ? null : errorLine(id, NOT_RUNNING);

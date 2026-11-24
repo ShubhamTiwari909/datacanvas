@@ -28,5 +28,5 @@ A **pre-release** version (for example `1.1.0-rc.1`) is published under the `nex
 - Confirm with the relevant internal team that shipping `elkjs` (EPL-2.0 OR GPL-3.0-or-later, used under EPL-2.0) inside an Apache-2.0 package meets organization policy (decisions 69 and 91), and who the copyright holder in `NOTICE` should be.
 - The CI workflow had its first run only recently; Windows and Linux were never tested by hand.
 - Managed PostgreSQL services (RDS, Supabase, Neon, Azure) are untested; self-hosted PostgreSQL 12 to 18 passes (`npm run test:pg-matrix`).
-- No independent security review and no full Content-Security-Policy (see SECURITY.md and docs/threat-model.md).
+- No review by an outside party (see SECURITY.md and docs/threat-model.md).
 - No demo GIF in the README (screenshots exist; regenerate with `npm run screenshots`).

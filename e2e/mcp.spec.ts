@@ -692,6 +692,88 @@ test.describe("the data level, against a real database", () => {
     }
   });
 
+  test("what the independent review found: hidden names cannot be smuggled, a cursor holds no key, Pause cancels what runs, no value in an error", async ({
+    page,
+    app,
+    database,
+  }) => {
+    await admin(
+      database,
+      `CREATE TABLE public.rv_acct (id int PRIMARY KEY, password_hash text, note text);
+       INSERT INTO public.rv_acct VALUES (1, 'S3CRETHASH-aaa', 'hello'), (2, 'S3CRETHASH-bbb', 'bye');
+       CREATE TABLE public.rv_keyed (api_token text PRIMARY KEY DEFAULT 'DEFAULT-SECRET-VALUE', label text);
+       INSERT INTO public.rv_keyed VALUES ('TOKEN-ABC-123', 'a'), ('TOKEN-DEF-456', 'b');
+       ANALYZE public.rv_acct;`,
+    );
+    const { id, client } = await openClient(page, app, database);
+    const run = (sql: string) =>
+      client.callTool({ name: "run_readonly_query", arguments: { connection: id, sql } });
+    const all = (r: unknown) => JSON.stringify(r);
+    // A comment opener inside a string does not hide the column that follows.
+    for (const sql of [
+      "select '/*', password_hash as x, '*/' from rv_acct",
+      "select '--', password_hash as x from rv_acct",
+      // The statistics catalogs hold sampled values of every column.
+      "select most_common_vals::text from pg_stats where tablename = 'rv_acct'",
+      "select * from pg_catalog.pg_statistic limit 1",
+      // Effects outside the data.
+      "select pg_notify('zz','x')",
+      "select pg_advisory_lock(42)",
+    ]) {
+      const r = await run(sql);
+      expect(r.isError, sql).toBe(true);
+      expect(all(r), sql).not.toContain("S3CRETHASH");
+    }
+    // The text of an error never carries a row: the cast of a whole row to a name is not passed on.
+    const cast = await run("select (t::text)::regclass from rv_acct t");
+    expect(cast.isError).toBe(true);
+    expect(all(cast)).not.toContain("S3CRETHASH");
+    expect(all(cast)).not.toContain("hello");
+    // A page whose KEY is hidden: the cursor Claude gets holds no key, and one it makes up is refused.
+    const first = (await client.callTool({
+      name: "read_rows",
+      arguments: { connection: id, schema: "public", table: "rv_keyed", page_size: 1 },
+    })) as { structuredContent: { nextCursor: string | null; rows: unknown[][] } };
+    const cursor = first.structuredContent.nextCursor;
+    expect(cursor).not.toBeNull();
+    expect(Buffer.from(cursor!, "base64url").toString("latin1")).not.toContain("TOKEN");
+    expect(all(first)).not.toContain("TOKEN-ABC");
+    const forged = Buffer.from(JSON.stringify({ k: ["TOKEN-D"] })).toString("base64url");
+    const refused = await client.callTool({
+      name: "read_rows",
+      arguments: { connection: id, schema: "public", table: "rv_keyed", cursor: forged },
+    });
+    expect(refused.isError).toBe(true);
+    const second = (await client.callTool({
+      name: "read_rows",
+      arguments: {
+        connection: id,
+        schema: "public",
+        table: "rv_keyed",
+        page_size: 1,
+        cursor: cursor!,
+      },
+    })) as { isError?: boolean; structuredContent: { rows: unknown[][] } };
+    expect(second.isError).toBeFalsy();
+    expect(second.structuredContent.rows).toHaveLength(1);
+    // The default and the check of a hidden column are not described.
+    const described = await client.callTool({
+      name: "describe_table",
+      arguments: { connection: id, schema: "public", table: "rv_keyed" },
+    });
+    expect(all(described)).not.toContain("DEFAULT-SECRET-VALUE");
+    // Pause cancels what is running, and nothing it read is handed over.
+    const slow = run("select pg_sleep(6), 'delivered-after-pause' as msg");
+    await new Promise((r) => setTimeout(r, 700));
+    const started = Date.now();
+    await page.request.put(`${app.origin}/api/claude/pause`, { data: { paused: true } });
+    const done = await slow;
+    expect(Date.now() - started).toBeLessThan(4000);
+    expect(done.isError).toBe(true);
+    expect(all(done)).not.toContain("delivered-after-pause");
+    await client.close();
+  });
+
   test("refuses what a read-only transaction refuses, two statements, and a query that would run past its time", async ({
     page,
     app,

@@ -17,7 +17,35 @@ prebuilt web server; they never run a build.
 The server is given its settings **through the environment**: `HOSTNAME=127.0.0.1`, the port,
 `DATACANVAS_SESSION_TOKEN` (a fresh 32-byte secret), `DATACANVAS_ENABLE_WRITES=1` only when the flag was given
 (any inherited value is deleted), and `NEXT_MANUAL_SIG_HANDLE=1` so Next.js does not exit before DataCanvas
-closes its connections. Framework telemetry is switched off.
+closes its connections. Framework telemetry is switched off. Since 1.11.0 it also gets
+**`DATACANVAS_MCP_TOKEN`** (a second fresh 32-byte secret, for `/mcp` only; any value inherited from the
+shell is deleted, in every letter case) and `DATACANVAS_VERSION` (read only for the `serverInfo` of the MCP
+server).
+
+## `datacanvas mcp` and `mcp.json` (1.11.0)
+
+`datacanvas mcp` is **not a flag**: if the first argument is `mcp`, `index.ts` hands over to
+`runBridge(resolveDataDir())` straight after the Node version check and before anything that prints, because
+nothing but protocol may go to stdout. It is the **stdio bridge** a Claude app starts as a command:
+
+- It reads one line of JSON-RPC at a time from stdin and handles them **in order** (an answer never
+  overtakes the one before it).
+- For each line it reads **`mcp.json`** in the data folder (`{ pid, port, token }`, parsed strictly: whole
+  numbers, a token of 16 to 128 URL-safe characters) and does `POST http://127.0.0.1:<port>/mcp` with
+  `Authorization: Bearer <token>` and a **120 second** timeout. Reading the file for every message means a
+  restart of DataCanvas needs no change in the Claude app's config.
+- It prints the answer as one JSON line. A notification (`202`) prints nothing. A line over 300,000
+  characters is refused.
+- It has **no dependency, no state and no secret of its own**. If `mcp.json` is missing, DataCanvas is not
+  reachable or the route answers 404, it answers a JSON-RPC error in plain words: _"DataCanvas is not running,
+  or no connection is shared with Claude. Start DataCanvas, connect to your database and switch on Share
+  with Claude."_ On 401 or 403: _"DataCanvas refused this program. Restart DataCanvas and the Claude app,
+  then try again."_
+
+**`mcp.json`** (`packages/cli/src/mcp-file.ts`) is the same class of file as `run.json`: mode `0600`, written
+after the server is healthy, deleted on a clean shutdown only if it still describes this process, and a
+leftover from a crash is useless because the token died with the process. It holds **only** what the bridge
+needs, and the MCP token is a **different secret** from the session token in `run.json`.
 
 ## Single-instance behaviour
 
@@ -71,7 +99,7 @@ belong to the maintainer. See [Releasing](/contributing/releasing/).
 
 ---
 
-**Sources:** [`packages/cli/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/cli/src),
+**Sources:** [`packages/cli/src/`](https://github.com/ShubhamTiwari909/pg-visualizer/tree/main/packages/cli/src) (`index.ts`, `mcp-bridge.ts`, `mcp-file.ts`, `web-server.ts`),
 [`scripts/build-package.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/build-package.mjs),
 [`scripts/release-check.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/release-check.mjs),
 [`scripts/verify-package.mjs`](https://github.com/ShubhamTiwari909/pg-visualizer/blob/main/scripts/verify-package.mjs),

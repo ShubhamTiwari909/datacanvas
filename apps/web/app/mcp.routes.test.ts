@@ -882,4 +882,93 @@ describe("the data tools (M3)", () => {
       }
     });
   });
+
+  describe("what the independent review found", () => {
+    it("turning viewing table data off ends the data level for good: switching it on again does not bring it back", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data");
+      expect(context.mcp.levelOf(id)).toBe("data");
+      const toggle = (enabled: boolean) =>
+        setDataAccess(
+          new Request(`${BASE}/api/connections/${id}/data-access`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Host: "127.0.0.1:4747", ...cookie },
+            body: JSON.stringify({ enabled }),
+          }),
+          params({ id }),
+        );
+      await toggle(false);
+      expect(context.mcp.levelOf(id)).toBe("structure");
+      await toggle(true);
+      expect(context.mcp.levelOf(id)).toBe("structure");
+    });
+
+    it("a role that cannot be checked is treated as a risky one: the person must confirm", async () => {
+      const id = await connect({ dataAccess: true });
+      vi.spyOn(context.createdAdapters[0]!, "getRoleInfo").mockRejectedValue(new Error("no"));
+      expect((await share(id, "data", { acknowledgeRole: undefined })).status).toBe(409);
+      expect((await share(id, "data", { acknowledgeRole: true })).status).toBe(200);
+    });
+
+    it("a cursor is sealed: made up, or taken to another table, it is refused", async () => {
+      const service = context.mcp;
+      const scope = ["c1", "public", "keyed", "null"].join("\0");
+      const sealed = service.sealCursor("anything", scope);
+      expect(service.openCursor(sealed, scope)).toBe("anything");
+      expect(() => service.openCursor(sealed, scope.replace("keyed", "other"))).toThrow(
+        /not valid/,
+      );
+      expect(() => service.openCursor("eyJrIjpbIlRPS0VOIl19", scope)).toThrow(/not valid/);
+    });
+
+    it("the person is shown the whole statement, with control characters made visible, and a statement that would be refused is not asked about", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data", { approval: true });
+      const long = `SELECT 1 ${" ".repeat(5000)}, 2 AS late`;
+      const waiting = call("run_readonly_query", { connection: id, sql: long });
+      const pending = await (async () => {
+        for (let i = 0; i < 100; i++) {
+          const found = context.mcp.control.pending()[0];
+          if (found) return found;
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        throw new Error("nothing waits");
+      })();
+      expect(pending.request).toBe(long);
+      context.mcp.control.decide(pending.id, "deny");
+      await waiting;
+      const disguised = call("run_readonly_query", { connection: id, sql: "SELECT '\u202e' AS x" });
+      const shown = await (async () => {
+        for (let i = 0; i < 100; i++) {
+          const found = context.mcp.control.pending()[0];
+          if (found) return found;
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        throw new Error("nothing waits");
+      })();
+      expect(shown.request).toBe("SELECT '\\u{202e}' AS x");
+      context.mcp.control.decide(shown.id, "deny");
+      await disguised;
+      // Refused before any prompt: nothing waits for a statement that names a hidden column.
+      const refused = await call("run_readonly_query", {
+        connection: id,
+        sql: "SELECT password FROM t",
+      });
+      expect(refused.isError).toBe(true);
+      expect(context.mcp.control.pending()).toEqual([]);
+      // Too long to show whole: refused, not cut.
+      const huge = await call("read_rows", {
+        connection: id,
+        schema: "public",
+        table: "users",
+        cursor: "x".repeat(4000),
+        filters: Array.from({ length: 10 }, () => ({
+          column: "id",
+          operator: "equals",
+          value: "y".repeat(3000),
+        })),
+      });
+      expect(huge.isError).toBe(true);
+    });
+  });
 });

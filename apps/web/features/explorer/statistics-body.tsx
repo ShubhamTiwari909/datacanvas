@@ -12,6 +12,7 @@ import {
   formatBytes,
   formatShare,
   freshness,
+  newest,
   orderWords,
   when,
 } from "./statistics-format";
@@ -46,7 +47,7 @@ export function StatisticsBody({ stats }: { stats: TableStatistics }) {
         <Fact label="Live rows" value={count(stats.liveRows)} />
         <Fact label="Dead rows" value={count(stats.deadRows)} />
         <Fact label="Last analyzed" value={when(fresh.lastAnalyzed)} />
-        <Fact label="Last vacuumed" value={when(stats.lastVacuum ?? stats.lastAutovacuum)} />
+        <Fact label="Last vacuumed" value={when(newest(stats.lastVacuum, stats.lastAutovacuum))} />
       </dl>
       {stats.kind === "partitioned" ? (
         <p className="text-sm text-muted-foreground">

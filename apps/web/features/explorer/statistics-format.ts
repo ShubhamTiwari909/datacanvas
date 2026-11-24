@@ -51,7 +51,8 @@ export function orderWords(correlation: number | null): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function newest(...times: Array<string | null>): string | null {
+/** The latest of several times (ISO 8601 text sorts as time), or null when none happened. */
+export function newest(...times: Array<string | null>): string | null {
   const known = times.filter((t): t is string => t !== null);
   return known.length === 0 ? null : known.reduce((a, b) => (a > b ? a : b));
 }

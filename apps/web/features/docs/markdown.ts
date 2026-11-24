@@ -26,7 +26,7 @@ export function toMarkdown(input: DocInput): DocFile {
   const lines: string[] = [];
   lines.push(`# ${mdText(input.title)}: data dictionary`, "");
   lines.push(
-    "Structure only: table, column, key and index names with their types. It holds no row and no value.",
+    "Structure only: table, column, key and index names with their types, defaults, check rules and comments. It holds no row of any table.",
     "",
   );
   const relationships = relationshipsAmong(input);
@@ -43,7 +43,8 @@ export function toMarkdown(input: DocInput): DocFile {
       facts.push(`about ${t.estimatedRowCount.toLocaleString("en-US")} rows (estimate)`);
     }
     lines.push(facts.join(", "), "");
-    if (t.comment) lines.push(mdText(t.comment), "");
+    // After a fixed word, so a comment that looks like a list item, a fence or a rule is a plain paragraph.
+    if (t.comment) lines.push(`Comment: ${mdText(t.comment)}`, "");
     const keys = keyColumns(entry);
     lines.push(
       "| Column | Type | Null | Default | Key | Comment |",

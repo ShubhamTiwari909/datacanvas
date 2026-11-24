@@ -295,6 +295,14 @@ export const exportRequestSchema = z.strictObject({
 export type ExportRequestBody = z.input<typeof exportRequestSchema>;
 export type ParsedExportRequest = z.output<typeof exportRequestSchema>;
 
+/**
+ * The largest body of an export request: 500 chosen rows with a composite key of two uuids are about 66 KB, and the
+ * default limit of a body (64 KB) refused them (the review of 1.10.0). The keys of one request hold at most
+ * `EXPORT_MAX_KEY_CHARS` characters of values altogether.
+ */
+export const EXPORT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+export const EXPORT_MAX_KEY_CHARS = 1_000_000;
+
 export const cellResponseSchema = z.object({
   cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),
 });

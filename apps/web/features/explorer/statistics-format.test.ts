@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatShare,
   freshness,
+  newest,
   orderWords,
   when,
 } from "./statistics-format";
@@ -108,5 +109,14 @@ describe("how fresh the figures are", () => {
   it("writes a time, or never", () => {
     expect(when(null)).toBe("never");
     expect(when("2026-11-24T12:00:00Z")).toMatch(/2026/);
+  });
+});
+
+describe("the latest of two times", () => {
+  it("is the newer of a manual and an automatic vacuum, not the first that is known", () => {
+    expect(newest("2026-01-01T00:00:00Z", "2026-11-01T00:00:00Z")).toBe("2026-11-01T00:00:00Z");
+    expect(newest("2026-11-01T00:00:00Z", "2026-01-01T00:00:00Z")).toBe("2026-11-01T00:00:00Z");
+    expect(newest(null, "2026-11-01T00:00:00Z")).toBe("2026-11-01T00:00:00Z");
+    expect(newest(null, null)).toBeNull();
   });
 });

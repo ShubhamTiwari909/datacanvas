@@ -277,3 +277,97 @@ describe("the quoting helpers", () => {
     expect(mdCell(null)).toBe("");
   });
 });
+
+describe("findings of the review of 1.10.0", () => {
+  const strange = (names: string[]): DocInput => ({
+    title: "t",
+    relationships: [],
+    tables: names.map((n, i) =>
+      entry(
+        "s",
+        `t${i}`,
+        [
+          [n, "text", true],
+          ["ok", "integer", false],
+        ],
+        [pk("ok")],
+        n,
+      ),
+    ),
+  });
+
+  it("PlantUML: no body line starts with a directive, a comment, the end of the diagram or a separator", () => {
+    const names = [
+      "!include /etc/hostname",
+      "/' block comment",
+      "@enduml",
+      "'x",
+      "-- sep",
+      "}",
+      "%getenv()",
+      "=== x",
+      ".. x",
+      "_x",
+      "#x",
+    ];
+    const text = generateDoc("plantuml", strange(names)).text;
+    for (const line of text.split("\n")) {
+      const body = /^ {2}/.exec(line) ? line.trimStart().replace(/^\* /, "") : null;
+      if (body === null || body === "--") continue;
+      expect(/^[\p{L}\p{N}~]/u.test(body), line).toBe(true);
+    }
+    expect(text.match(/^@enduml$/gm)).toHaveLength(1);
+    expect(text).toContain("~!include /etc/hostname : text");
+    expect(text).toContain("~@enduml : text");
+  });
+
+  it("Markdown: a table comment that looks like a list item, a fence or a rule is a plain paragraph; a name is not a link", () => {
+    const text = generateDoc(
+      "markdown",
+      strange([
+        "~~~",
+        "- item",
+        "+ x",
+        "1. x",
+        "---",
+        "https://evil.example/x",
+        "www.evil.example",
+      ]),
+    ).text;
+    for (const line of text.split("\n")) {
+      if (/^Comment: /.test(line)) continue;
+      expect(line).not.toMatch(/^(~~~|- injected|\+ x|1\. x|---)$/);
+    }
+    expect(text).toContain("Comment: ~~~");
+    expect(text).toContain("Comment: - item");
+    expect(text).not.toMatch(/https?:\/\//);
+    expect(text).toContain("https\\://evil.example/x");
+    expect(text).toContain("www\\.evil.example");
+  });
+
+  it("every format drops direction marks and zero-width characters from a name", () => {
+    for (const format of DOC_FORMATS) {
+      const text = generateDoc(format, strange(["a\u202eb\u200bc"])).text;
+      expect(text, format).not.toMatch(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/);
+    }
+  });
+
+  it("Mermaid: no directive, no tag; DBML: no quote or backslash inside a name or a string", () => {
+    const hostileNames = [
+      '%%{init: {"theme":"x"}}%%',
+      "<img src=x>",
+      'x" } Table "evil',
+      "back\\slash",
+      "it's",
+    ];
+    const mermaid = generateDoc("mermaid", strange(hostileNames)).text;
+    expect(mermaid).not.toMatch(/%%|[<>]/);
+    const dbml = generateDoc("dbml", strange(hostileNames)).text;
+    expect(dbml).not.toMatch(/\\/);
+    for (const line of dbml.split("\n")) {
+      // Every double quote of a line is the delimiter of a name: an even number of them.
+      expect((line.match(/"/g) ?? []).length % 2, line).toBe(0);
+    }
+    expect(dbml.match(/^Table /gm)).toHaveLength(hostileNames.length);
+  });
+});

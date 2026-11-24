@@ -252,8 +252,10 @@ describe("the INSERT script (decision 167)", () => {
       [
         "-- DataCanvas export of public.people at 2026-11-24T00:00:00.000Z.",
         "-- Run it in an empty copy of the table: it inserts, it does not replace.",
-        "SET standard_conforming_strings = on;",
         "BEGIN;",
+        "SET LOCAL standard_conforming_strings = on;",
+        "SET LOCAL datestyle = 'ISO, MDY';",
+        "SET LOCAL intervalstyle = 'postgres';",
         'INSERT INTO "public"."people" ("id", "name") VALUES',
         "  ('1', 'O''Brien'),",
         "  ('2', NULL);",
@@ -306,6 +308,28 @@ describe("the INSERT script (decision 167)", () => {
       expect(text.trimEnd().endsWith("ROLLBACK;")).toBe(true);
       expect(text).not.toContain("COMMIT;");
     }
+  });
+
+  it("does not commit when columns were left out because their names look sensitive: it is not a copy of the table", () => {
+    const { formatter, start } = make([{ name: "id" }]);
+    const text =
+      start(["password"]) +
+      formatter.rows([["1"]]) +
+      formatter.end({ ...whole, leftOut: ["password"] });
+    expect(text).toContain(
+      "-- INCOMPLETE: columns were left out because their names look sensitive",
+    );
+    expect(text.trimEnd().endsWith("ROLLBACK;")).toBe(true);
+    expect(text).not.toContain("COMMIT;");
+  });
+
+  it("sets what the text of its values depends on for the transaction only (SET LOCAL after BEGIN), never for the session", () => {
+    const { start } = make([{ name: "id" }]);
+    const text = start();
+    expect(text.indexOf("BEGIN;")).toBeLessThan(
+      text.indexOf("SET LOCAL standard_conforming_strings"),
+    );
+    expect(text).not.toMatch(/^SET (?!LOCAL)/m);
   });
 
   it("flattens every name in a comment, so a name with a line break cannot become a statement", () => {

@@ -131,7 +131,12 @@ function Rows({
   // With writes unlocked (1.4.0): row actions, "Add row" and the preview step. Inert otherwise.
   const [exporting, setExporting] = useState(false);
   // The rows to export when the export is of chosen rows (decision 168); null for the table as filtered.
-  const [exportKeys, setExportKeys] = useState<KeyValue[][] | null>(null);
+  // It remembers WHICH table the keys are of: keys of another table are never sent with this one.
+  const tableId = `${connectionId}/${schema}/${table}`;
+  const [exportOf, setExportOf] = useState<{ table: string; keys: KeyValue[][] } | null>(null);
+  const exportKeys = exportOf?.table === tableId ? exportOf.keys : null;
+  const setExportKeys = (keys: KeyValue[][] | null) =>
+    setExportOf(keys === null ? null : { table: tableId, keys });
   const editing = useRowEditing({
     connectionId,
     table: ref,

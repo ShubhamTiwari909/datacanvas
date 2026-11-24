@@ -104,7 +104,10 @@ function readNode(raw: Raw, depth: number, counter: { n: number }, analyzed: boo
     : null;
   const loops = num(raw["Actual Loops"]);
   const perRunMs = num(raw["Actual Total Time"]);
-  const totalMs = perRunMs === null ? null : perRunMs * Math.max(1, loops ?? 1);
+  // A product of two finite numbers can still overflow: a number that is not finite is not a time.
+  const finite = (value: number | null): number | null =>
+    value !== null && Number.isFinite(value) ? value : null;
+  const totalMs = finite(perRunMs === null ? null : perRunMs * Math.max(1, loops ?? 1));
   const childrenMs = children.reduce((sum, c) => sum + (c.totalMs ?? 0), 0);
   const expectedRows = num(raw["Plan Rows"]);
   const actualRows = num(raw["Actual Rows"]);
@@ -156,7 +159,7 @@ function readNode(raw: Raw, depth: number, counter: { n: number }, analyzed: boo
     actualRows,
     loops,
     totalMs,
-    selfMs: totalMs === null ? null : Math.max(0, totalMs - childrenMs),
+    selfMs: totalMs === null ? null : finite(Math.max(0, totalMs - childrenMs)),
     sharedHit: num(raw["Shared Hit Blocks"]),
     sharedRead: num(raw["Shared Read Blocks"]),
     conditions,

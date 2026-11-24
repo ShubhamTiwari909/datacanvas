@@ -154,6 +154,28 @@ describe("parsePlan refuses what is not a plan, and bounds what is", () => {
   });
 });
 
+describe("derived numbers are numbers", () => {
+  it("a time that overflows is no time, never Infinity or NaN on the screen", () => {
+    const result = parsePlan(
+      wrap(
+        {
+          "Node Type": "Result",
+          "Actual Loops": 1e308,
+          "Actual Total Time": 1e308,
+          Plans: [{ "Node Type": "Child", "Actual Loops": 1e308, "Actual Total Time": 1e308 }],
+        },
+        { "Execution Time": 1 },
+      ),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const node of [result.plan.root, result.plan.root.children[0]!]) {
+      expect(node.totalMs).toBeNull();
+      expect(node.selfMs).toBeNull();
+    }
+  });
+});
+
 describe("planFromRows", () => {
   it("is a plan only for one cell that starts like JSON; a text plan is many rows", () => {
     expect(planFromRows([[sample]])?.ok).toBe(true);

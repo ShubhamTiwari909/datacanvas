@@ -2,6 +2,7 @@
  * Route tests for exporting rows as a file (`POST /connections/:id/rows/export`): the same opt-in as a page of rows,
  * a strict body, the file as the answer with its headers, and no value in any error or log. (The reader of rows is tested against PostgreSQL in the adapter's tests.)
  */
+import { EXPORT_MAX_KEY_CHARS } from "@datacanvas/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseError, type ExportEvent } from "@datacanvas/database-core";
 import { setServerContextForTests } from "@/lib/server/context";
@@ -115,6 +116,37 @@ describe("POST /connections/:id/rows/export", () => {
     expect(response.headers.get("content-disposition")).toBe("attachment");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await response.text()).toBe("id\r\n1\r\n2\r\n");
+  });
+
+  it("takes the keys of 500 chosen rows with a composite key of two uuids (about 66 KB), not the 64 KB of an ordinary body", async () => {
+    const id = await connect({ dataAccess: true });
+    script(async (sink) => {
+      await sink({ kind: "start", columns, leftOut: [] });
+      await sink({ kind: "end", rows: 0, cut: null, cellsCut: 0 });
+    });
+    const uuid = (n: number) => `${String(n).padStart(8, "0")}-aaaa-4bbb-8ccc-ddddeeeeffff`;
+    const keys = Array.from({ length: 500 }, (_, i) => [
+      { column: "first_part_of_key", value: uuid(i) },
+      { column: "second_part_of_key", value: uuid(i + 1000) },
+    ]);
+    expect(JSON.stringify({ ...ask, keys }).length).toBeGreaterThan(64 * 1024);
+    expect((await post(id, { ...ask, keys })).status).toBe(200);
+  });
+
+  it("still refuses a body over its own limit (413) and keys of more characters than a request may carry (400)", async () => {
+    const id = await connect({ dataAccess: true });
+    const huge = {
+      ...ask,
+      keys: [[{ column: "id", value: "x" }]],
+      note: "x".repeat(4 * 1024 * 1024),
+    };
+    expect((await post(id, huge)).status).toBe(413);
+    // 500 keys of 2,100 characters: a body of about 1 MB, past the 1,000,000 characters of values a request may carry.
+    const wide = Array.from({ length: 500 }, () => [{ column: "id", value: "x".repeat(2100) }]);
+    const result = await call(post(id, { ...ask, keys: wide }));
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("validation_error");
+    expect(EXPORT_MAX_KEY_CHARS).toBe(1_000_000);
   });
 
   it("passes the chosen keys to the reader, says a count (never the keys) in the notes, and writes the SQL script as a file", async () => {

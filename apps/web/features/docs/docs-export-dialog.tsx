@@ -165,9 +165,10 @@ export function DocsExportDialog({
             <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p>
               The file holds <strong>table, column, key and index names</strong> with their types,
-              which can reveal how your system works. It holds no row and no value, and nothing is
-              uploaded: it is made and saved on this computer. A text diagram is often pasted into
-              an online tool: check where before you do.
+              which can reveal how your system works. It holds no row of any table (a column&apos;s
+              default, a check rule or a comment is included in the document and can hold a
+              literal), and nothing is uploaded: it is made and saved on this computer. A text
+              diagram is often pasted into an online tool: check where before you do.
             </p>
           </div>
 

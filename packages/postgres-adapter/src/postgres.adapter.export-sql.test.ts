@@ -108,17 +108,81 @@ describe.skipIf(!testDatabaseUrl())("the INSERT script round trip", () => {
     expect((await sql.query("SELECT count(*)::int AS n FROM rt_src")).rows[0]).toEqual({ n: 5 });
   });
 
-  it("writes DEFAULT VALUES for each row of a table whose every column was left out (a hidden column)", async () => {
+  it("writes DEFAULT VALUES for each row of a table whose every column was left out (a hidden column), and does not commit", async () => {
     const text = await script({ schema: "public", name: "rt_only" });
     expect(text).toContain('INSERT INTO "public"."rt_only" DEFAULT VALUES;');
     expect(text).toContain("-- Left out because they look sensitive: password.");
     expect(text).not.toContain("hunter");
+    // Not a copy of the table, so it rolls back: run as written it changes nothing.
+    expect(text.trimEnd().endsWith("ROLLBACK;")).toBe(true);
     await sql.query("TRUNCATE rt_only");
     await sql.query(text);
+    expect((await sql.query("SELECT count(*)::int AS n FROM rt_only")).rows[0]).toEqual({ n: 0 });
+    // Changed to COMMIT by a person who read it, it restores the default.
+    await sql.query(text.replace(/ROLLBACK;\s*$/, "COMMIT;"));
     expect((await sql.query("SELECT password FROM rt_only")).rows).toEqual([
       { password: "kept-by-default" },
       { password: "kept-by-default" },
     ]);
+  });
+
+  it("writes dates, intervals and floats the same whatever the DateStyle, IntervalStyle and extra_float_digits of the connection are", async () => {
+    // A database whose sessions print dates as 03.04.2026 and floats with the fewest digits (the review of 1.10.0).
+    await sql.query(
+      `CREATE TABLE rt_settings (id int PRIMARY KEY, born date, seen timestamptz, span interval, f double precision);
+       INSERT INTO rt_settings VALUES (1, '2026-04-03', '2026-04-03 10:00:00+00', '1 day 02:03:04', 0.30000000000000004);`,
+    );
+    await sql.query(
+      `ALTER DATABASE "${db.dbName}" SET datestyle = 'German, DMY'; ALTER DATABASE "${db.dbName}" SET extra_float_digits = 0; ALTER DATABASE "${db.dbName}" SET intervalstyle = 'sql_standard'`,
+    );
+    const { host, port, username, password } = db.connection;
+    const odd = new PostgresAdapter(db.connection);
+    await odd.connect();
+    try {
+      const formatter = createFormatter(
+        { format: "sql", delimiter: ",", header: true, nullText: "", meta: false },
+        { table: { schema: "public", name: "rt_settings" }, at: new Date(), filters: [] },
+      );
+      let text = "";
+      let rows = 0;
+      await odd.exportRows(
+        { schema: "public", name: "rt_settings" },
+        { revealColumns: [] },
+        (event) => {
+          if (event.kind === "start") text += formatter.start(event.columns, event.leftOut);
+          else if (event.kind === "rows") {
+            rows += event.rows.length;
+            text += formatter.rows(event.rows);
+          } else text += formatter.end({ ...event, rows, leftOut: [] });
+          return undefined;
+        },
+      );
+      // ISO dates, the exact float, whatever the connection's settings were.
+      expect(text).toContain("'2026-04-03'");
+      expect(text).toContain("'0.30000000000000004'");
+      expect(text).not.toContain("03.04.2026");
+      // And run in a session with another DateStyle, the script gives the same row back.
+      const other = new pg.Client({ host, port, user: username, password, database: db.dbName });
+      await other.connect();
+      try {
+        await other.query("SET datestyle = 'SQL, MDY'");
+        await other.query("TRUNCATE rt_settings");
+        await other.query(text);
+        const back = await other.query(
+          "SELECT born::text AS b, (f = 0.30000000000000004::float8) AS exact FROM rt_settings",
+        );
+        expect(back.rows[0]).toEqual({ b: "04/03/2026", exact: true });
+        // The script's settings ended with its transaction: the session's own are as they were.
+        expect((await other.query("SHOW datestyle")).rows[0]).toEqual({ DateStyle: "SQL, MDY" });
+      } finally {
+        await other.end();
+      }
+    } finally {
+      await odd.disconnect();
+      await sql.query(
+        `ALTER DATABASE "${db.dbName}" RESET datestyle; ALTER DATABASE "${db.dbName}" RESET extra_float_digits; ALTER DATABASE "${db.dbName}" RESET intervalstyle`,
+      );
+    }
   });
 
   it("quotes a table and a column named with quotes and a line break", async () => {

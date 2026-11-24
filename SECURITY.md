@@ -73,12 +73,23 @@ A web page you visit can try to reach programs listening on `127.0.0.1`. DataCan
 4. **Session token**: every start creates a new random secret. The link printed by `datacanvas` carries it once; the app swaps it for an `HttpOnly`, `SameSite=Strict` cookie and removes it from the address bar. Requests without it are refused. Treat the printed link like a password while DataCanvas runs.
 5. The checks run in the front door (`proxy.ts`) **and** again inside every API route.
 6. No CORS headers are ever sent, so other sites cannot read responses. Responses forbid framing and referrers.
+7. **A Content-Security-Policy with a nonce made for each page request** (1.10.0): a script runs only when it carries that nonce (the framework's scripts and our one script), nothing runs from inline text, an inline handler or `eval`, and the page may connect only to its own server. So text that ends up in a page (a table name, a value) cannot run as a script even if a component forgot to escape it. Styles keep `'unsafe-inline'` (the canvas and the menus set `style` attributes, which a nonce cannot cover; no code runs from a style). Every end-to-end test of the project fails when a page breaks the policy.
 
 ## What to do for your database
 
 - Use a **read-only database user** with the least access that is useful. If you edit with DataCanvas, use a role that can change only the tables you mean to change, on a local development database.
 - Use **TLS with certificate verification** when the database is not on your own machine.
 - DataCanvas sets connection and statement timeouts and limits the size of everything it reads.
+
+## Statistics, documentation exports, chosen rows and plans (1.10.0)
+
+None of these writes to a database.
+
+- **Statistics** (the table details) come from the server's own figures: the share of NULLs, the number of distinct values, the width and the order of each column, the sizes, and when the table was last vacuumed and analysed. **No row and no value is read:** the statistics that hold values of the table (the most common values, the histograms) are never selected, and a test fails if any statement names one. They need no "Allow viewing table data", like the row-count estimate.
+- **Export documentation** makes a Markdown, Mermaid, DBML or PlantUML file in your browser from table, column, key and index names and their types (the Markdown file and DBML also carry column defaults, check rules and comments, which can hold a literal). No row of any table is read, nothing is uploaded, and every name is quoted for its format so a name cannot become syntax. The names can reveal how your system works: check where you paste a text diagram.
+- **Export chosen rows** reads the rows you chose again on the server, each by the table's whole key (up to 500), with the same rules as any export: a hidden column is left out, a value is read whole, the data-access check comes first. A key column that looks sensitive and was not shown, a table without a key and a key that is not the table's key are refused. The notes of the file say how many rows were chosen, never their keys.
+- **A script of INSERT statements** is text you run yourself: every value a quoted text literal, every name quoted, in one transaction. A script that was cut ends with `ROLLBACK;` instead of `COMMIT;`, and one that failed has no `COMMIT;`, so a half script commits nothing. Run it in a test copy first.
+- **The query plan viewer** reads the plan of your own statement (JSON) as untrusted text with limits, shows it in the tab, and keeps it nowhere (the statement is in the tab's history, like any statement that ran).
 
 ## Bulk changes and import (1.9.0)
 
@@ -108,7 +119,7 @@ The Data section is not exported or saved. If you share your screen, a screensho
 - Another program running as **your user** can read the process list and so the token. DataCanvas does not defend against an attacker who already has your account.
 - The token travels over plain `http` on loopback. Other users on a shared machine cannot normally see loopback traffic, but this is not hardened against a hostile administrator.
 - Cookies are not isolated by port; other web apps on `127.0.0.1` receive the cookie. The Origin and `Sec-Fetch-Site` checks stop them from using it from a browser.
-- There is no full Content-Security-Policy yet (the framework inlines scripts; this needs nonces).
+- The Content-Security-Policy allows inline styles (see above), and `'strict-dynamic'` lets a script that already runs add scripts: markup that the parser reads cannot run, but a script that is already running is trusted.
 - Passwords live in memory, so they are present in a memory dump of the process. So are the rows of any page you have open, in the server and in your browser, and they can end up in the operating system's swap.
 - Hiding columns by name is a hint, not a control. A column called `notes` can hold a password; one called `token_count` is harmless. Use a database user that cannot read what DataCanvas should not show.
 - Browser extensions with access to the page can read what the page shows, including rows.

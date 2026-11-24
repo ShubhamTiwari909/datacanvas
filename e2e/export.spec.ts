@@ -157,14 +157,18 @@ test.describe("export", () => {
   }) => {
     const file = await exportAs(page, "sql");
     expect(file.name).toMatch(/\.sql$/);
-    expect(file.text).toContain("SET standard_conforming_strings = on;\nBEGIN;");
+    expect(file.text).toContain("BEGIN;\nSET LOCAL standard_conforming_strings = on;");
     expect(file.text).toContain('INSERT INTO "public"."x_orders" ("id", "name", "note") VALUES');
     // Quotes are doubled, the value that looked like a formula is not defused (it is SQL, not a spreadsheet).
     expect(file.text).toContain("('2', 'Bo, \"the\" builder', NULL)");
     expect(file.text).toContain("'=HYPERLINK(\"http://x\")'");
     expect(file.text).toContain("-- Left out because they look sensitive: api_token.");
     expect(file.text).not.toContain("tok-1");
-    expect(file.text.trimEnd().endsWith("COMMIT;")).toBe(true);
+    // A column was left out for its name: this is not a copy of the table, so the script does not commit.
+    expect(file.text).toContain(
+      "-- INCOMPLETE: columns were left out because their names look sensitive",
+    );
+    expect(file.text.trimEnd().endsWith("ROLLBACK;")).toBe(true);
     // 120 rows, at most 100 to a statement (the reader's batches decide where a statement ends).
     expect(file.text.match(/^INSERT INTO /gm)!.length).toBeGreaterThanOrEqual(2);
     expect(file.text.match(/^ {2}\('/gm)).toHaveLength(120);

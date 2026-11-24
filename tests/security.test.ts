@@ -1426,7 +1426,7 @@ describe("the Content-Security-Policy is made for each request and nothing in th
     for (const file of sources) {
       const code = readFileSync(file, "utf8");
       if (file.endsWith("app/layout.tsx")) continue;
-      expect(code, rel(file)).not.toMatch(/<script\b/);
+      expect(code, rel(file)).not.toMatch(/<script\b|next\/script/i);
       expect(code, rel(file)).not.toMatch(/\bdangerouslySetInnerHTML\b/);
     }
   });
@@ -1504,7 +1504,7 @@ describe("the statistics of a table hold no value of the table", () => {
 
   it("no statement of the adapter names a statistic that holds values (pg_stats keeps the values of the table in them)", () => {
     const FORBIDDEN =
-      /most_common_vals|most_common_freqs|most_common_elems|most_common_elem_freqs|histogram_bounds|elem_count_histogram|range_length_histogram|range_bounds_histogram|stavalues|stanumbers|pg_statistic\b/;
+      /most_common_vals|most_common_freqs|most_common_elems|most_common_elem_freqs|histogram_bounds|elem_count_histogram|range_length_histogram|range_bounds_histogram|stavalues|stanumbers|pg_statistic\b|pg_statistic_ext|pg_stats_ext|stxdmcv|stxdndistinct/;
     const sources = walk(path.join(root, "packages/postgres-adapter/src")).filter(
       (f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("/dist/"),
     );

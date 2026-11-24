@@ -105,7 +105,7 @@ test.describe("documentation exports", () => {
     expect(dbml.text).toMatch(
       /^Ref "[^"\n]+": "public"\."orders"\."user_id" > "public"\."users"\."id"$/m,
     );
-    expect(dbml.text).toContain('Table "public"."odd \\"name\\" | x" {');
+    expect(dbml.text).toContain('Table "public"."odd \'name\' | x" {');
 
     const plant = await download(page, /PlantUML diagram/);
     expect(plant.name).toMatch(/\.puml$/);

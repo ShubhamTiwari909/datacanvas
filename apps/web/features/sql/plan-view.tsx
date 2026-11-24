@@ -85,6 +85,7 @@ function Step({
   openAll: boolean;
   blurred: boolean;
 }) {
+  const [open, setOpen] = useState(openAll || depth < 4);
   const body = (
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">{numbers(node, analyzed).join(" · ")}</span>
@@ -118,22 +119,25 @@ function Step({
   }
   return (
     <li className="rounded-md border p-2">
-      <details open={openAll || depth < 4}>
+      <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary className="cursor-pointer font-medium">{headline(node)}</summary>
         <div className="mt-1 flex flex-col gap-2">
           {body}
-          <ul className="ml-3 flex flex-col gap-2 border-l pl-3">
-            {node.children.map((child, i) => (
-              <Step
-                key={i}
-                node={child}
-                analyzed={analyzed}
-                depth={depth + 1}
-                openAll={openAll}
-                blurred={blurred}
-              />
-            ))}
-          </ul>
+          {/* The steps below are drawn only while this one is open: a plan of 20,000 steps is not 20,000 elements. */}
+          {open ? (
+            <ul className="ml-3 flex flex-col gap-2 border-l pl-3">
+              {node.children.map((child, i) => (
+                <Step
+                  key={i}
+                  node={child}
+                  analyzed={analyzed}
+                  depth={depth + 1}
+                  openAll={openAll}
+                  blurred={blurred}
+                />
+              ))}
+            </ul>
+          ) : null}
         </div>
       </details>
     </li>

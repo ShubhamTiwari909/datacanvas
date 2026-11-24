@@ -470,8 +470,15 @@ test.describe("the data level, against a real database", () => {
       data: { enabled: true },
     });
     await page.goto(app.link);
-    await page.getByRole("button", { name: "Open connections and tables" }).click();
-    await page.getByRole("button", { name: "Share with Claude: Claude shop" }).click();
+    // The drawer closes itself when the page selects the connection: open it again until the button can be pressed.
+    const shareButton = page.getByRole("button", { name: "Share with Claude: Claude shop" });
+    await expect(async () => {
+      if (!(await shareButton.isVisible())) {
+        await page.getByRole("button", { name: "Open connections and tables" }).click();
+      }
+      await expect(shareButton).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 20_000 });
+    await shareButton.click();
     const dialog = page.getByRole("dialog", { name: "Share Claude shop with Claude" });
     await dialog.getByRole("radio", { name: /Structure and data/ }).check();
     // Nothing sticks out of the screen, and every control sits inside the dialog's box.

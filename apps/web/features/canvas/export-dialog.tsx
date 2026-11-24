@@ -65,7 +65,7 @@ export function ExportDialog({
           </p>
         ) : null}
 
-        <DialogFooter>
+        <DialogFooter className="sm:flex-wrap">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

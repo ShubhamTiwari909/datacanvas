@@ -15,6 +15,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { errorResponse } from "@/lib/server/api-response";
+import { buildCsp, makeNonce } from "@/lib/security/csp";
 import {
   TOKEN_QUERY_PARAM,
   evaluateRequest,
@@ -64,7 +65,20 @@ export function proxy(request: NextRequest): Response {
     cookieToken: request.cookies.get(sessionCookieName(security.port))?.value ?? null,
   };
   const decision = evaluateRequest(facts, security);
-  if (decision.ok) return NextResponse.next();
+  if (decision.ok) {
+    // An API answer is JSON: no page, no script, nothing for a policy to govern.
+    if (pathname.startsWith("/api/")) return NextResponse.next();
+    // A page: a policy with a nonce made for this request. The request carries it too, because the framework reads the
+    // nonce from the policy of the request to put it on its own scripts, and the layout reads `x-nonce` for ours.
+    const nonce = makeNonce();
+    const policy = buildCsp(nonce, { dev: process.env.NODE_ENV !== "production" });
+    const headers = new Headers(request.headers);
+    headers.set("Content-Security-Policy", policy);
+    headers.set("x-nonce", nonce);
+    const response = NextResponse.next({ request: { headers } });
+    response.headers.set("Content-Security-Policy", policy);
+    return response;
+  }
 
   if (pathname.startsWith("/api/")) {
     return errorResponse(decision.code, decision.message, decision.status);

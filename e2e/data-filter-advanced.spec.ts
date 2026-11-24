@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import pg from "pg";
 import type { Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const axeSource = readFileSync(
   createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
@@ -48,7 +48,9 @@ const filterButton = (page: Page) => page.getByRole("button", { name: /^Filter\b
 
 async function shownIds(page: Page): Promise<string[]> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-  return (await grid(page).locator("tbody tr td:first-child").allInnerTexts()).map((t) => t.trim());
+  return (await grid(page).locator("tbody tr td[data-col='0']").allInnerTexts()).map((t) =>
+    t.trim(),
+  );
 }
 
 interface Condition {
@@ -82,6 +84,7 @@ async function clearAll(page: Page): Promise<void> {
 }
 
 async function axeOn(page: Page, name: string): Promise<void> {
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async () => {
     const axe = (

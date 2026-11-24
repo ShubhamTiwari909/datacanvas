@@ -102,6 +102,32 @@ export const indexUsageReportSchema = z.object({
   ),
 });
 
+export const columnStatisticsSchema = z.object({
+  column: z.string(),
+  hasStatistics: z.boolean(),
+  nullFraction: z.number().nullable(),
+  distinctValues: z.number().nullable(),
+  distinctShare: z.number().nullable(),
+  averageWidth: z.number().nullable(),
+  correlation: z.number().nullable(),
+});
+
+export const tableStatisticsSchema = z.object({
+  table: z.object({ schema: z.string(), name: z.string() }),
+  kind: z.enum(["table", "partitioned", "materialized"]),
+  estimatedRows: z.number().nullable(),
+  liveRows: z.number().nullable(),
+  deadRows: z.number().nullable(),
+  tableBytes: z.number(),
+  indexBytes: z.number(),
+  toastBytes: z.number(),
+  lastVacuum: z.string().nullable(),
+  lastAutovacuum: z.string().nullable(),
+  lastAnalyze: z.string().nullable(),
+  lastAutoanalyze: z.string().nullable(),
+  columns: z.array(columnStatisticsSchema),
+});
+
 export const rowPageSchema = z.object({
   columns: z.array(
     z.object({

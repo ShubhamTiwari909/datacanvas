@@ -17,6 +17,7 @@ import {
   EXPORT_BATCH_ROWS,
   EXPORT_FIRST_BATCH_ROWS,
   EXPORT_CELL_CHARS,
+  EXPORT_MAX_KEYS,
   EXPORT_MAX_ROWS,
   checkRowsFilters,
   checkRowsSort,
@@ -48,6 +49,67 @@ const isDataException = (error: unknown): boolean =>
   typeof (error as { code?: unknown }).code === "string" &&
   (error as { code: string }).code.startsWith("22");
 
+/**
+ * Which columns an INSERT script cannot set (`GENERATED ... STORED`) and which it sets only with
+ * `OVERRIDING SYSTEM VALUE` (`GENERATED ALWAYS AS IDENTITY`). Catalog flags only.
+ */
+const GENERATION_SQL = `
+  SELECT a.attname::text AS name, a.attgenerated <> '' AS generated, a.attidentity = 'a' AS identity_always
+  FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
+`;
+
+async function findColumnGeneration(
+  db: Queryable,
+  ref: TableRef,
+): Promise<Map<string, { generated: boolean; identityAlways: boolean }>> {
+  const { rows } = await db.query<{ name: string; generated: boolean; identity_always: boolean }>(
+    GENERATION_SQL,
+    [ref.schema, ref.name],
+  );
+  return new Map(
+    rows.map((r) => [r.name, { generated: r.generated, identityAlways: r.identity_always }]),
+  );
+}
+
+/**
+ * The keys of an export of chosen rows, as the values of the table's key columns in key order (decision 168), or
+ * undefined when the export is not of chosen rows. Each key must name EXACTLY the table's key columns (any order): a
+ * part of a key, or a column that is not part of it, would turn the list into a search. A key column that looks
+ * sensitive and was not revealed is refused (a list of guesses against a hidden column would be an oracle), and a table
+ * without a key cannot be named by one. The refusals are fixed messages that name no value.
+ */
+function checkKeys(
+  keys: ExportRowsOptions["keys"],
+  columns: ReadonlyArray<RowColumn>,
+  keyColumns: readonly string[],
+  reveal: ReadonlySet<string>,
+): string[][] | undefined {
+  if (keys === undefined) return undefined;
+  if (keyColumns.length === 0) throw new DatabaseError("not_supported");
+  if (keys.length === 0 || keys.length > EXPORT_MAX_KEYS)
+    throw new DatabaseError("invalid_request");
+  for (const name of keyColumns) {
+    const column = columns.find((c) => c.name === name);
+    if (!column || (isSensitiveColumnName(name) && !reveal.has(name))) {
+      throw new DatabaseError("invalid_request");
+    }
+  }
+  return keys.map((key) => {
+    const byName = new Map(key.map((k) => [k.column, k.value]));
+    if (
+      byName.size !== key.length ||
+      byName.size !== keyColumns.length ||
+      !keyColumns.every((c) => byName.has(c))
+    ) {
+      throw new DatabaseError("invalid_request");
+    }
+    return keyColumns.map((c) => byName.get(c)!);
+  });
+}
+
 export async function exportRows(
   db: Queryable,
   ref: TableRef,
@@ -78,6 +140,7 @@ export async function exportRows(
   // Every column: a file that quietly leaves some out would look complete (the page shows the first 100).
   const all = await listColumns(db, ref.schema, ref.name);
   const kinds = await findColumnKinds(db, ref);
+  const generation = await findColumnGeneration(db, ref);
   const columns: RowColumn[] = all.map((c) => ({
     name: c.name,
     dataType: c.dataType,
@@ -85,6 +148,7 @@ export async function exportRows(
     kind: kinds.get(c.name) ?? "other",
   }));
   const order = await findRowKey(db, ref);
+  const keys = checkKeys(options.keys, columns, order.columns, reveal);
   const sort = checkRowsSort(requestedSort, columns, order);
   const filters = checkRowsFilters(requestedFilters, columns);
 
@@ -103,6 +167,7 @@ export async function exportRows(
     offset: 0,
     limit: EXPORT_MAX_ROWS + 1,
     cellChars: EXPORT_CELL_CHARS,
+    keys,
   });
 
   const started = Date.now();
@@ -119,6 +184,18 @@ export async function exportRows(
     throw error;
   }
 
+  // The text of every value is written with settings of our own, never the session's: a date in the connection's
+  // DateStyle (`03.04.2026`), an interval in its IntervalStyle and a float cut by extra_float_digits would be read
+  // wrongly (or lose digits) by whoever opens the file in another session. They last for this transaction only, and
+  // they are set HERE, after the cursor was declared: the keys and the conditions copied from the grid are in the
+  // connection's own DateStyle (that is what the grid showed), and were read under it when the cursor bound them; a
+  // setting changed before that would read `03.04.2026` as March 4 and return the wrong row (review of PR 30).
+  // The values are written when a row is fetched, so these settings are the ones the file's text is made with.
+  await db.query(
+    `SELECT set_config('DateStyle', 'ISO, MDY', true), set_config('IntervalStyle', 'postgres', true),
+            set_config('extra_float_digits', '3', true), set_config('bytea_output', 'hex', true)`,
+  );
+
   // Errors about the request (a value of the wrong type) come before the first event, so a caller can still answer them.
   if (stop) return;
   await proceed({
@@ -126,6 +203,8 @@ export async function exportRows(
     columns: shown.map((s) => ({
       name: s.name,
       dataType: columns[s.position]!.dataType,
+      generated: generation.get(s.name)?.generated ?? false,
+      identityAlways: generation.get(s.name)?.identityAlways ?? false,
     })),
     leftOut,
   });

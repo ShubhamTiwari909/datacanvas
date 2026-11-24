@@ -1,6 +1,7 @@
 /**
  * Exporting the rows of a table as a file (`docs/advanced-data-workspace-plan.md`, section 8; decision 158):
- * CSV, TSV, JSON or NDJSON, of the rows as filtered and sorted on screen, in a stream, with limits.
+ * CSV, TSV, JSON, NDJSON or a script of INSERT statements, of the rows as filtered and sorted on screen, in a stream,
+ * with limits.
  *
  * This file is what both providers and the web server share: the limits, the events a reader of rows
  * produces, and the FORMATTERS that turn those events into text a piece at a time. It talks to no database
@@ -29,8 +30,11 @@ export const EXPORT_BATCH_CHARS = 4_000_000;
 /** The most characters of one cell; a longer value is cut, and the file counts how many were. */
 export const EXPORT_CELL_CHARS = 1_000_000;
 
-export const ROWS_EXPORT_FORMATS = ["csv", "tsv", "json", "ndjson"] as const;
+export const ROWS_EXPORT_FORMATS = ["csv", "tsv", "json", "ndjson", "sql"] as const;
 export type ExportRowsFormat = (typeof ROWS_EXPORT_FORMATS)[number];
+
+/** The most rows an export of chosen rows can name. */
+export const EXPORT_MAX_KEYS = 500;
 
 /** What the rows are read with: the same sort and conditions as on screen. No paging. */
 export interface ExportRowsOptions {
@@ -38,6 +42,12 @@ export interface ExportRowsOptions {
   revealColumns: string[];
   sort?: RowSort | null;
   filters?: RowFilter[];
+  /**
+   * Only these rows (decision 168): each one named by the table's WHOLE key (one entry per key column, in any
+   * order), at most `EXPORT_MAX_KEYS`. A key that matches no row gives no row. A table without a key, a key that
+   * is not the table's key, and a key column that looks sensitive and was not revealed are refused.
+   */
+  keys?: ReadonlyArray<ReadonlyArray<{ column: string; value: string }>>;
 }
 
 /** The part of an `AbortSignal` a reader of rows looks at (this package has no DOM types). */
@@ -48,6 +58,10 @@ export interface ExportSignal {
 export interface ExportColumn {
   name: string;
   dataType: string;
+  /** `GENERATED ... STORED`: an INSERT cannot set it, so a script leaves it out. */
+  generated?: boolean;
+  /** `GENERATED ALWAYS AS IDENTITY`: a script keeps it, with `OVERRIDING SYSTEM VALUE`. */
+  identityAlways?: boolean;
 }
 
 /** What a reader of rows produces, in order: one `start`, any number of `rows`, one `end`. */
@@ -232,7 +246,137 @@ function jsonFormatter(options: FormatOptions, source: FileSource): Formatter {
   };
 }
 
+// ------------------------------------------------------------ INSERT script ---
+
+/** Rows in one INSERT statement of a script. */
+export const SQL_ROWS_PER_STATEMENT = 100;
+
+/** One line of plain characters for a comment (`--` ends at a line break, and PostgreSQL counts a lone CR as one). */
+function commentText(text: string, max = 200): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}...` : flat;
+}
+
+/** An identifier in double quotes, a quote doubled. Names that hold a line break are fine here: they are in quotes. */
+function sqlName(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** A value as a text literal PostgreSQL converts to the column's type, or NULL. */
+function sqlLiteral(value: string | null): string {
+  return value === null ? "NULL" : `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * A script of `INSERT` statements (decision 167): `BEGIN; ... COMMIT;`, every value a quoted text literal (the form
+ * PostgreSQL converts to the column's type) or NULL, every identifier quoted, one statement for each 100 rows.
+ * Generated columns are left out (an INSERT cannot set them) and identity-always columns are kept with
+ * `OVERRIDING SYSTEM VALUE`. A table with nothing left to insert writes `DEFAULT VALUES` for each row.
+ *
+ * **A script that is not whole rolls itself back:** if the file was cut for any reason (a limit, a value over the cell
+ * limit) or columns were left out because their names look sensitive, it ends with a comment that says so and
+ * `ROLLBACK;` in place of `COMMIT;`. If the export fails after the first
+ * byte there is no end at all: `BEGIN;` is never committed. Only a complete script commits.
+ *
+ * Comments never hold a raw name: every name in a comment is flattened to one line of plain characters, so a table
+ * called `x` + a line break + `DROP TABLE y;` cannot become a statement.
+ */
+function sqlFormatter(source: FileSource): Formatter {
+  let target = "";
+  let columnList = "";
+  let override = false;
+  let insertColumns: number[] = [];
+  const tuple = (row: ReadonlyArray<string | null>): string =>
+    `(${insertColumns.map((i) => sqlLiteral(row[i] ?? null)).join(", ")})`;
+  return {
+    start: (columns, leftOut) => {
+      target = `${sqlName(source.table.schema)}.${sqlName(source.table.name)}`;
+      const kept = columns.flatMap((c, i) => (c.generated ? [] : [i]));
+      insertColumns = kept;
+      columnList = kept.map((i) => sqlName(columns[i]!.name)).join(", ");
+      override = kept.some((i) => columns[i]!.identityAlways);
+      const left = columns.filter((c) => c.generated).map((c) => commentText(c.name));
+      const lines = [
+        `-- DataCanvas export of ${commentText(source.table.schema)}.${commentText(source.table.name)} at ${source.at.toISOString()}.`,
+        "-- Run it in an empty copy of the table: it inserts, it does not replace.",
+      ];
+      if (source.filters.length > 0) {
+        lines.push(`-- Filtered by: ${source.filters.map((f) => commentText(f)).join("; ")}.`);
+      }
+      if (leftOut.length > 0) {
+        lines.push(
+          `-- Left out because they look sensitive: ${leftOut.map((n) => commentText(n)).join(", ")}.`,
+        );
+      }
+      if (left.length > 0) {
+        lines.push(`-- Left out because they are generated by the database: ${left.join(", ")}.`);
+      }
+      // `SET LOCAL` after `BEGIN`: the settings last for the transaction and leave the person's session as it was. The
+      // text of a date, an interval and a number was written in ISO, postgres-style and shortest-exact forms (the export
+      // reads with these settings), and the recipient's own DateStyle could read '03.04.2026' as March or April.
+      lines.push(
+        "BEGIN;",
+        "SET LOCAL standard_conforming_strings = on;",
+        "SET LOCAL datestyle = 'ISO, MDY';",
+        "SET LOCAL intervalstyle = 'postgres';",
+      );
+      return `${lines.join("\n")}\n`;
+    },
+    rows: (batch) => {
+      let out = "";
+      for (let at = 0; at < batch.length; at += SQL_ROWS_PER_STATEMENT) {
+        const part = batch.slice(at, at + SQL_ROWS_PER_STATEMENT);
+        if (insertColumns.length === 0) {
+          out += part.map(() => `INSERT INTO ${target} DEFAULT VALUES;\n`).join("");
+          continue;
+        }
+        out += `INSERT INTO ${target} (${columnList})${override ? " OVERRIDING SYSTEM VALUE" : ""} VALUES\n`;
+        out += `${part.map((row) => `  ${tuple(row)}`).join(",\n")};\n`;
+      }
+      return out;
+    },
+    end: (info) => {
+      // Columns left out because their names look sensitive are not in the script: it would put NULL or the default
+      // where the real values were, and commit that. It is not a copy of the table, so it does not commit either.
+      const whole = info.cut === null && info.cellsCut === 0 && info.leftOut.length === 0;
+      const lines: string[] = [];
+      if (override) {
+        lines.push(
+          "-- Identity sequences are not moved by this script: set them with setval() if rows are added later.",
+        );
+      }
+      if (whole) {
+        lines.push(
+          `-- ${info.rows.toLocaleString("en-US")} ${info.rows === 1 ? "row" : "rows"}.`,
+          "COMMIT;",
+        );
+      } else if (info.cut === null && info.cellsCut === 0) {
+        lines.push(
+          "-- INCOMPLETE: columns were left out because their names look sensitive, so this is not a copy of the table and it does not commit.",
+          "-- Show those columns in the grid and export again, or read the script and change ROLLBACK to COMMIT yourself.",
+          "ROLLBACK;",
+        );
+      } else {
+        lines.push(
+          `-- INCOMPLETE: this script was cut (${[
+            info.cut ? CUT_TEXT[info.cut] : null,
+            info.cellsCut > 0
+              ? `${info.cellsCut} ${info.cellsCut === 1 ? "value was" : "values were"} longer than ${EXPORT_CELL_CHARS.toLocaleString("en-US")} characters and cut`
+              : null,
+          ]
+            .filter((t): t is string => t !== null)
+            .join(" ")}) so it does not commit.`,
+          "ROLLBACK;",
+        );
+      }
+      return `${lines.join("\n")}\n`;
+    },
+  };
+}
+
 export function createFormatter(options: FormatOptions, source: FileSource): Formatter {
+  if (options.format === "sql") return sqlFormatter(source);
   if (options.format === "csv") return delimitedFormatter(options.delimiter, options, source);
   if (options.format === "tsv") return delimitedFormatter("\t", options, source);
   return jsonFormatter(options, source);
@@ -244,4 +388,5 @@ export const EXPORT_MEDIA: Record<ExportRowsFormat, { extension: string; type: s
   tsv: { extension: "tsv", type: "text/tab-separated-values; charset=utf-8" },
   json: { extension: "json", type: "application/json; charset=utf-8" },
   ndjson: { extension: "ndjson", type: "application/x-ndjson; charset=utf-8" },
+  sql: { extension: "sql", type: "application/sql; charset=utf-8" },
 };

@@ -39,6 +39,7 @@ import type {
   DatabaseObjects,
   IndexInfo,
   IndexUsageReport,
+  TableStatistics,
   RelationshipInfo,
   RowPage,
   RowsOptions,
@@ -173,6 +174,14 @@ export interface DatabaseAdapter {
    *   `IndexUsageReport` for what they can and cannot say.
    */
   getIndexUsage(): Promise<IndexUsageReport>;
+
+  /**
+   * What the server's own statistics say about one table: the share of NULLs, the distinct values, the width and the
+   * order of each column, the size of the table, its indexes and its TOAST data, and when it was last vacuumed and
+   * analysed. **No row and no value is read** (the statistics that hold values are never selected). Null when the
+   * name is not a table, a partitioned table or a materialized view.
+   */
+  getTableStatistics(table: TableRef): Promise<TableStatistics | null>;
 
   /**
    * One page of the ROWS of a table, view or materialized view, read-only and

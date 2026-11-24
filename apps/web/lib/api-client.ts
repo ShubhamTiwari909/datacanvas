@@ -7,6 +7,7 @@
  * unexpected shapes and server-reported errors all arrive the same way, so UI
  * code has exactly one failure path to handle.
  */
+import "@/lib/zod-config"; // before anything parses: no code generation under the page's policy
 import { apiErrorResponseSchema, type ValidationIssue } from "@datacanvas/shared-types";
 import type { z } from "zod";
 

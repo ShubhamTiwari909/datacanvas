@@ -9,8 +9,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, FileUp, ListChecks, Plus, Trash2, X } from "lucide-react";
-import type { RowPage, TableEditInfo, TableRef } from "@datacanvas/database-core";
+import { CheckCircle2, Download, FileUp, ListChecks, Plus, Trash2, X } from "lucide-react";
+import type { KeyValue, RowPage, TableEditInfo, TableRef } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import type { GridEditing, GridSelection } from "@/features/data/data-grid";
 import { ImportDialog } from "@/features/import/import-dialog";
@@ -53,12 +53,15 @@ export function useRowEditing({
   table,
   page,
   reload,
+  onExportChosen,
 }: {
   connectionId: string;
   table: TableRef;
   page: RowPage | null;
   /** Read the current page again (after a change, or when the row changed meanwhile). */
   reload: () => void;
+  /** Export the chosen rows (by their keys): a button beside the bulk changes. */
+  onExportChosen?: (keys: KeyValue[][]) => void;
 }): RowEditing {
   const { status, structureVersion } = useConnectionWrites(connectionId);
   const ready = writesReady(status);
@@ -237,6 +240,17 @@ export function useRowEditing({
             <Trash2 aria-hidden="true" />
             Delete {chosenRows.length} {chosenRows.length === 1 ? "row" : "rows"}
           </Button>
+          {onExportChosen ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onExportChosen(chosenRows.map((r) => r.key))}
+            >
+              <Download aria-hidden="true" />
+              Export chosen
+            </Button>
+          ) : null}
           <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
             <X aria-hidden="true" />
             Clear

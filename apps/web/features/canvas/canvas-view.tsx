@@ -36,6 +36,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { CanvasConnectionProvider } from "./canvas-context";
 import { CanvasToolbar } from "./canvas-toolbar";
 import { TableNode } from "./table-node";
+import { DocsExportDialog } from "@/features/docs/docs-export-dialog";
 import { ExportDialog } from "./export-dialog";
 import { exportCanvasImage, type ImageFormat } from "./export-image";
 import { InspectorPanel } from "./inspector-panel";
@@ -63,6 +64,7 @@ function CanvasInner({ connectionId }: { connectionId: string }) {
   const workspaceName = usePersistenceStore((s) => s.active[connectionId]?.name);
   const containerRef = useRef<HTMLDivElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
   const [exporting, setExporting] = useState<ImageFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -204,9 +206,14 @@ function CanvasInner({ connectionId }: { connectionId: string }) {
         </div>
         <InspectorPanel connectionId={connectionId} hiddenIds={display.hiddenIds} />
       </div>
+      <DocsExportDialog connectionId={connectionId} open={docsOpen} onOpenChange={setDocsOpen} />
       <ExportDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
+        onDocumentation={() => {
+          setExportOpen(false);
+          setDocsOpen(true);
+        }}
         onExport={(format) => void exportImage(format)}
         exporting={exporting}
         error={exportError}

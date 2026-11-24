@@ -537,7 +537,9 @@ test("shows the plan of a statement, with or without running it", async ({
   await expect(plan).not.toContainText("Execution Time");
 
   await page.getByRole("button", { name: "Explain" }).click();
-  await page.getByRole("menuitem", { name: /^Explain analyze/ }).click();
+  await page
+    .getByRole("menuitem", { name: /^Explain analyze Runs the statement, and shows the plan/ })
+    .click();
   await expect(resultPanel(page).getByLabel("Query plan")).toContainText("Execution Time");
 
   // The plan can be copied as text.
@@ -555,7 +557,9 @@ test("says so when the statement already starts with EXPLAIN, and Run runs it as
   await open(page, app.link, database);
   await typeSql(page, "EXPLAIN SELECT 1");
   await page.getByRole("button", { name: "Explain" }).click();
-  await page.getByRole("menuitem", { name: /^Explain analyze/ }).click();
+  await page
+    .getByRole("menuitem", { name: /^Explain analyze Runs the statement, and shows the plan/ })
+    .click();
   await expect(
     page.getByRole("alert").filter({ hasText: "already starts with EXPLAIN" }),
   ).toBeVisible();

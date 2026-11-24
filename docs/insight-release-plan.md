@@ -48,17 +48,17 @@ Set per request by `proxy.ts` (a header on the HTML response; static files do no
 default-src 'none';
 script-src 'self' 'nonce-<random>' 'strict-dynamic';
 style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:;
+img-src 'self' data:;
 font-src 'self';
 connect-src 'self';
-worker-src 'self' blob:;
+worker-src 'self';
 object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
 ```
 
 - `script-src` takes a nonce that the framework puts on its own inline and loaded scripts when the page is rendered per request; `'strict-dynamic'` lets those scripts load their chunks. In **development only**, `'unsafe-eval'` is added (the dev server needs it); the packaged app never has it.
 - `style-src` keeps `'unsafe-inline'`: React Flow and the menus set `style` attributes, which a nonce cannot cover. That is a smaller hole than scripts (no code runs from a style) and is said in `SECURITY.md`.
-- `worker-src` has `'self'` for Monaco's editor worker (built into the package) and `blob:` in case a dependency makes one from a blob; the spike (section 4.2) decides whether `blob:` is needed.
-- `img-src` has `data:` and `blob:` for the image export and the canvas; `connect-src 'self'` is the API.
+- `worker-src` has `'self'` for Monaco's editor worker (built into the package). **The spike found that `blob:` is not needed**, nor `data:` fonts, and both were left out.
+- `img-src` has `'self'` and `data:`; `connect-src 'self'` is the API. The image export is a download, which no policy governs.
 
 ### 4.2 The spike comes first (V1)
 
@@ -180,3 +180,43 @@ V1 goes first because it is the only item that can change how every screen loads
 - **Quoting for five text formats** is a place for a subtle bug. The tests that use hostile names, and the SQL round trip against a real database, are the answer; the review looks at this first.
 - **The statistics differ by server version and role** (`pg_stats` columns, a restricted role sees fewer). Tests against 12 to 18, and the screen says why a figure is missing instead of showing zero.
 - **Scope creep from "insight".** A plan viewer and statistics invite a query advisor and a health score. Neither is promised: they are opinions the product would then have to defend.
+
+## 14. What V1 found (2026-11-24)
+
+- The spike ran the **whole Playwright suite** with the policy enforced and a listener for `securitypolicyviolation` on every page (the `page` fixture, which now fails any test that breaks the policy). **It found exactly one violation:** zod 4 checks whether it may compile a function with `Function("")`, which the policy refuses (caught by zod, but still reported). The browser's zod is now `jitless` (decision 163).
+- **No screen needed a looser policy**: not the SQL and JSON editors (Monaco's worker is `'self'`), not the canvas, not the dialogs or the downloads. `blob:` and `data:` fonts were left out; `data:` images are kept.
+- The nonce needs the page to be rendered per request (the layout reads the request's headers); the tests pin that every script of the page has the nonce of its response and that it differs on every response.
+- `'strict-dynamic'` allows a script element made by a script that already runs; markup that the parser reads (an inline handler, a script written into the page) does not run, and `e2e/csp.spec.ts` pins that.
+- The suite also showed two timing weaknesses unrelated to the policy, both fixed in the tests: the axe checks now settle colours first (`settleForAxe`, in every spec that runs axe) and the 1,000-table test waits for the nodes to be measured before counting the ones drawn.
+
+## 15. What V2 found (2026-11-24)
+
+- The runner already accepted `EXPLAIN (FORMAT JSON)`; the work was the **uncut path**: `isWholePlan` and `SQL_LIMITS.maxPlanChars`, with a refusal above 2 MB (a plan of that size needs about 4,500 branches with ANALYZE, BUFFERS and VERBOSE; a plain UNION of 9,000 hits PostgreSQL's own stack depth limit first).
+- The viewer is one pure parser (`plan.ts`, 11 tests including a deeper-than-100 plan, more than 20,000 steps, hostile numbers and `__proto__`) and one component (`plan-view.tsx`); no dependency.
+- **The switch shows the JSON as it came, not a text plan made from it** (a second text rendering would be a second thing to keep right); the existing text entries of the menu remain for that.
+- Two existing end-to-end tests chose the menu item `Explain analyze` by a prefix that the new entry also matches; they now name the whole item.
+
+## 16. What V3 found (2026-11-24)
+
+- `pg_stats` is joined with `inherited = (relkind = 'p')`: a plain table has the row with `inherited = false`, a partitioned parent only the `true` one. A column without a row is "no figures" (never analysed, or the role may not read it): the two cannot be told apart from the catalog, so the words say both.
+- `reltuples` is 0 (PostgreSQL 12 and 13) or -1 (14 and later) before the first ANALYZE or VACUUM; the read treats 0 with no analyze or vacuum time at all as "not known".
+- The statistics need **no data access** (decision 161, accepted); the route has no check of it and a rule test pins that it reads through `getTableStatistics` and nothing else. Not tested against a role that may select only some columns (it needs a second login in the test database): said here as not reproduced.
+- The mock adapter makes the figures up (every column has them, none is a value), so the route test runs without a database; the real read has its own test against a real PostgreSQL (6 tests, including that no marker value of the table is anywhere in the answer).
+
+## 17. What V4 found (2026-11-24)
+
+- The generators are four small pure modules and one file of quoting (`quote.ts`); the tests of hostile names check the shape of **every line** of each output, which found nothing to fix in the generators but would catch any later change that writes a name raw.
+- The dialog first used the default dialog size: on an 800 px window the format list ran under the sticky footer and the note ended outside the dialog. It uses the sized form dialog now (`size="form"`, which scrolls its body and keeps the footer in view), found because the end-to-end test could not click the last radio button.
+- **The snapshot door is not built** (decision 166): the Overview and the canvas export dialog are.
+- Mermaid has no escape for a quote in a name, so a quote becomes an apostrophe there; an attribute name is reduced to word characters (a column called `line break` is `line_break` in the diagram, and exact in the Markdown and DBML files).
+
+## 18. What V5 found (2026-11-24)
+
+- **The INSERT script** passed its round trip on the first run, with every kind of value (see decision 167). Two details of the plan changed: **a statement holds at most 100 rows, but a batch of the reader ends a statement** (the first fetch is 10 rows, so a file of 120 rows is three statements, not two); and the format has no header, delimiter or NULL-word options (the dialog shows them only for the formats that have them).
+- **Chosen rows** need the key: the page reader's own ordering key (`RowOrder`) is used when no write is unlocked, the table's edit key when it is. A table with no usable key has no selection column and the grid already says why a row cannot be edited.
+- **The selection is two states, not one**: the choice for bulk changes (inside `useRowEditing`, which needs the write unlock) and the read-only choice (`useExportSelection`). Both use the same pure functions (`bulk-select.ts`); lifting them into one hook was judged a bigger change of the write side than this release should carry, and a test pins that the two are never both shown (the data section uses the editing one when it exists).
+- The route test found that `sql` as the value of the format list trips the rule that no request schema holds the word `sql`; the rule now reads the schema without the format list (the value is the INSERT script and nothing else).
+
+## 19. What the review found (2026-11-24)
+
+See `docs/threat-model.md`, section 12b: ten findings, none high, all fixed or accepted with a test. The one that mattered: **an INSERT script's text is only as exact as the settings of the session that wrote it** (`DateStyle`, `IntervalStyle`, `extra_float_digits`), so the export now fixes them for its transaction and the script sets them back for the transaction that reads it; the round trip of V5 (same settings on both sides) could not have shown it, and the test now exports from a database with other settings. The review also showed that **a script that omits columns is not a copy**, and a test that expected it to commit ("`password` becomes its default") had been pinning the wrong behaviour.

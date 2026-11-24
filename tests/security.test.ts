@@ -647,11 +647,11 @@ describe("an export of rows is table data behind the data-access check, bounded,
     const schema = read("packages/shared-types/src/connections.ts");
     expect(schema).toMatch(/exportRequestSchema = z\.strictObject/);
     // The format is one of a fixed list, never free text; the limits are not in the request.
-    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson"\]\)/);
-    const body = schema.slice(
-      schema.indexOf("exportRequestSchema"),
-      schema.indexOf("ParsedExportRequest"),
-    );
+    expect(schema).toMatch(/format: z\.enum\(\["csv", "tsv", "json", "ndjson", "sql"\]\)/);
+    // (The word "sql" is a value of the format list, the INSERT script of decision 167, and nothing else.)
+    const body = schema
+      .slice(schema.indexOf("exportRequestSchema"), schema.indexOf("ParsedExportRequest"))
+      .replace(/format: z\.enum\(\[[^\]]*\]\)/, "format: <the fixed list>");
     expect(body).not.toMatch(/\b(limit|maxRows|maxBytes|sql|where|orderBy)\b/);
     for (const file of [
       "apps/web/app/api/connections/[id]/rows/export/route.ts",
@@ -713,7 +713,7 @@ describe("an export of rows is table data behind the data-access check, bounded,
     expect(notes).not.toMatch(/\.value\b|\.values\b|\brows\[/);
     const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
     expect(service).toMatch(
-      /filters: request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
+      /\.\.\.request\.filters\.map\(\(f\) => `\$\{f\.column\} \$\{f\.op\.replace/,
     );
   });
 
@@ -1396,5 +1396,233 @@ describe("writes: no request carries SQL", () => {
     const mock = codeOf("packages/database-core/src/testing/mock-writes.ts");
     expect(mock).toMatch(/values\.push\(value\)/);
     expect(mock).not.toMatch(/\b(LIKE|ILIKE|SIMILAR TO)\b/);
+  });
+});
+
+describe("the Content-Security-Policy is made for each request and nothing in the page runs without it", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const sources = walk(path.join(root, "apps/web")).filter(
+    (f) =>
+      /\.(ts|tsx)$/.test(f) &&
+      !/\.test\.tsx?$/.test(f) &&
+      !f.includes("node_modules") &&
+      !f.includes("/.next/") &&
+      !f.includes("/dist/"),
+  );
+
+  it("the proxy gives every page a policy with a new nonce, on the request (for the framework) and the response", () => {
+    const proxy = read("apps/web/proxy.ts");
+    expect(proxy).toContain("makeNonce()");
+    expect(proxy).toContain("buildCsp(nonce");
+    expect(proxy).toMatch(/headers\.set\("Content-Security-Policy", policy\)/);
+    expect(proxy).toMatch(/headers\.set\("x-nonce", nonce\)/);
+    expect(proxy).toMatch(/response\.headers\.set\("Content-Security-Policy", policy\)/);
+    // The nonce is made inside the function that serves a request: a constant would be the same for every page.
+    expect(proxy.slice(0, proxy.indexOf("export function proxy"))).not.toMatch(/makeNonce\(\)/);
+  });
+
+  it("the one script of ours has the nonce, and no other component writes a script", () => {
+    expect(read("apps/web/app/layout.tsx")).toMatch(/<script nonce=\{nonce\}/);
+    for (const file of sources) {
+      const code = readFileSync(file, "utf8");
+      if (file.endsWith("app/layout.tsx")) continue;
+      expect(code, rel(file)).not.toMatch(/<script\b|next\/script/i);
+      expect(code, rel(file)).not.toMatch(/\bdangerouslySetInnerHTML\b/);
+    }
+  });
+
+  it("no code of the app compiles code from text (eval, new Function), which the policy would refuse", () => {
+    for (const file of sources) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/\beval\s*\(|new\s+Function\s*\(/);
+    }
+  });
+
+  it("the browser is told not to ask zod for code generation, before any response is parsed", () => {
+    expect(read("apps/web/lib/zod-config.ts")).toContain("z.config({ jitless: true })");
+    expect(read("apps/web/lib/api-client.ts")).toMatch(/^import "@\/lib\/zod-config";/m);
+    expect(read("apps/web/app/layout.tsx")).toContain("<BrowserSetup />");
+  });
+
+  it("the policy has no unsafe-inline for scripts and no eval outside development", () => {
+    const code = read("apps/web/lib/security/csp.ts");
+    const scriptSrc = code.slice(code.indexOf('"script-src"'), code.indexOf('"style-src"'));
+    expect(scriptSrc).not.toContain("unsafe-inline");
+    expect((scriptSrc.match(/unsafe-eval/g) ?? []).length).toBe(1);
+    expect(scriptSrc).toMatch(/options\.dev \? \["'unsafe-eval'"\]/);
+  });
+});
+
+describe("a query plan lives in the tab's memory like a result", () => {
+  const root2 = root;
+  const read = (file: string) => readFileSync(path.join(root2, file), "utf8");
+
+  it("is kept in no store, no autosave, no saved layout and no file", () => {
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+      ...walk(path.join(root, "apps/web/features/canvas")),
+      ...walk(path.join(root, "apps/web/features/snapshots")),
+      ...walk(path.join(root, "apps/web/lib")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /features\/sql\/plan|planFromRows|parsePlan|PlanResultView/,
+      );
+    }
+  });
+
+  it("is never written anywhere by its own code: no storage, no network, no download", () => {
+    for (const file of ["apps/web/features/sql/plan.ts", "apps/web/features/sql/plan-view.tsx"]) {
+      expect(read(file), file).not.toMatch(
+        /localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest|createObjectURL|document\.cookie/,
+      );
+    }
+  });
+
+  it("is read as untrusted text: bounded, and never put into the page as markup", () => {
+    const parser = read("apps/web/features/sql/plan.ts");
+    expect(parser).toContain("PLAN_MAX_NODES");
+    expect(parser).toContain("PLAN_MAX_DEPTH");
+    expect(parser).toContain("SQL_LIMITS.maxPlanChars");
+    expect(read("apps/web/features/sql/plan-view.tsx")).not.toMatch(
+      /dangerouslySetInnerHTML|innerHTML/,
+    );
+  });
+
+  it("the runner keeps a plan whole only when it is one cell of an EXPLAIN, and refuses a larger one", () => {
+    const runner = read("packages/postgres-adapter/src/connection/run-statement.ts");
+    expect(runner).toContain("isWholePlan(raw.command, kept)");
+    expect(runner).toContain("PLAN_TOO_LARGE_MESSAGE");
+    expect(runner).toContain("wholePlan ? { rows: kept, cutCells: 0 } : cutLongCells(kept)");
+  });
+});
+
+describe("the statistics of a table hold no value of the table", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("no statement of the adapter names a statistic that holds values (pg_stats keeps the values of the table in them)", () => {
+    const FORBIDDEN =
+      /most_common_vals|most_common_freqs|most_common_elems|most_common_elem_freqs|histogram_bounds|elem_count_histogram|range_length_histogram|range_bounds_histogram|stavalues|stanumbers|pg_statistic\b|pg_statistic_ext|pg_stats_ext|stxdmcv|stxdndistinct/;
+    const sources = walk(path.join(root, "packages/postgres-adapter/src")).filter(
+      (f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("/dist/"),
+    );
+    for (const file of sources) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(FORBIDDEN);
+    }
+  });
+
+  it("the statistics read names the columns it takes and never selects everything from pg_stats", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/statistics.ts"));
+    expect(code).not.toMatch(/\bs\.\*|SELECT\s+\*|pg_stats\.\*/);
+    for (const column of ["null_frac", "n_distinct", "avg_width", "correlation"]) {
+      expect(code).toContain(`s.${column}`);
+    }
+  });
+
+  it("the route reads no row, so it does not need the data-access switch, and says so", () => {
+    const route = read("apps/web/app/api/connections/[id]/tables/[table]/statistics/route.ts");
+    expect(route).toContain("No row and no value is read");
+    expect(route).not.toMatch(/requireDataAccess|dataAccess/);
+    // It only reads through the adapter's statistics method: no row reader.
+    expect(route).toContain("getTableStatistics(");
+    expect(route).not.toMatch(/getRows|exportRows|getCell|runStatement/);
+  });
+});
+
+describe("the documentation exports are made in the browser from the structure, and name nothing as syntax", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const files = walk(path.join(root, "apps/web/features/docs")).filter(
+    (f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f),
+  );
+
+  it("the generators are pure: no network, no storage, no row reader, no framework", () => {
+    for (const file of files.filter((f) => !f.endsWith("docs-export-dialog.tsx"))) {
+      const code = readFileSync(file, "utf8");
+      expect(code, rel(file)).not.toMatch(
+        /fetch\(|localStorage|sessionStorage|indexedDB|XMLHttpRequest|from "react"|getRows|exportRows|getCell|runStatement/,
+      );
+    }
+  });
+
+  it("the dialog reads only the structure (schemas, tables, table details, relationships), never a row", () => {
+    const dialog = read("apps/web/features/docs/docs-export-dialog.tsx");
+    for (const call of ["getSchemas(", "getTables(", "getTablesDetails(", "getRelationships("]) {
+      expect(dialog).toContain(call);
+    }
+    expect(dialog).not.toMatch(
+      /features\/data\/|getRows|exportRows|getCell|validateRows|runStatement/,
+    );
+    // The file is made and saved by the browser: no upload.
+    expect(dialog).toContain("URL.createObjectURL");
+    expect(dialog).not.toMatch(/fetch\(|method: "POST"/);
+  });
+
+  it("every name goes through a quoting function of quote.ts before it is written", () => {
+    for (const name of ["markdown", "mermaid", "dbml", "plantuml"]) {
+      const code = read(`apps/web/features/docs/${name}.ts`);
+      expect(code, name).toContain('from "./quote"');
+    }
+    // No generator writes a template literal with a raw `.name` straight into a line.
+    const mermaid = read("apps/web/features/docs/mermaid.ts");
+    expect(mermaid).not.toMatch(/\$\{c\.name\}|\$\{entry\.table\.name\}/);
+  });
+});
+
+describe("an export of chosen rows names rows by the whole key and is read by the page reader's own statement", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("the keys of the request are strict and bounded: 500 keys of up to 32 parts, a value of 4,096 characters", () => {
+    const code = read("packages/shared-types/src/connections.ts");
+    const part = code.slice(
+      code.indexOf("exportRequestSchema = z.strictObject"),
+      code.indexOf("ParsedExportRequest"),
+    );
+    expect(part).toMatch(
+      /keys: z\s*\.array\(\s*z\s*\.array\(z\.strictObject\(\{ column: identifierSchema, value: z\.string\(\)\.max\(4096\) \}\)\)\s*\.min\(1\)\s*\.max\(32\),?\s*\)\s*\.min\(1\)\s*\.max\(500\)\s*\.optional\(\)/,
+    );
+  });
+
+  it("the adapter checks the keys against the catalog's key before the statement is built", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/export-rows.ts"));
+    expect(code).toContain("checkKeys(options.keys, columns, order.columns, reveal)");
+    expect(code).toMatch(/keyColumns\.length === 0\) throw new DatabaseError\("not_supported"\)/);
+    expect(code).toMatch(/isSensitiveColumnName\(name\) && !reveal\.has\(name\)/);
+    expect(code).toMatch(/byName\.size !== keyColumns\.length/);
+    expect(code).toContain("EXPORT_MAX_KEYS");
+  });
+
+  it("the keys reach the statement only as bound values, in the page reader's one builder", () => {
+    const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
+    const at = code.indexOf("plan.keys && plan.keys.length > 0");
+    expect(at).toBeGreaterThan(-1);
+    const part = code.slice(at, at + 420);
+    expect(part).toContain("param(value)");
+    expect(part).toContain("ROW(${keyList}) IN (");
+    // No value is written into the text: nothing but `param(...)` is interpolated from a key.
+    expect(part).not.toMatch(/\$\{value\}|\$\{key\}|\$\{key\[/);
+  });
+
+  it("the notes of the file say how many rows were chosen and never their keys", () => {
+    const service = stripComments(read("apps/web/lib/server/connection-service.ts"));
+    expect(service).toMatch(/request\.keys\.length\} chosen/);
+    expect(service).not.toMatch(/JSON\.stringify\(request\.keys|request\.keys\.map\(/);
+  });
+
+  it("the choice of rows to export is kept in memory only: no store, no storage", () => {
+    const hook = read("apps/web/features/data/use-export-selection.ts");
+    expect(hook).not.toMatch(/localStorage|sessionStorage|indexedDB|zustand|persist/);
+    const places = [
+      ...walk(path.join(root, "apps/web/stores")),
+      ...walk(path.join(root, "apps/web/features/workspaces")),
+    ].filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f));
+    for (const file of places) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(
+        /use-export-selection|useExportSelection/,
+      );
+    }
   });
 });

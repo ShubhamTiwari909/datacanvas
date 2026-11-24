@@ -47,6 +47,11 @@ const FORMATS: Array<{ value: ExportRowsFormat; label: string; hint: string }> =
     hint: 'An object: { "rows": [...], "_meta": {...} }. Values are text, as shown.',
   },
   { value: "ndjson", label: "NDJSON", hint: "One JSON object per line." },
+  {
+    value: "sql",
+    label: "SQL INSERT statements",
+    hint: "A script that adds these rows to a table of the same shape, in one transaction. A script that was cut rolls itself back.",
+  },
 ];
 
 type Run =
@@ -66,6 +71,7 @@ export function ExportDialog({
   reveal,
   sort,
   filters,
+  keys,
 }: {
   open: boolean;
   onClose: () => void;
@@ -76,6 +82,8 @@ export function ExportDialog({
   reveal: readonly string[];
   sort: RowSort | null;
   filters: readonly RowFilter[];
+  /** Only these rows, each by the table's whole key (the chosen rows of the grid). The conditions are not sent then. */
+  keys?: ReadonlyArray<ReadonlyArray<{ column: string; value: string }>>;
 }) {
   const [format, setFormat] = useState<ExportRowsFormat>("csv");
   const [delimiter, setDelimiter] = useState<"," | ";">(",");
@@ -102,7 +110,9 @@ export function ExportDialog({
         meta,
         revealColumns: [...reveal],
         sort,
-        filters: [...filters],
+        ...(keys && keys.length > 0
+          ? { keys: keys.map((k) => k.map((p) => ({ column: p.column, value: p.value }))) }
+          : { filters: [...filters] }),
       },
       { signal: abort.signal, onProgress: (bytes) => setRun({ status: "running", bytes }) },
     );
@@ -140,10 +150,13 @@ export function ExportDialog({
     onClose();
   };
 
+  const chosen = keys && keys.length > 0 ? keys.length : 0;
   const filterWords =
-    filters.length === 0
-      ? "all rows"
-      : `the rows that match ${filters.length} ${filters.length === 1 ? "filter" : "filters"}`;
+    chosen > 0
+      ? `the ${number.format(chosen)} chosen ${chosen === 1 ? "row" : "rows"}`
+      : filters.length === 0
+        ? "all rows"
+        : `the rows that match ${filters.length} ${filters.length === 1 ? "filter" : "filters"}`;
   const delimited = format === "csv" || format === "tsv";
 
   return (

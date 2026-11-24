@@ -132,11 +132,13 @@ function Body({
   const [picked, setPicked] = useState<{ key: string; values: Array<string | null> } | null>(null);
   const counter = useRef(0);
 
-  const delimiter: Delimiter = loaded
-    ? choice === "auto"
-      ? detectDelimiter(loaded.text)
-      : choice
-    : ",";
+  // Found once for the file (it reads up to the whole text when there are few line breaks: about 0.3 s for 20 MB on one
+  // line), not on every render.
+  const detected = useMemo<Delimiter>(
+    () => (loaded ? detectDelimiter(loaded.text) : ","),
+    [loaded],
+  );
+  const delimiter: Delimiter = loaded ? (choice === "auto" ? detected : choice) : ",";
   const parsed = useMemo(
     () => (loaded ? parseCsv(loaded.text, delimiter) : null),
     [loaded, delimiter],
@@ -215,7 +217,7 @@ function Body({
         value={choice}
         onChange={(event) => setChoice(event.target.value as "auto" | Delimiter)}
       >
-        <option value="auto">Found: {DELIMITER_LABEL[detectDelimiter(loaded.text)]}</option>
+        <option value="auto">Found: {DELIMITER_LABEL[detected]}</option>
         {DELIMITERS.map((d) => (
           <option key={d} value={d}>
             {DELIMITER_LABEL[d]}

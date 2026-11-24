@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import type { Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const shots = process.env.SQL_VIEW_DIR ?? path.join(here, "../test-results/sql-view");
@@ -75,6 +75,7 @@ async function runUntil(page: Page, text: string, shown: () => Promise<void>) {
 }
 
 async function axeOn(page: Page, name: string, within = "body"): Promise<void> {
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async (within) => {
     const axe = (
@@ -155,7 +156,11 @@ test("passes axe with a result, an error, the menus and the history, in both the
     await axeOn(page, `an error (${label})`);
 
     await page.getByRole("button", { name: "Explain" }).click();
-    await expect(page.getByRole("menuitem", { name: /^Explain analyze/ })).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", {
+        name: /^Explain analyze Runs the statement, and shows the plan/,
+      }),
+    ).toBeVisible();
     await page.waitForTimeout(350); // the open animation: colours are mid-fade before it ends
     // A menu hides the page behind it from assistive technology, so it is checked on its own.
     await axeOn(page, `the explain menu (${label})`, "[role=menu]");

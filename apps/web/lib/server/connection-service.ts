@@ -18,6 +18,7 @@ import {
   type DatabaseObjects,
   type IndexInfo,
   type IndexUsageReport,
+  type TableStatistics,
   type RelationshipInfo,
   type RoleInfo,
   type CellRead,
@@ -367,7 +368,13 @@ export class ConnectionService {
         table,
         at: new Date(),
         // The conditions in words that name no value.
-        filters: request.filters.map((f) => `${f.column} ${f.op.replace(/_/g, " ")}`),
+        filters: [
+          ...request.filters.map((f) => `${f.column} ${f.op.replace(/_/g, " ")}`),
+          // Chosen rows are said as a count: their keys are values and are not written in the notes.
+          ...(request.keys
+            ? [`${request.keys.length} chosen ${request.keys.length === 1 ? "row" : "rows"}`]
+            : []),
+        ],
       },
     );
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -418,7 +425,12 @@ export class ConnectionService {
       .use(id, (adapter) =>
         adapter.exportRows(
           table,
-          { revealColumns: request.revealColumns, sort: request.sort, filters: request.filters },
+          {
+            revealColumns: request.revealColumns,
+            sort: request.sort,
+            filters: request.filters,
+            keys: request.keys,
+          },
           async (event) => {
             if (event.kind === "start") {
               started = true;
@@ -527,6 +539,13 @@ export class ConnectionService {
   /** Usage counters of the indexes (statistics, not rows). */
   getIndexUsage(id: string): Promise<IndexUsageReport> {
     return this.connections.use(id, (adapter) => adapter.getIndexUsage());
+  }
+
+  /** What the server's statistics say about one table (no row, no value); null for a view or a foreign table. */
+  getTableStatistics(id: string, schema: string, table: string): Promise<TableStatistics | null> {
+    return this.connections.use(id, (adapter) =>
+      adapter.getTableStatistics({ schema, name: table }),
+    );
   }
 
   /** What the connected role can do, and the server's address (catalog only, read-only). */

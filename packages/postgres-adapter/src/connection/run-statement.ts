@@ -20,7 +20,9 @@
 import {
   firstKeyword,
   SQL_LIMITS,
+  PLAN_TOO_LARGE_MESSAGE,
   SqlStatementError,
+  isWholePlan,
   type SqlResultColumn,
   type SqlRunRequest,
   type SqlRunResult,
@@ -165,7 +167,12 @@ export async function runStatementOnOwnConnection(
     } catch (error) {
       throw aborted ? new SqlStatementError("cancelled", CANCELLED) : error;
     }
-    const cut = cutLongCells(kept);
+    // A plan that is one piece of JSON is kept whole up to its own limit (a cut plan is not JSON); any other cell is cut.
+    const wholePlan = isWholePlan(raw.command, kept);
+    if (wholePlan && kept[0]![0]!.length > SQL_LIMITS.maxPlanChars) {
+      throw new SqlStatementError("54000", PLAN_TOO_LARGE_MESSAGE);
+    }
+    const cut = wholePlan ? { rows: kept, cutCells: 0 } : cutLongCells(kept);
     return {
       columns,
       rows: cut.rows,

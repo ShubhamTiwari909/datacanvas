@@ -4,6 +4,37 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-24
+
+### Security
+
+- **A Content-Security-Policy with a nonce made for each page request** (the biggest open item of SECURITY.md since the security phase): a script runs only with the nonce, nothing runs from inline text, an inline handler or `eval`, the page connects only to its own server, and no other site can frame it. The whole end-to-end suite runs with a listener that fails any test whose page breaks the policy; it found exactly one violation (zod probing for `eval`, now switched off in the browser). Decision 163.
+- The two low advisories through `monaco-editor` (`dompurify`) are gone: an override to `dompurify` 3.5.0, `npm audit` reports none.
+- The new code was read by a second reviewer before this release (docs/threat-model.md, section 12b). It found no way to run a script in the page, read a value through the statistics or a plan, or get out of the quoting of a script that is run, and reproduced ten findings, none high, all fixed or accepted:
+  - An INSERT script was only as exact as the session that wrote it: a recipient with another `DateStyle` could store April 3 as March 4 with no error, and a float lost digits. The export now fixes `DateStyle`, `IntervalStyle`, `extra_float_digits` and `bytea_output` for its transaction, and the script sets them with `SET LOCAL`.
+  - A script made with sensitive-named columns left out no longer commits (it is not a copy of the table).
+  - Export of chosen rows no longer fails at 500 rows with a composite uuid key (the request body limit).
+  - Documentation files: a comment can no longer change the structure of the Markdown, a PlantUML body line cannot start like a directive, a comment or the end of the diagram, a name is not a link, and Mermaid and DBML names hold nothing their parsers could read as a directive or an escape.
+  - Smaller: the newest of a manual and an automatic vacuum, a plan with an overflowing time, steps of a closed plan not drawn, the wording about what the documentation files hold.
+
+### Added
+
+- **A query plan viewer** in the SQL tab: **Explain as a tree** and **Explain analyze as a tree** show the plan with the cost, the rows the planner expected against the rows it got, the time and buffers of each step, and in words what deserves the eye (a wrong guess by 10 times or more, a large sequential scan, a sort or hash that used the disk, the step that holds most of the time). The plan is kept whole (up to 2 MB) and read as untrusted text with limits. Decision 164.
+- **Statistics** in the table details: the share of NULLs, distinct values, width and order of each column, and the size, rows, dead rows and last vacuum and analyze of the table, from the server's own figures. No row and no value is read, and it needs no data-access switch. Decision 165.
+- **Export documentation**: a Markdown data dictionary, and Mermaid, DBML and PlantUML diagrams of the whole database or one schema, made in the browser from the structure, with every name quoted for its format. Decision 166.
+- **Export as a script of INSERT statements**, in one transaction, proved by a round trip against a real PostgreSQL; a cut script ends with `ROLLBACK;`. Decision 167.
+- **Export the rows you chose**, with no write unlocked: a checkbox column in the grid, **Export chosen**, up to 500 rows read again by their keys on the server. Decision 168.
+
+### Changed
+
+- Every grid of a table with a key has a selection column (it was there only with writes unlocked).
+- Dependencies: patch updates of vitest, typescript-eslint, axe-core and lucide-react.
+
+### Fixed
+
+- A NUL byte in a value that a bulk change was checked against is named as a NUL, not as a problem with the type of the key.
+- The delimiter of a CSV file is found once for the file, not on every render.
+
 ## [1.9.0] - 2026-11-22
 
 ### Added

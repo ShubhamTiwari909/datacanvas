@@ -62,6 +62,7 @@ import { ensureCatalog, invalidateCatalog } from "./completion/catalog-cache";
 import { csvFile, planText, toCsv, toJson, toTsv } from "./export";
 import { HistoryDialog } from "./history-dialog";
 import { sqlRoleNotice } from "./role-notice";
+import { PlanResultView } from "./plan-view";
 import { ResultGrid } from "./result-grid";
 import type { EditorHandle } from "./sql-editor";
 import {
@@ -225,6 +226,22 @@ function Editor({ connectionId }: { connectionId: string }) {
                 <span>Explain</span>
                 <span className="text-xs opacity-80">
                   Shows the plan. The statement is not run.
+                </span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => runNow("EXPLAIN (FORMAT JSON) ")}>
+              <span className="flex flex-col">
+                <span>Explain as a tree</span>
+                <span className="text-xs opacity-80">
+                  The plan as a tree, with what deserves the eye. The statement is not run.
+                </span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => runNow("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ")}>
+              <span className="flex flex-col">
+                <span>Explain analyze as a tree</span>
+                <span className="text-xs opacity-80">
+                  Runs the statement, and shows the real times and rows as a tree.
                 </span>
               </span>
             </DropdownMenuItem>
@@ -624,13 +641,7 @@ function Result({ state, tabName }: { state: SqlRunState; tabName: string }) {
             <span className="font-mono">{result.columns.map((c) => c.name).join(", ")}</span>
           </p>
         ) : isPlan ? (
-          <pre
-            tabIndex={0}
-            aria-label="Query plan"
-            className="h-full overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs whitespace-pre"
-          >
-            {planText(result.rows)}
-          </pre>
+          <PlanResultView rows={result.rows} fallbackText={planText(result.rows)} />
         ) : (
           <ResultGrid result={result} />
         )}

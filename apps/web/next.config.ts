@@ -46,8 +46,8 @@ const nextConfig: NextConfig = {
   //  - Referrer-Policy: no Referer header is ever sent from DataCanvas pages.
   //  - Cross-Origin-Resource-Policy / Opener-Policy: other sites cannot load
   //    our responses as sub-resources or keep a handle on our window.
-  // A full Content-Security-Policy is not set yet: Next.js inlines scripts, so
-  // it needs per-request nonces (listed as a known limit in docs/threat-model.md).
+  // The Content-Security-Policy of a page (with a nonce made for each request) is set by `proxy.ts`
+  // (`lib/security/csp.ts`, decision 163); the `frame-ancestors` here is for what the proxy does not touch.
   async headers() {
     return [
       {

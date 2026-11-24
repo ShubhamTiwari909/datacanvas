@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import pg from "pg";
 import type { Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const axeSource = readFileSync(
   createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
@@ -35,17 +35,7 @@ async function sql<Row extends Record<string, unknown> = Record<string, unknown>
 }
 
 async function axeOn(page: Page, name: string, inDialog: boolean): Promise<void> {
-  // A colour that is still moving (a button changing with the theme, or towards its hover colour under a mouse that was
-  // left where the last click was) gives a contrast that is not the resting one, and on a slow machine the check can
-  // land in the middle: stop the transitions, move the mouse away and let two frames paint before axe looks.
-  await page.mouse.move(0, 0);
-  await page.addStyleTag({
-    content: "*,*::before,*::after{transition:none!important;animation:none!important}",
-  });
-  await page.evaluate(
-    () =>
-      new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
-  );
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async (scoped) => {
     const axe = (

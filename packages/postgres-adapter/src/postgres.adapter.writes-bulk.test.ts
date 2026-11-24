@@ -521,6 +521,17 @@ describe.skipIf(!testDatabaseUrl())("PostgresAdapter bulk row changes", () => {
       expect((await q("SELECT count(*)::int AS n FROM b_items"))[0]).toEqual({ n: 10 });
     });
 
+    it("names a NUL in a value that was seen as a NUL, not as a problem with the type of the key", async () => {
+      await reset();
+      const failed = await failure(
+        adapter.previewChange(
+          setRows("b_items", { status: "done" }, [{ id: 1, expected: { status: "a\u0000b" } }]),
+        ),
+      );
+      expect(failed.message).toMatch(/NUL character/);
+      expect(failed.message).not.toMatch(/type of its key/);
+    });
+
     it("says a delete is found by its key: a row that changed since it was seen is still deleted, and a missing one is left out in words that do not claim a comparison", async () => {
       await reset();
       await sql.query("UPDATE b_items SET status = 'changed' WHERE id = 1");

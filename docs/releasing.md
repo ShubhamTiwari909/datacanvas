@@ -5,7 +5,7 @@ How a version of DataCanvas gets to npm, and what is still open. The package is 
 ## Publishing a version
 
 1. Set the version in `packages/cli/package.json` (the package takes its version from there) and add its section to `CHANGELOG.md` (rename "Unreleased").
-2. `npm run check` (with a test PostgreSQL for the database tests, see `examples/docker-compose.yml`), `npm run test:e2e`, and `npm run test:pg-matrix` if the database code changed.
+2. `npm run check` (with a test PostgreSQL for the database tests, see `examples/docker-compose.yml`), `npm run test:e2e`, and `npm run test:pg-matrix` before every release (the database tests run on one version locally; the matrix is 12 to 18).
 3. `npm login` with the account that owns the package (two-factor authentication on).
 4. `npm run publish:npm` is a rehearsal: it rebuilds, tests the packed tarball, runs the release gate (`npm run release:check`), refuses a version that already exists, and does everything except upload (`--dry-run`).
 5. `npm run publish:npm -- --publish` uploads. It only publishes when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`), then waits for the registry to list the version. A new version can take a minute to appear, and npm may hold an upload for approval; if the script says the version is not visible yet, check the package page on npmjs.com and do not run it again for the same version.

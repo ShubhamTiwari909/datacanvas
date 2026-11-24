@@ -10,6 +10,7 @@ import {
   constraintInfoSchema,
   indexInfoSchema,
   indexUsageReportSchema,
+  tableStatisticsSchema,
   relationshipInfoSchema,
   rowPageSchema,
   schemaInfoSchema,
@@ -91,6 +92,15 @@ export const searchResponseSchema = z.object({ hits: z.array(searchHitSchema) })
 
 /** `GET /api/connections/:id/index-usage`: usage counters of the indexes (statistics, not rows). */
 export const indexUsageResponseSchema = z.object({ usage: indexUsageReportSchema });
+
+/**
+ * `GET /api/connections/:id/tables/:table/statistics?schema=`: what the server's statistics say about one table (the
+ * share of NULLs, distinct values, widths, sizes, last vacuum and analyze), null for a view or a foreign table. No row
+ * and no value is read.
+ */
+export const tableStatisticsResponseSchema = z.object({
+  statistics: tableStatisticsSchema.nullable(),
+});
 
 // --- Table data (rows) ------------------------------------------------------
 
@@ -262,7 +272,18 @@ export const exportRequestSchema = z.strictObject({
   revealColumns: z.array(identifierSchema).max(100).default([]),
   sort: rowSortSchema.nullable().default(null),
   filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).default([]),
-  format: z.enum(["csv", "tsv", "json", "ndjson"]),
+  format: z.enum(["csv", "tsv", "json", "ndjson", "sql"]),
+  /** Only these rows, each by the table's whole key (the chosen rows of the grid): at most 500. */
+  keys: z
+    .array(
+      z
+        .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+        .min(1)
+        .max(32),
+    )
+    .min(1)
+    .max(500)
+    .optional(),
   /** For CSV: a comma or a semicolon (a tab is TSV). */
   delimiter: z.enum([",", ";"]).default(","),
   header: z.boolean().default(true),
@@ -273,6 +294,14 @@ export const exportRequestSchema = z.strictObject({
 });
 export type ExportRequestBody = z.input<typeof exportRequestSchema>;
 export type ParsedExportRequest = z.output<typeof exportRequestSchema>;
+
+/**
+ * The largest body of an export request: 500 chosen rows with a composite key of two uuids are about 66 KB, and the
+ * default limit of a body (64 KB) refused them (the review of 1.10.0). The keys of one request hold at most
+ * `EXPORT_MAX_KEY_CHARS` characters of values altogether.
+ */
+export const EXPORT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+export const EXPORT_MAX_KEY_CHARS = 1_000_000;
 
 export const cellResponseSchema = z.object({
   cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),

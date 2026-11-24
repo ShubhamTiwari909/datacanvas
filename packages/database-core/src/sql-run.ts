@@ -22,6 +22,11 @@ export const SQL_LIMITS = {
   maxTimeoutMs: 300_000,
   /** Characters kept of one cell (the rest is cut, and the cell says so in the grid). */
   maxCellChars: 2000,
+  /**
+   * Characters of a query plan kept WHOLE: an EXPLAIN that answers one cell (the JSON format) is the one result whose
+   * cell must not be cut, because a plan cut in the middle is not JSON. A larger plan is refused, never cut.
+   */
+  maxPlanChars: 2_000_000,
   /** Bytes read from the server for one result, counted before cells are cut: past it the rest is not read. */
   maxResultBytes: 64 * 1024 * 1024,
   /** Lock wait: a query never queues behind a lock for long. */
@@ -89,6 +94,23 @@ export function isSqlRunnerAdapter(value: unknown): value is SqlRunnerAdapter {
  * connection details (the adapter takes it from the server's error message only
  * after the connection was made).
  */
+/** The sentence for a plan larger than `maxPlanChars`. */
+export const PLAN_TOO_LARGE_MESSAGE =
+  "The plan is larger than 2 MB. Explain a smaller query, or read the plan as text.";
+
+/**
+ * Is this result a plan in one piece (an EXPLAIN that answers one row of one cell, which is what the JSON format does)?
+ * The text format answers one short line for each row and is not one.
+ */
+export function isWholePlan(
+  command: string,
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): boolean {
+  return (
+    command === "EXPLAIN" && rows.length === 1 && rows[0]!.length === 1 && rows[0]![0] !== null
+  );
+}
+
 export class SqlStatementError extends Error {
   /** The SQLSTATE (e.g. "42P01"), or "cancelled" or "not_allowed" for ours. */
   readonly code: string;

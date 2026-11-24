@@ -59,9 +59,13 @@ test("1000 tables: load the canvas, auto-layout, stay responsive", async ({
   expect(addMs).toBeLessThan(15_000);
 
   // Only the nodes in view are drawn: the page must not hold hundreds of DOM nodes.
+  // (Counted until the nodes have been measured: a node whose size is not known yet is drawn, so a count taken in that
+  // moment reads every node.)
+  await expect
+    .poll(async () => page.locator(".react-flow__node").count(), { timeout: 15_000 })
+    .toBeLessThan(TABLES);
   const drawn = await page.locator(".react-flow__node").count();
   console.info(`[perf] nodes drawn in the DOM: ${drawn} of ${TABLES}`);
-  expect(drawn).toBeLessThan(TABLES);
 
   // Auto-layout the whole thing.
   const layoutStart = Date.now();

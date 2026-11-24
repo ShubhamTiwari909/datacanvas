@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import pg from "pg";
 import type { Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const axeSource = readFileSync(
   createRequire(import.meta.url).resolve("axe-core/axe.min.js"),
@@ -64,6 +64,7 @@ async function exportAs(
 }
 
 async function axeOn(page: Page, name: string): Promise<void> {
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async () => {
     const axe = (
@@ -149,6 +150,59 @@ test.describe("export", () => {
     const lines = file.text.trim().split("\n");
     expect(lines).toHaveLength(120);
     expect(JSON.parse(lines[0]!)).toEqual({ id: "1", name: "Ann", note: '=HYPERLINK("http://x")' });
+  });
+
+  test("a script of INSERT statements: a transaction that commits when whole, the hidden column left out and named", async ({
+    page,
+  }) => {
+    const file = await exportAs(page, "sql");
+    expect(file.name).toMatch(/\.sql$/);
+    expect(file.text).toContain("BEGIN;\nSET LOCAL standard_conforming_strings = on;");
+    expect(file.text).toContain('INSERT INTO "public"."x_orders" ("id", "name", "note") VALUES');
+    // Quotes are doubled, the value that looked like a formula is not defused (it is SQL, not a spreadsheet).
+    expect(file.text).toContain("('2', 'Bo, \"the\" builder', NULL)");
+    expect(file.text).toContain("'=HYPERLINK(\"http://x\")'");
+    expect(file.text).toContain("-- Left out because they look sensitive: api_token.");
+    expect(file.text).not.toContain("tok-1");
+    // A column was left out for its name: this is not a copy of the table, so the script does not commit.
+    expect(file.text).toContain(
+      "-- INCOMPLETE: columns were left out because their names look sensitive",
+    );
+    expect(file.text.trimEnd().endsWith("ROLLBACK;")).toBe(true);
+    // 120 rows, at most 100 to a statement (the reader's batches decide where a statement ends).
+    expect(file.text.match(/^INSERT INTO /gm)!.length).toBeGreaterThanOrEqual(2);
+    expect(file.text.match(/^ {2}\('/gm)).toHaveLength(120);
+  });
+
+  test("exports only the chosen rows, with no write unlocked, read again by their keys on the server", async ({
+    page,
+  }) => {
+    // Writes are off in this app: the checkboxes are there for exporting.
+    await page.getByRole("checkbox", { name: "Select row 3", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Select row 1", exact: true }).click();
+    const bar = page.getByRole("group", { name: "Chosen rows" });
+    await expect(bar.getByRole("status")).toContainText("2 rows chosen");
+    await bar.getByRole("button", { name: "Export chosen" }).click();
+    const dialog = page.getByRole("dialog", { name: /^Export / });
+    await expect(dialog).toContainText("the 2 chosen rows");
+    await dialog.getByLabel("Format").selectOption("csv");
+    const download = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Export", exact: true }).click();
+    const file = await download;
+    const text = new TextDecoder().decode(readFileSync((await file.path())!));
+    // Header and the two rows, in the order of the key, whatever order they were chosen in; the hidden column is left out.
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split("\r\n")
+      .filter((l) => l !== "" && !l.startsWith("#"));
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^1,Ann,/);
+    expect(lines[2]).toMatch(/^3,Cy,/);
+    expect(text).not.toContain("tok-");
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click();
+    // A selection can be cleared.
+    await bar.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByRole("group", { name: "Chosen rows" })).toHaveCount(0);
   });
 
   test("passes axe in light, in dark and on a phone", async ({ page }) => {

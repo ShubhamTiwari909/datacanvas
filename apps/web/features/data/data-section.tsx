@@ -8,8 +8,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
-import { ROWS_MAX_FILTERS, type TableInfo } from "@datacanvas/database-core";
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Lock, X } from "lucide-react";
+import { ROWS_MAX_FILTERS, type KeyValue, type TableInfo } from "@datacanvas/database-core";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
@@ -25,6 +25,7 @@ import { FilterBar } from "./filter-bar";
 import { pageNotes } from "./page-notes";
 import { PAGE_SIZES, canGoBack, pageNumber } from "./paging";
 import { nextSort } from "./sorting";
+import { useExportSelection } from "./use-export-selection";
 import { useRows } from "./use-rows";
 import { useRowEditing } from "@/features/writes/row-editing";
 import type { ApiFailure } from "@/lib/api-client";
@@ -128,8 +129,28 @@ function Rows({
   const setBlurred = useBlurStore((s) => s.setBlurred);
   const ref = useMemo(() => ({ schema, name: table }), [schema, table]);
   // With writes unlocked (1.4.0): row actions, "Add row" and the preview step. Inert otherwise.
-  const editing = useRowEditing({ connectionId, table: ref, page, reload: view.reload });
   const [exporting, setExporting] = useState(false);
+  // The rows to export when the export is of chosen rows (decision 168); null for the table as filtered.
+  // It remembers WHICH table the keys are of: keys of another table are never sent with this one.
+  const tableId = `${connectionId}/${schema}/${table}`;
+  const [exportOf, setExportOf] = useState<{ table: string; keys: KeyValue[][] } | null>(null);
+  const exportKeys = exportOf?.table === tableId ? exportOf.keys : null;
+  const setExportKeys = (keys: KeyValue[][] | null) =>
+    setExportOf(keys === null ? null : { table: tableId, keys });
+  const editing = useRowEditing({
+    connectionId,
+    table: ref,
+    page,
+    reload: view.reload,
+    onExportChosen: (keys) => {
+      setExportKeys(keys);
+      setExporting(true);
+    },
+  });
+  // Rows can be chosen to export without writes: the choice of the bulk changes is used when there is one, and this
+  // one (by the page reader's own key) when there is not.
+  const exportChoice = useExportSelection({ connectionId, table: ref, page });
+  const selection = editing.selection ?? exportChoice.selection;
 
   if (!page) {
     // The first read failed (or is still running): there is no page yet to build a filter panel from.
@@ -191,6 +212,30 @@ function Rows({
             Export
           </Button>
           {editing.toolbar}
+          {editing.selection === null && exportChoice.keys.length > 0 ? (
+            <span role="group" aria-label="Chosen rows" className="flex items-center gap-2">
+              <span role="status" className="text-sm">
+                {exportChoice.keys.length} {exportChoice.keys.length === 1 ? "row" : "rows"} chosen
+                {exportChoice.limited ? " (the most for one export)" : ""}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setExportKeys(exportChoice.keys);
+                  setExporting(true);
+                }}
+              >
+                <Download aria-hidden="true" />
+                Export chosen
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={exportChoice.clear}>
+                <X aria-hidden="true" />
+                Clear
+              </Button>
+            </span>
+          ) : null}
         </div>
         <div role="group" aria-label="View" className="ml-auto flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
@@ -261,7 +306,7 @@ function Rows({
           busy={busy}
           source={{ connectionId, table: { schema, name: table } }}
           editing={editing.grid}
-          selection={editing.selection}
+          selection={selection}
           onFilterCell={
             paging.filters.length < ROWS_MAX_FILTERS
               ? (filter) => dispatch({ type: "addFilter", filter })
@@ -274,7 +319,11 @@ function Rows({
 
       <ExportDialog
         open={exporting}
-        onClose={() => setExporting(false)}
+        onClose={() => {
+          setExporting(false);
+          setExportKeys(null);
+        }}
+        keys={exportKeys ?? undefined}
         connectionId={connectionId}
         schema={schema}
         table={table}

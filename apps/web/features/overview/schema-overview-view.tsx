@@ -8,12 +8,14 @@
  */
 "use client";
 
-import { ArrowDownToLine, ArrowUpFromLine, Layers, Link2Off } from "lucide-react";
+import { useState } from "react";
+import { ArrowDownToLine, ArrowUpFromLine, FileText, Layers, Link2Off } from "lucide-react";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { addSchemaToCanvas, addTablesToCanvas } from "@/features/canvas/add-tables";
+import { DocsExportDialog } from "@/features/docs/docs-export-dialog";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { loadDatabaseOverview } from "./load-overview";
@@ -226,6 +228,7 @@ function Summary({ overview }: { overview: DatabaseOverview }) {
 }
 
 export function SchemaOverviewView({ connectionId }: { connectionId: string }) {
+  const [docsOpen, setDocsOpen] = useState(false);
   const setView = useWorkspaceStore((s) => s.setView);
   const { state, reload } = useAsyncData(() => loadDatabaseOverview(connectionId), connectionId);
 
@@ -258,14 +261,21 @@ export function SchemaOverviewView({ connectionId }: { connectionId: string }) {
   return (
     <div className="flex flex-col gap-6 p-4">
       <header className="flex flex-col gap-3">
-        <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
-          Overview
-          <span className="text-sm font-normal text-muted-foreground">
-            Click a table to show it on the canvas.
-          </span>
-        </h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="flex flex-wrap items-baseline gap-x-3 text-lg font-semibold">
+            Overview
+            <span className="text-sm font-normal text-muted-foreground">
+              Click a table to show it on the canvas.
+            </span>
+          </h2>
+          <Button type="button" size="sm" variant="outline" onClick={() => setDocsOpen(true)}>
+            <FileText aria-hidden="true" />
+            Export documentation
+          </Button>
+        </div>
         <Summary overview={overview} />
       </header>
+      <DocsExportDialog connectionId={connectionId} open={docsOpen} onOpenChange={setDocsOpen} />
       {overview.schemas.length === 0 ? (
         <p className="text-sm text-muted-foreground">This database has no user schemas.</p>
       ) : (

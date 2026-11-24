@@ -75,6 +75,7 @@ export const API_ERROR_CODES = [
   "wrong_database_name",
   "preview_expired",
   "write_busy",
+  "claude_role_not_acknowledged",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

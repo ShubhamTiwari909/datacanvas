@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import pg from "pg";
 import type { Page } from "@playwright/test";
 import { expect, settleForAxe, test, type RunningApp, type TestDb } from "./fixtures";
 
@@ -207,6 +208,169 @@ test.describe("the MCP server", () => {
       arguments: { connection: id, query: "email" },
     });
     expect(found.isError).toBeFalsy();
+    await client.close();
+  });
+});
+
+test.describe("the data level, against a real database", () => {
+  async function admin(database: TestDb, text: string) {
+    const c = new pg.Client({
+      host: database.host,
+      port: database.port,
+      user: database.user,
+      password: database.password,
+      database: database.name,
+    });
+    await c.connect();
+    try {
+      await c.query(text);
+    } finally {
+      await c.end();
+    }
+  }
+  async function openClient(page: Page, app: RunningApp, database: TestDb) {
+    await admin(
+      database,
+      `CREATE TABLE public.claude_notes (id int PRIMARY KEY, title text, api_token text);
+       INSERT INTO public.claude_notes VALUES (1, 'first', 'tok-SECRET-1'), (2, 'second', 'tok-SECRET-2');`,
+    );
+    const id = await connect(page, app, database);
+    // The data level needs viewing table data, and the test role is a superuser: the person acknowledges it.
+    expect(
+      (
+        await page.request.put(`${app.origin}/api/connections/${id}/data-access`, {
+          data: { enabled: true },
+        })
+      ).status(),
+    ).toBe(200);
+    const refused = await page.request.put(`${app.origin}/api/connections/${id}/claude`, {
+      data: { level: "data" },
+    });
+    expect(refused.status()).toBe(409);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
+      "claude_role_not_acknowledged",
+    );
+    const ok = await page.request.put(`${app.origin}/api/connections/${id}/claude`, {
+      data: { level: "data", acknowledgeRole: true },
+    });
+    expect(ok.status()).toBe(200);
+    const { port, token } = mcpFile(app);
+    const client = new Client({ name: "e2e-data", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    return { id, client };
+  }
+  const textOf = (r: unknown) => JSON.stringify((r as { content?: unknown }).content);
+
+  test("reads rows and runs a read-only query, with a hidden column never returned", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const { id, client } = await openClient(page, app, database);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(["read_rows", "run_readonly_query", "explain_query"]),
+    );
+    const query = await client.callTool({
+      name: "run_readonly_query",
+      arguments: { connection: id, sql: "SELECT id, title FROM claude_notes ORDER BY id" },
+    });
+    expect(query.structuredContent).toMatchObject({
+      rows: [
+        ["1", "first"],
+        ["2", "second"],
+      ],
+      truncated: false,
+    });
+    // `SELECT *` names nothing: the column with a sensitive name comes back as NULL.
+    const star = await client.callTool({
+      name: "run_readonly_query",
+      arguments: { connection: id, sql: "SELECT * FROM claude_notes ORDER BY id" },
+    });
+    expect(star.structuredContent).toMatchObject({
+      hiddenColumns: ["api_token"],
+      rows: [
+        ["1", "first", null],
+        ["2", "second", null],
+      ],
+    });
+    expect(JSON.stringify(star)).not.toContain("SECRET");
+    // Naming it is refused before anything runs.
+    const named = await client.callTool({
+      name: "run_readonly_query",
+      arguments: { connection: id, sql: "SELECT api_token FROM claude_notes" },
+    });
+    expect(named.isError).toBe(true);
+    expect(textOf(named)).toMatch(/look sensitive \(api_token\)/);
+    // A page of rows: the hidden column is left out and named, whatever is asked.
+    const rows = await client.callTool({
+      name: "read_rows",
+      arguments: { connection: id, schema: "public", table: "claude_notes" },
+    });
+    expect(rows.structuredContent).toMatchObject({
+      rows: [
+        ["1", "first", null],
+        ["2", "second", null],
+      ],
+      hiddenColumns: ["api_token"],
+    });
+    expect(JSON.stringify(rows)).not.toContain("SECRET");
+    const filtered = await client.callTool({
+      name: "read_rows",
+      arguments: {
+        connection: id,
+        schema: "public",
+        table: "claude_notes",
+        filters: [{ column: "api_token", op: "eq", value: "tok-SECRET-1" }],
+      },
+    });
+    expect(filtered.isError).toBe(true);
+    await client.close();
+  });
+
+  test("refuses what a read-only transaction refuses, two statements, and a query that would run past its time", async ({
+    page,
+    app,
+    database,
+  }) => {
+    const { id, client } = await openClient(page, app, database);
+    const run = (sql: string, extra: Record<string, unknown> = {}) =>
+      client.callTool({ name: "run_readonly_query", arguments: { connection: id, sql, ...extra } });
+    for (const sql of [
+      "DELETE FROM claude_notes",
+      "CREATE TABLE evil (a int)",
+      "SELECT 1; SELECT 2",
+      "INSERT INTO claude_notes VALUES (9, 'x', 'y')",
+      "EXPLAIN ANALYZE CREATE TABLE evil2 AS SELECT 1",
+      "SELECT pg_sleep(0)\n; DROP TABLE claude_notes",
+    ]) {
+      const r = await run(sql);
+      expect(r.isError, sql).toBe(true);
+    }
+    // Nothing was changed.
+    const count = await run("SELECT count(*) AS n FROM claude_notes");
+    expect(count.structuredContent).toMatchObject({ rows: [["2"]] });
+    // A query that runs past its time limit is stopped, and says so.
+    const slow = await run("SELECT pg_sleep(5)", { timeout_seconds: 1 });
+    expect(slow.isError).toBe(true);
+    expect(textOf(slow)).toMatch(/timeout|time/i);
+    // The database's message about a value is not passed on: casting a text to a number names the text in the message.
+    const cast = await run("SELECT CAST(title AS int) FROM claude_notes");
+    expect(cast.isError).toBe(true);
+    expect(textOf(cast)).not.toContain("first");
+    await client.close();
+  });
+
+  test("explains a query without running it", async ({ page, app, database }) => {
+    const { id, client } = await openClient(page, app, database);
+    const plan = await client.callTool({
+      name: "explain_query",
+      arguments: { connection: id, sql: "SELECT * FROM claude_notes WHERE id = 1" },
+    });
+    expect(JSON.stringify(plan.structuredContent)).toMatch(/Node Type/);
     await client.close();
   });
 });

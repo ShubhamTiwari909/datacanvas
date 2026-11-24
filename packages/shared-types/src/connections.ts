@@ -109,7 +109,11 @@ export const claudeLevelSchema = z.enum(["off", "structure", "data"]);
 export type ClaudeLevel = z.infer<typeof claudeLevelSchema>;
 
 /** `PUT /api/connections/:id/claude`: share the connection with Claude at a level, or stop. In memory only. */
-export const claudeSharingRequestSchema = z.strictObject({ level: claudeLevelSchema });
+export const claudeSharingRequestSchema = z.strictObject({
+  level: claudeLevelSchema,
+  /** The person read the warning about a risky database role (a superuser, or one that can read server files) and shares anyway. */
+  acknowledgeRole: z.boolean().optional(),
+});
 export type ClaudeSharingRequest = z.infer<typeof claudeSharingRequestSchema>;
 
 export const claudeSharingResponseSchema = z.object({

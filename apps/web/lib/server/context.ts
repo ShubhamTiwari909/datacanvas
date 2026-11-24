@@ -55,6 +55,7 @@ function createServerContext(): ServerContext {
   const profiles = new ProfileService({ profiles: profileStorage, workspaces: workspaceStorage });
 
   const connections = new ConnectionService({ adapters, connections: registry, profiles });
+  const sql = new SqlService({ connections: registry });
 
   return {
     connections,
@@ -66,8 +67,13 @@ function createServerContext(): ServerContext {
       connections: registry,
       writesEnabled: readSecurityConfig().writesEnabled,
     }),
-    sql: new SqlService({ connections: registry }),
-    mcp: new McpService({ connections: registry, version: process.env.DATACANVAS_VERSION }),
+    sql,
+    mcp: new McpService({
+      connections: registry,
+      sql,
+      rows: connections,
+      version: process.env.DATACANVAS_VERSION,
+    }),
   };
 }
 

@@ -212,7 +212,13 @@ describe("table rows are read only behind the data-access check", () => {
 
   it("calls getRows only in the connection service, and in the one route that asks the service", () => {
     const callers = appCode.filter((f) => /\.getRows\(/.test(readFileSync(f, "utf8")));
-    expect(callers.map(rel).sort()).toEqual([rel(rowsRoute), rel(service)].sort());
+    // (The MCP service asks the connection SERVICE for a page, as the route does: it never holds an adapter; checked below.)
+    expect(callers.map(rel).sort()).toEqual(
+      [rel(rowsRoute), rel(service), "apps/web/lib/server/mcp-service.ts"].sort(),
+    );
+    expect(readFileSync(path.join(root, "apps/web/lib/server/mcp-service.ts"), "utf8")).toMatch(
+      /this\.rows\.getRows\(/,
+    );
     // The route asks the SERVICE (which checks the setting); it never holds an adapter.
     const route = readFileSync(rowsRoute, "utf8");
     expect(route).toMatch(/connections\.getRows\(/);
@@ -1671,6 +1677,9 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
       "list_tables",
       "describe_table",
       "search_objects",
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
     ]);
     expect((code.match(/annotations: READ_ONLY/g) ?? []).length).toBe(names.length);
     for (const name of names)
@@ -1743,5 +1752,44 @@ describe("the MCP server is a read-only door with a token of its own (decision 1
     const bridge = stripComments(read("packages/cli/src/mcp-bridge.ts"));
     expect(bridge).not.toMatch(/console\.|process\.stdout\.write/);
     expect(bridge).toContain("output.write(`${answer}\\n`)");
+  });
+});
+
+describe("the MCP data tools reach the data only through the services that guard it (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+
+  it("holds no adapter for a statement or a page: statements go through SqlService, pages through ConnectionService", () => {
+    expect(service).toMatch(/this\.sql\.run\(/);
+    expect(service).toMatch(/this\.rows\.getRows\(/);
+    expect(service).not.toMatch(
+      /isSqlRunnerAdapter|adapter\.runStatement|adapter\.getRows|adapter\.exportRows|adapter\.getCell/,
+    );
+  });
+
+  it("never reveals a hidden column: the page request carries no reveal, and no tool has a field for it", () => {
+    expect(service).toMatch(/revealColumns: \[\]/);
+    expect(service).not.toMatch(/reveal[A-Za-z]*: (?!\[\])/);
+    const tools = service.slice(service.indexOf("const TOOLS"));
+    expect(tools).not.toMatch(/reveal/i);
+  });
+
+  it("every data tool checks the level first, and a statement is checked for sensitive names before it is sent", () => {
+    expect((service.match(/this\.requireData\(connection\)/g) ?? []).length).toBe(2);
+    const run = service.slice(
+      service.indexOf("async runQuery("),
+      service.indexOf("async readRows("),
+    );
+    expect(run.indexOf("requireData")).toBeLessThan(run.indexOf("sensitiveNamesIn"));
+    expect(run.indexOf("sensitiveNamesIn")).toBeLessThan(run.indexOf("this.sql.run("));
+  });
+
+  it("a database failure is passed on only through failureWords, never as the message of the error", () => {
+    expect(service).toMatch(/failureWords\(outcome\.failure\)/);
+    expect(service).not.toMatch(/error\.message|\.message\)/);
+    const data = stripComments(read("apps/web/lib/server/mcp-data.ts"));
+    expect(data).toMatch(/startsWith\("42"\)/);
   });
 });

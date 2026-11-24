@@ -420,3 +420,243 @@ describe("the structure tools (M2)", () => {
     expect(extra.content[0]!.text).toMatch(/has a field this tool does not take/);
   });
 });
+
+describe("the data tools (M3)", () => {
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const response = await post(rpc("tools/call", { name, arguments: args }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        structuredContent?: Record<string, unknown>;
+      };
+    };
+    return body.result;
+  };
+  const names = async () =>
+    (
+      (await (await post(rpc("tools/list"))).json()) as {
+        result: { tools: Array<{ name: string }> };
+      }
+    ).result.tools.map((t) => t.name);
+
+  it("the data tools exist for a caller only while a connection is shared at the data level", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "structure");
+    expect(await names()).not.toContain("run_readonly_query");
+    await share(id, "data");
+    expect(await names()).toEqual([
+      "list_connections",
+      "list_schemas",
+      "list_tables",
+      "describe_table",
+      "search_objects",
+      "read_rows",
+      "run_readonly_query",
+      "explain_query",
+    ]);
+    // A call to one while it is not offered is a tool nobody made.
+    await share(id, "structure");
+    const gone = await post(
+      rpc("tools/call", {
+        name: "run_readonly_query",
+        arguments: { connection: id, sql: "SELECT 1" },
+      }),
+    );
+    expect(((await gone.json()) as { error: { code: number } }).error.code).toBe(-32602);
+  });
+
+  it("a structure-level connection says so when a data tool is called with it, while another is at the data level", async () => {
+    const structure = await connect();
+    const data = await connect({ dataAccess: true });
+    await share(structure, "structure");
+    await share(data, "data");
+    const r = await call("run_readonly_query", { connection: structure, sql: "SELECT 1" });
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/structure level only/);
+    const none = await call("read_rows", { connection: "nope", schema: "public", table: "users" });
+    expect(none.content[0]!.text).toMatch(/not shared with Claude, or does not exist/);
+  });
+
+  it("runs one read-only statement and answers rows, columns and whether more were left out", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    context.createdAdapters[0]!.sqlHandler = async () => ({
+      columns: [{ name: "n", dataType: "integer" }],
+      rows: [["1"], ["2"]],
+      truncated: true,
+      command: "SELECT",
+      cutCells: 0,
+      elapsedMs: 1,
+    });
+    const r = await call("run_readonly_query", {
+      connection: id,
+      sql: "SELECT n FROM t",
+      max_rows: 2,
+    });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent).toMatchObject({
+      rows: [["1"], ["2"]],
+      truncated: true,
+      hiddenColumns: [],
+    });
+    expect(r.content[0]!.text).toMatch(/more were left out: add a LIMIT/);
+  });
+
+  it("refuses a statement that names a sensitive column before it runs, and nulls a hidden column of a result", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    const ran = vi.fn();
+    context.createdAdapters[0]!.sqlHandler = async () => {
+      ran();
+      return {
+        columns: [
+          { name: "id", dataType: "integer" },
+          { name: "secret_note", dataType: "text" },
+        ],
+        rows: [["1", "hunter2-SECRET-VALUE"]],
+        truncated: false,
+        command: "SELECT",
+        cutCells: 0,
+        elapsedMs: 1,
+      };
+    };
+    const refused = await call("run_readonly_query", {
+      connection: id,
+      sql: "SELECT password FROM users",
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toMatch(/names columns that look sensitive \(password\)/);
+    expect(ran).not.toHaveBeenCalled();
+    // `SELECT *` names nothing, so it runs, and the column of the result with a sensitive name is NULL.
+    const star = await call("run_readonly_query", { connection: id, sql: "SELECT * FROM users" });
+    expect(star.structuredContent).toMatchObject({
+      rows: [["1", null]],
+      hiddenColumns: ["secret_note"],
+    });
+    expect(JSON.stringify(star)).not.toContain("hunter2-SECRET-VALUE");
+  });
+
+  it("refuses a write, a creation, an EXPLAIN ANALYZE of a creation and COPY, as the SQL tab does (two statements are tested on a real database)", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    for (const sql of [
+      "DELETE FROM users",
+      "CREATE TABLE t (a int)",
+      "EXPLAIN ANALYZE CREATE TABLE t AS SELECT 1",
+      "COPY users TO PROGRAM 'x'",
+    ]) {
+      const r = await call("run_readonly_query", { connection: id, sql });
+      expect(r.isError, sql).toBe(true);
+    }
+  });
+
+  it("does not pass on the database's message about a value, and does pass on a syntax error", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    context.createdAdapters[0]!.sqlHandler = async () => {
+      const { SqlStatementError } = await import("@datacanvas/database-core");
+      throw new SqlStatementError(
+        "22P02",
+        'invalid input syntax for type integer: "hunter2-SECRET-VALUE"',
+      );
+    };
+    const value = await call("run_readonly_query", {
+      connection: id,
+      sql: "SELECT CAST(note AS int) FROM t",
+    });
+    expect(JSON.stringify(value)).not.toContain("hunter2-SECRET-VALUE");
+    expect(value.content[0]!.text).toMatch(/SQLSTATE 22P02/);
+    context.createdAdapters[0]!.sqlHandler = async () => {
+      const { SqlStatementError } = await import("@datacanvas/database-core");
+      throw new SqlStatementError("42703", 'column "emai" does not exist');
+    };
+    const syntax = await call("run_readonly_query", {
+      connection: id,
+      sql: "SELECT emai FROM users",
+    });
+    expect(syntax.content[0]!.text).toBe('column "emai" does not exist');
+  });
+
+  it("reads a page of rows by the page reader, never revealing a hidden column, and refuses what it refuses", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    const page = await call("read_rows", {
+      connection: id,
+      schema: "public",
+      table: "users",
+      page_size: 2,
+    });
+    expect(page.isError).toBeFalsy();
+    const data = page.structuredContent as {
+      rows: unknown[][];
+      columns: Array<{ name: string; hidden: boolean }>;
+      nextCursor: string | null;
+    };
+    expect(data.rows.length).toBeLessThanOrEqual(2);
+    expect(data.columns.map((c) => c.name)).toContain("email");
+    const missing = await call("read_rows", { connection: id, schema: "public", table: "nope" });
+    expect(missing.content[0]!.text).toBe("There is no such table or schema.");
+    const badFilter = await call("read_rows", {
+      connection: id,
+      schema: "public",
+      table: "users",
+      filters: [{ column: "nope", op: "eq", value: "x" }],
+    });
+    expect(badFilter.isError).toBe(true);
+    expect(badFilter.content[0]!.text).toMatch(/was not accepted for this table/);
+    // There is no way to ask for a hidden column to be revealed: the input has no such field.
+    const reveal = await call("read_rows", {
+      connection: id,
+      schema: "public",
+      table: "users",
+      revealColumns: ["x"],
+    });
+    expect(reveal.isError).toBe(true);
+  });
+
+  it("explains a query without running it, and takes the data level only", async () => {
+    const id = await connect({ dataAccess: true });
+    await share(id, "data");
+    context.createdAdapters[0]!.sqlHandler = async (request) => {
+      expect(request.text.startsWith("EXPLAIN (FORMAT JSON) ")).toBe(true);
+      return {
+        columns: [{ name: "QUERY PLAN", dataType: "json" }],
+        rows: [['[{"Plan":{"Node Type":"Seq Scan"}}]']],
+        truncated: false,
+        command: "EXPLAIN",
+        cutCells: 0,
+        elapsedMs: 1,
+      };
+    };
+    const r = await call("explain_query", { connection: id, sql: "SELECT * FROM users" });
+    expect(r.structuredContent).toEqual({ plan: [{ Plan: { "Node Type": "Seq Scan" } }] });
+  });
+
+  it("the data level needs the role acknowledged for a superuser, and not for an ordinary role", async () => {
+    const ordinary = await connect({ dataAccess: true });
+    expect((await share(ordinary, "data")).status).toBe(200);
+    const risky = await connect({ dataAccess: true });
+    const adapter = context.createdAdapters[1]!;
+    const role = await adapter.getRoleInfo();
+    vi.spyOn(adapter, "getRoleInfo").mockResolvedValue({ ...role, superuser: true });
+    const refused = await share(risky, "data");
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("claude_role_not_acknowledged");
+    expect(body.error.message).toMatch(/read-only database user/);
+    expect(context.mcp.levelOf(risky)).toBe("off");
+    const acknowledged = await putSharing(
+      new Request(`${BASE}/api/connections/${risky}/claude`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Host: "127.0.0.1:4747", ...cookie },
+        body: JSON.stringify({ level: "data", acknowledgeRole: true }),
+      }),
+      params({ id: risky }),
+    );
+    expect(acknowledged.status).toBe(200);
+    // Structure level needs no acknowledgment, whatever the role.
+    expect((await share(risky, "structure")).status).toBe(200);
+  });
+});

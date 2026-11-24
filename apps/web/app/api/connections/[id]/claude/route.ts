@@ -27,7 +27,9 @@ export function PUT(request: Request, { params }: RouteParams<{ id: string }>): 
     const { id } = await params;
     const parsed = await parseJsonBody(request, claudeSharingRequestSchema);
     if (!parsed.ok) return parsed.response;
-    const level = getServerContext().mcp.share(id, parsed.data.level);
+    const level = await getServerContext().mcp.share(id, parsed.data.level, {
+      acknowledgeRole: parsed.data.acknowledgeRole === true,
+    });
     return jsonResponse({ sharing: { level } });
   });
 }

@@ -20,8 +20,12 @@ import {
 import type { ClaudeLevel } from "@datacanvas/shared-types";
 import { z } from "zod";
 import type { DatabaseAdapter } from "@datacanvas/database-core";
+import { MAX_ROW_FILTERS, rowFilterSchema, rowSortSchema } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
+import type { ConnectionService } from "./connection-service";
+import { failureWords, sensitiveNamesIn, shapePage, shapeQueryResult } from "./mcp-data";
 import { ServiceError } from "./service-error";
+import type { SqlService } from "./sql-service";
 
 /** What a tool call may reach, per connection. `structure` reads names and statistics, `data` reads rows through the runner. */
 export type ShareLevel = Exclude<ClaudeLevel, "off">;
@@ -32,9 +36,43 @@ export const NOT_SHARED =
 
 export const MCP_MESSAGES = {
   connectionNotFound: "This connection does not exist.",
+  riskyRole:
+    "This database role is a superuser, or can read the server's files or run programs there. A read-only transaction does not stop what such a role can do outside it. Use a read-only database user, or acknowledge the risk to share the data level anyway.",
   dataAccessOff:
     "The data level lets Claude read rows, so it needs viewing table data to be on for this connection. Switch that on first.",
 } as const;
+
+/** Predefined roles that reach the server's files and programs (a read-only transaction does not stop them). */
+const RISKY_ROLES = new Set([
+  "pg_read_server_files",
+  "pg_write_server_files",
+  "pg_execute_server_program",
+]);
+
+/** A failure of a data tool as words for the model: only what cannot hold a value of the data. */
+function asToolError(error: unknown): ToolError {
+  if (error instanceof ToolError) return error;
+  if (error instanceof ServiceError) {
+    if (error.code === "sql_busy" || error.code === "rows_busy") {
+      return new ToolError(
+        "Another read is still running on this connection. Try again in a moment.",
+      );
+    }
+    if (error.code === "data_access_disabled") return new ToolError(MCP_MESSAGES.dataAccessOff);
+    return new ToolError(NOT_SHARED);
+  }
+  if (error instanceof DatabaseError) {
+    if (error.code === "not_found") return new ToolError("There is no such table or schema.");
+    if (error.code === "invalid_request") {
+      return new ToolError(
+        "The filter, sort or cursor was not accepted for this table (a hidden column, an operator the column does not allow, or a value that does not fit).",
+      );
+    }
+    if (error.code === "timeout")
+      return new ToolError("The read took too long and was stopped. Ask for less.");
+  }
+  return new ToolError("The database could not be read right now.");
+}
 
 /** What the model is told when it connects: what this is, how to use it, and that data is data. */
 export const MCP_INSTRUCTIONS =
@@ -52,8 +90,18 @@ export class McpService {
   private readonly shared = new Map<string, ShareLevel>();
   private readonly server;
 
-  constructor(dependencies: { connections: ConnectionRegistry; version?: string }) {
+  private readonly sql: SqlService;
+  private readonly rows: ConnectionService;
+
+  constructor(dependencies: {
+    connections: ConnectionRegistry;
+    sql: SqlService;
+    rows: ConnectionService;
+    version?: string;
+  }) {
     this.connections = dependencies.connections;
+    this.sql = dependencies.sql;
+    this.rows = dependencies.rows;
     // A disconnect ends the sharing: a connection that comes back is a new connection and is not shared.
     this.connections.onRemove((id) => this.shared.delete(id));
     this.server = createMcpServer<Context>({
@@ -61,7 +109,9 @@ export class McpService {
       title: "DataCanvas",
       version: dependencies.version ?? "0.0.0",
       instructions: MCP_INSTRUCTIONS,
-      tools: () => TOOLS,
+      // The data tools exist for a caller only while some connection is shared at the data level.
+      tools: (context) =>
+        context.service.anyData() ? TOOLS : TOOLS.filter((t) => !DATA_TOOLS.has(t.name)),
     });
   }
 
@@ -83,11 +133,20 @@ export class McpService {
     return this.sharedIds().length > 0;
   }
 
+  /** Is some connection shared at the data level right now? */
+  anyData(): boolean {
+    return this.sharedIds().some((id) => this.levelOf(id) === "data");
+  }
+
   /**
    * Share a connection at a level, or stop (`off`).
    * @throws ServiceError `connection_not_found`, `data_access_disabled` (the data level needs viewing table data).
    */
-  share(id: string, level: ClaudeLevel): ClaudeLevel {
+  async share(
+    id: string,
+    level: ClaudeLevel,
+    options: { acknowledgeRole?: boolean } = {},
+  ): Promise<ClaudeLevel> {
     const summary = this.connections.getSummary(id);
     if (!summary) throw new ServiceError("connection_not_found", MCP_MESSAGES.connectionNotFound);
     if (level === "off") {
@@ -97,8 +156,78 @@ export class McpService {
     if (level === "data" && !summary.dataAccess) {
       throw new ServiceError("data_access_disabled", MCP_MESSAGES.dataAccessOff);
     }
+    if (level === "data" && options.acknowledgeRole !== true) {
+      // A superuser, or a role that can read the server's files or run programs, can do outside the transaction what a
+      // read-only transaction does not stop: the person must say they know (and is advised to use a read-only role).
+      const role = await this.rows.getRoleInfo(id).catch(() => null);
+      if (role && (role.superuser || role.powerfulRoles.some((r) => RISKY_ROLES.has(r)))) {
+        throw new ServiceError("claude_role_not_acknowledged", MCP_MESSAGES.riskyRole);
+      }
+    }
     this.shared.set(id, level);
     return level;
+  }
+
+  /**
+   * Check that a connection is shared at the data level, for a data tool.
+   * @throws ToolError the same sentence as for an unshared connection, or one that says the level is structure only.
+   */
+  requireData(connection: string): void {
+    const level = this.levelOf(connection);
+    if (level === "off") throw new ToolError(NOT_SHARED);
+    if (level !== "data") {
+      throw new ToolError(
+        "This connection is shared at the structure level only. Ask the person to share the data level to read rows or run queries.",
+      );
+    }
+  }
+
+  /** Run one read-only statement for Claude (the SQL tab's runner: a read-only transaction, limits, one at a time). */
+  async runQuery(
+    connection: string,
+    text: string,
+    maxRows: number,
+    timeoutSeconds: number,
+    signal?: AbortSignal,
+  ) {
+    this.requireData(connection);
+    const names = sensitiveNamesIn(text);
+    if (names.length > 0) {
+      throw new ToolError(
+        `This statement names columns that look sensitive (${names.join(", ")}). Their values are never returned to you, so a statement that names them is refused. Ask for other columns.`,
+      );
+    }
+    try {
+      const outcome = await this.sql.run(
+        connection,
+        { text, maxRows, timeoutMs: timeoutSeconds * 1000 },
+        signal,
+      );
+      if ("failure" in outcome) throw new ToolError(failureWords(outcome.failure));
+      return outcome.result;
+    } catch (error) {
+      throw asToolError(error);
+    }
+  }
+
+  /** One page of rows for Claude, by the page reader: a hidden column is never revealed, never sorted or filtered on. */
+  async readRows(
+    connection: string,
+    request: {
+      schema: string;
+      table: string;
+      pageSize: number;
+      cursor: string | null;
+      sort: z.infer<typeof rowSortSchema> | null;
+      filters: Array<z.infer<typeof rowFilterSchema>>;
+    },
+  ) {
+    this.requireData(connection);
+    try {
+      return await this.rows.getRows(connection, { ...request, revealColumns: [] });
+    } catch (error) {
+      throw asToolError(error);
+    }
   }
 
   /**
@@ -377,7 +506,131 @@ const TOOLS: ReadonlyArray<ToolDefinition<Context>> = [
       };
     },
   },
+  {
+    name: "read_rows",
+    title: "Read a page of rows",
+    description:
+      "Reads one page of rows of a table or view, read-only, in the table's key order or sorted by one column. Up to 10 filters (the operators the column's type allows); a cursor from the answer continues. Hidden columns (names that look sensitive) are left out and named, never returned, never filterable. Each cell is cut at 500 characters and a page at about 100 KB. Data level only.",
+    input: z.strictObject({
+      connection: connectionField,
+      schema: identifier,
+      table: identifier,
+      filters: z.array(rowFilterSchema).max(MAX_ROW_FILTERS).optional(),
+      sort: rowSortSchema.optional(),
+      cursor: z
+        .string()
+        .min(1)
+        .max(4096)
+        .optional()
+        .describe("The nextCursor of the previous answer."),
+      page_size: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Rows in the page: 50 unless you say."),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context) => {
+      const a = args as {
+        connection: string;
+        schema: string;
+        table: string;
+        filters?: Array<z.infer<typeof rowFilterSchema>>;
+        sort?: z.infer<typeof rowSortSchema>;
+        cursor?: string;
+        page_size?: number;
+      };
+      const page = await context.service.readRows(a.connection, {
+        schema: a.schema,
+        table: a.table,
+        pageSize: a.page_size ?? 50,
+        cursor: a.cursor ?? null,
+        sort: a.sort ?? null,
+        filters: a.filters ?? [],
+      });
+      const shaped = shapePage(page);
+      return {
+        text:
+          `${shaped.rows.length} row${shaped.rows.length === 1 ? "" : "s"} of ${a.schema}.${a.table}. Columns: ${shaped.columns.map((c) => c.name + (c.hidden ? " [hidden]" : "")).join(", ")}.` +
+          (shaped.notes.length > 0 ? ` ${shaped.notes.join(" ")}` : "") +
+          (shaped.nextCursor ? ` More: call again with the cursor of the answer.` : ""),
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "run_readonly_query",
+    title: "Run one read-only query",
+    description:
+      "Runs ONE read-only statement (SELECT, WITH, VALUES, TABLE, SHOW) in a read-only transaction and returns its rows. Always limit what you ask for. At most 1,000 rows (200 unless you say), 30 seconds (10 unless you say), cells cut at 500 characters, about 100 KB. A statement that names a column that looks sensitive is refused, and such a column's values are always NULL. The database's own message is passed on only when it can only hold names. Describe the tables first with describe_table. Data level only.",
+    input: z.strictObject({
+      connection: connectionField,
+      sql: z.string().min(1).max(20_000).describe("One statement."),
+      max_rows: z.number().int().min(1).max(1000).optional(),
+      timeout_seconds: z.number().int().min(1).max(30).optional(),
+    }),
+    annotations: READ_ONLY,
+    run: async (args, context, signal) => {
+      const a = args as {
+        connection: string;
+        sql: string;
+        max_rows?: number;
+        timeout_seconds?: number;
+      };
+      const result = await context.service.runQuery(
+        a.connection,
+        a.sql,
+        a.max_rows ?? 200,
+        a.timeout_seconds ?? 10,
+        signal as AbortSignal | undefined,
+      );
+      const shaped = shapeQueryResult(result);
+      return {
+        text:
+          `${shaped.rows.length} row${shaped.rows.length === 1 ? "" : "s"}${shaped.truncated ? " (more were left out: add a LIMIT or a WHERE)" : ""}. Columns: ${shaped.columns.map((c) => c.name).join(", ") || "none"}.` +
+          (shaped.hiddenColumns.length > 0
+            ? ` Hidden columns returned as NULL: ${shaped.hiddenColumns.join(", ")}.`
+            : ""),
+        data: shaped,
+      };
+    },
+  },
+  {
+    name: "explain_query",
+    title: "Explain a query",
+    description:
+      "Returns the planner's plan (JSON) for ONE read-only statement, without running it. Use it to see how a query would run. Data level only.",
+    input: z.strictObject({ connection: connectionField, sql: z.string().min(1).max(20_000) }),
+    annotations: READ_ONLY,
+    run: async (args, context, signal) => {
+      const a = args as { connection: string; sql: string };
+      const result = await context.service.runQuery(
+        a.connection,
+        `EXPLAIN (FORMAT JSON) ${a.sql}`,
+        1,
+        10,
+        signal as AbortSignal | undefined,
+      );
+      const text = result.rows[0]?.[0] ?? "[]";
+      let plan: unknown = null;
+      try {
+        plan = JSON.parse(text);
+      } catch {
+        plan = null;
+      }
+      return { text: text.length > 20_000 ? `${text.slice(0, 20_000)}…` : text, data: { plan } };
+    },
+  },
 ];
+
+/** The tools that need the data level: they exist for a caller only while a connection is shared at that level. */
+const DATA_TOOLS: ReadonlySet<string> = new Set([
+  "read_rows",
+  "run_readonly_query",
+  "explain_query",
+]);
 
 /** The names of the tools, for the test that pins the list. */
 export const TOOL_NAMES: readonly string[] = TOOLS.map((t) => t.name);

@@ -89,6 +89,7 @@ export function createTestContext(
     profiles,
     ...(options.exportStallMs === undefined ? {} : { exportStallMs: options.exportStallMs }),
   });
+  const sql = new SqlService({ connections: registry });
   return {
     connections,
     snapshots: new SnapshotService({
@@ -108,8 +109,8 @@ export function createTestContext(
       writesEnabled: options.writesEnabled ?? false,
       now: options.now ? () => options.now!().getTime() : undefined,
     }),
-    sql: new SqlService({ connections: registry }),
-    mcp: new McpService({ connections: registry }),
+    sql,
+    mcp: new McpService({ connections: registry, sql, rows: connections }),
     dataDir,
     registry,
     createdAdapters,

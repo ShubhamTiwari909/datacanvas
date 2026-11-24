@@ -1,6 +1,6 @@
 # Plan: 1.11.0, the MCP server ("connect Claude to the database you are connected to")
 
-Status: **proposed 2026-11-24, waiting for the owner's decisions in section 15. Prioritised first: it comes before the write side's second part** (`docs/write-side-v2-plan.md`, which moves to 1.12.0). Written from the state of `main` at 1.9.0 with the 1.10.0 PR (#30) open; nothing here depends on 1.10.0 except where it says so (the statistics and the plan text are two more tools if it has landed).
+Status: **proposed 2026-11-24; the decisions of section 15 were taken by the owner on 2026-11-24 (every recommendation accepted; to be recorded in `docs/decisions.md` as decision 169, after 1.10.0's 161 to 168 land). Prioritised first: it comes before the write side's second part** (`docs/write-side-v2-plan.md`, which moves to 1.12.0). Written from the state of `main` at 1.9.0 with the 1.10.0 PR (#30) open; nothing here depends on 1.10.0 except where it says so (the statistics and the plan text are two more tools if it has landed).
 
 ## 1. What we promise
 
@@ -166,7 +166,7 @@ README (what you can do), `docs/getting-started.md` (a section on sharing with C
 - **An in-app assistant** with the person's own API key: a separate decision with its own consent screens, a per-request send confirmation, and its own review; the tools and the gates of this plan are what it would call.
 - **A write tool** for the local, unlocked case: not planned. If it were ever built it would be its own release behind the three layers of `docs/data-editing-plan.md`, a preview and an approval for every change, and a review of the whole.
 
-## 15. Decisions to take (recommendations; none is taken until the owner says so)
+## 15. Decisions taken (2026-11-24): every recommendation accepted
 
 1. **Hand-written protocol subset or the official SDK.** _Recommend_ a hand-written server (about 300 lines: the four methods, strict schemas, no runtime dependency, full control of limits and of what is logged), with **the official SDK as a dev dependency for the client in the tests**. The SDK as a runtime dependency brings an HTTP framework and many packages to a package that is 7 MB today and has no network code.
 2. **Transport.** _Recommend_ stateless Streamable HTTP on `/mcp` plus the stdio bridge `datacanvas mcp` (section 5), loopback only.
@@ -181,6 +181,12 @@ README (what you can do), `docs/getting-started.md` (a section on sharing with C
 11. **Version.** _Recommend_ **1.11.0** for this, and the write side's second part becomes **1.12.0** (its plan and decisions stand unchanged).
 12. **An independent review at the end**, as for every release that adds a door. _Recommend_ yes.
 13. **Which clients to support and test.** _Recommend_ Claude Desktop (stdio) and Claude Code (stdio and HTTP) as supported, tested by hand in the spike and each release; any MCP client that speaks the protocol should work and is not promised.
+
+## 15b. The decision as it will be recorded (decision 169)
+
+**Decision (2026-11-24, `docs/mcp-server-plan.md`, section 15):** 1.11.0 is the **MCP server**, built before anything else; the write side's second part becomes 1.12.0 (its plan and decisions stand). DataCanvas serves a **hand-written subset of the protocol** (`initialize`, `tools/list`, `tools/call`, `ping`; no runtime dependency; the official SDK only as a dev dependency of the tests) as **stateless Streamable HTTP on `127.0.0.1/mcp`** plus the **stdio bridge `datacanvas mcp`**. The endpoint has **a token of its own** (never the session token, refused on every other route, and the session token refused on `/mcp`), **refuses any request that carries an `Origin` header**, applies the Host check, answers **404 until a connection is shared**, and keeps its token for the bridge in `~/.datacanvas/mcp.json` (mode 0600, deleted on shutdown). **Sharing is per connection, off by default, in memory only** (never in a profile, gone on restart, disconnect or data viewing switched off), at **two levels**: structure (the default) and data (which needs "Allow viewing table data" and a tick in the dialog that says what leaves the machine). **Approval mode is on by default for the data level** (a query or a read of rows waits for Approve, 2 minutes), with Pause and an in-memory **activity list** that never holds a returned value. **A superuser or file-reading role is refused at the data level until acknowledged.** **Hidden columns** are replaced by NULLs and named in `run_readonly_query`, and a query that names one is refused, said plainly to be a hint (the role is the control). The **tool set of version 1** is eight read-only tools, pinned by a test, with no write tool, no resources and no prompts. An **independent review** comes before the PR; Claude Desktop (stdio) and Claude Code (stdio and HTTP) are the supported clients.
+
+**Why:** the data stays local until the client sends it, the connections are already open (no credential is given to Claude), and the read-only machinery is already built and reviewed, so the new surface is a protocol, a token and a switch: small enough to design, pin and test.
 
 ## 16. Open questions for the spike (M0)
 

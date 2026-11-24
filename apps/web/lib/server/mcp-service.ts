@@ -303,9 +303,13 @@ export class McpService {
         this.inflight.delete(running);
       }
       // Pause or Stop while it ran: nothing that was read is handed over.
-      if (this.control.paused || (connectionId !== null && this.levelOf(connectionId) === "off")) {
+      const withdrawn =
+        connectionId !== null &&
+        (this.levelOf(connectionId) === "off" ||
+          (DATA_TOOLS.has(tool.name) && this.levelOf(connectionId) !== "data"));
+      if (this.control.paused || withdrawn) {
         throw new ToolError(
-          "Claude's access was paused or stopped while this ran. Nothing is returned.",
+          "Claude's access was paused, lowered or stopped while this ran. Nothing is returned.",
         );
       }
       const rows = (result.data as { rows?: unknown } | undefined)?.rows;
@@ -329,6 +333,7 @@ export class McpService {
     if (level === "data" && !summary.dataAccess) {
       // Viewing table data was switched off: the data level ends for good (switching it on again must not bring it back).
       this.shared.set(id, "structure");
+      this.cancelRunning(id);
       return "structure";
     }
     return level;

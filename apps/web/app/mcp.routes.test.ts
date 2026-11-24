@@ -930,6 +930,39 @@ describe("the data tools (M3)", () => {
       expect(() => service.openCursor("eyJrIjpbIlRPS0VOIl19", scope)).toThrow(/not valid/);
     });
 
+    it("a data call that is running when viewing table data is switched off returns nothing", async () => {
+      const id = await connect({ dataAccess: true });
+      await share(id, "data");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      context.createdAdapters[0]!.sqlHandler = async () => {
+        await gate;
+        return {
+          columns: [{ name: "n", dataType: "integer" }],
+          rows: [["SECRET-ROW-VALUE"]],
+          truncated: false,
+          command: "SELECT",
+          cutCells: 0,
+          elapsedMs: 1,
+        };
+      };
+      const running = call("run_readonly_query", { connection: id, sql: "SELECT n FROM t" });
+      await new Promise((r) => setTimeout(r, 50));
+      await setDataAccess(
+        new Request(`${BASE}/api/connections/${id}/data-access`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Host: "127.0.0.1:4747", ...cookie },
+          body: JSON.stringify({ enabled: false }),
+        }),
+        params({ id }),
+      );
+      release();
+      const result = await running;
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("SECRET-ROW-VALUE");
+      expect(result.content[0]!.text).toMatch(/Nothing is returned/);
+    });
+
     it("the person is shown the whole statement, with control characters made visible, and a statement that would be refused is not asked about", async () => {
       const id = await connect({ dataAccess: true });
       await share(id, "data", { approval: true });

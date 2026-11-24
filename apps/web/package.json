@@ -19,6 +19,7 @@
     "@datacanvas/canvas-engine": "*",
     "@datacanvas/database-core": "*",
     "@datacanvas/postgres-adapter": "*",
+    "@datacanvas/mcp": "*",
     "@datacanvas/shared-types": "*",
     "@xyflow/react": "^12.12.1",
     "class-variance-authority": "^0.7.1",

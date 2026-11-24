@@ -18,6 +18,7 @@ import { ConnectionService, type ProviderConfigs } from "./connection-service";
 import type { ServerContext } from "./context";
 import { ProfileService } from "./profile-service";
 import { SnapshotService } from "./snapshot-service";
+import { McpService } from "./mcp-service";
 import { SqlService } from "./sql-service";
 import { SnapshotStorage } from "./storage/snapshot-storage";
 import { ProfileStorage } from "./storage/profile-storage";
@@ -108,6 +109,7 @@ export function createTestContext(
       now: options.now ? () => options.now!().getTime() : undefined,
     }),
     sql: new SqlService({ connections: registry }),
+    mcp: new McpService({ connections: registry }),
     dataDir,
     registry,
     createdAdapters,

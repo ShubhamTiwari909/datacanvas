@@ -198,4 +198,19 @@ README (what you can do), `docs/getting-started.md` (a section on sharing with C
 
 ## 17. What M0 found
 
-_To be written by M0, with the facts (versions, setup text that works, behaviour on errors, sizes)._
+Measured on 2026-11-24, with the real Claude Code (2.1.261) started with `--mcp-config` and `--strict-mcp-config` against the packaged app through the bridge (a logging wrapper between the client and the bridge recorded every line), and with the official SDK client (1.32.2) over HTTP and over stdio.
+
+- **Claude Code sends `protocolVersion: "2025-11-25"`** at `initialize` (capabilities `roots` and `elicitation`, `clientInfo` `claude-code` 2.1.261), then `notifications/initialized`, then `tools/list`. The server answered the same version, and the handshake and the list worked through the bridge. (The model call that would have followed failed on this machine because the Claude login had expired, which has nothing to do with DataCanvas: **the tool call itself was verified with the official SDK client instead**; calling a tool from a live Claude Code session is a step of M7's hand test.) The SDK supports `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` and `2024-10-07`; the server speaks the first four.
+- **Node's own `fetch` sends `Sec-Fetch-Mode: cors`**, so the plan's rule "refuse any `Sec-Fetch-*` header" refused the bridge and the official client. The guard refuses `Origin` and `Sec-Fetch-Site` (a browser always sends them; Node does not) and does not look at the mode. Found by the first end-to-end run; a test pins that the two headers are the ones refused.
+- **A tool's argument error is a tool result (`isError`), not a JSON-RPC error**, as the newer specification asks, so the model can correct itself; a tool that does not exist (or is not offered to this caller) is `-32602`. Both are tested, and an error never repeats a value.
+- **Stateless works**: the official client accepts a server that answers every `POST` with one JSON body, answers `GET` with 405 and has no session id.
+- **The setup text that works** for Claude Code is `claude mcp add datacanvas -- npx --yes @shubhamtiwari909/datacanvas mcp` (the stdio form, which is what was run here through `--mcp-config`); Claude Desktop's config is the JSON of section 5.3. Whether `npx` starts reliably on Windows and how long the first start takes is for M5's hand test on each platform.
+- **Not measured yet:** the size of a typical tool answer (no data tool exists yet), how Claude Desktop shows a tool error, and whether either client reconnects after DataCanvas restarts (the bridge re-reads `mcp.json` on every message, so it should).
+
+## 18. What M1 found
+
+- **The package** (`packages/mcp`, about 300 lines) is pure: JSON-RPC 2.0, the four methods, strict schemas turned into JSON Schema by zod, answers that repeat nothing the client sent, a result larger than 200,000 characters refused instead of cut. An architecture rule keeps it free of any framework, network or database.
+- **Two tokens, two scopes**: `DATACANVAS_MCP_TOKEN` is made by the CLI for each run (never the session token, and equal to it means `/mcp` does not exist), accepted only as `Authorization: Bearer` on `/mcp`, and written for the bridge to `mcp.json` (mode 0600, only the pid, the port and that token). The cookie guard never reads an `Authorization` header, so the token is no credential for the app (an end-to-end test sends it to `/api/connections` and is refused).
+- **404 before anything is shared**, checked before the body is read, so a program that finds the port and has the token learns nothing.
+- Sharing is `PUT /api/connections/:id/claude` (cookie-guarded, `off` / `structure` / `data`, memory only, the data level needs viewing table data and falls back to structure when it is switched off, a disconnect ends it).
+- Only `list_connections` exists so far (M2 adds the structure tools).

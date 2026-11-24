@@ -102,6 +102,21 @@ export const tableStatisticsResponseSchema = z.object({
   statistics: tableStatisticsSchema.nullable(),
 });
 
+// --- Sharing a connection with Claude (MCP, decision 169) -------------------
+
+/** What Claude may read through this connection: nothing, the structure only, or the structure and read-only data. */
+export const claudeLevelSchema = z.enum(["off", "structure", "data"]);
+export type ClaudeLevel = z.infer<typeof claudeLevelSchema>;
+
+/** `PUT /api/connections/:id/claude`: share the connection with Claude at a level, or stop. In memory only. */
+export const claudeSharingRequestSchema = z.strictObject({ level: claudeLevelSchema });
+export type ClaudeSharingRequest = z.infer<typeof claudeSharingRequestSchema>;
+
+export const claudeSharingResponseSchema = z.object({
+  sharing: z.object({ level: claudeLevelSchema }),
+});
+export type ClaudeSharingResponse = z.infer<typeof claudeSharingResponseSchema>;
+
 // --- Table data (rows) ------------------------------------------------------
 
 /** Sort by one column: the table's key breaks ties. Strict, like the request around it. */

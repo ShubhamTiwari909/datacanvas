@@ -1626,3 +1626,97 @@ describe("an export of chosen rows names rows by the whole key and is read by th
     }
   });
 });
+
+describe("the MCP server is a read-only door with a token of its own (decision 169)", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const mcpFiles = [
+    ...walk(path.join(root, "packages/mcp/src")),
+    "apps/web/lib/server/mcp-service.ts",
+    "apps/web/app/mcp/route.ts",
+    "apps/web/app/api/connections/[id]/claude/route.ts",
+    "packages/cli/src/mcp-bridge.ts",
+    "packages/cli/src/mcp-file.ts",
+  ]
+    .map((f) => (path.isAbsolute(f) ? f : path.join(root, f)))
+    .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f) && !f.includes("/dist/"));
+
+  it("no file of the MCP path writes to a log or the console", () => {
+    for (const file of mcpFiles) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(/\bconsole\./);
+    }
+  });
+
+  it("the service imports nothing that writes: no write service, no adapter write capability, no change", () => {
+    const code = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    expect(code).not.toMatch(
+      /write-service|WriteService|WritableAdapter|isWritableAdapter|PlannedChange|previewChange|applyChange|exportRows/,
+    );
+    for (const file of mcpFiles) {
+      expect(stripComments(readFileSync(file, "utf8")), rel(file)).not.toMatch(
+        /write-service|WritableAdapter|isWritableAdapter|previewChange|applyChange|\.writes\b/,
+      );
+    }
+  });
+
+  it("the tools are exactly the pinned list, every one read-only, and none is named for a write", () => {
+    const code = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    const tools = code.slice(code.indexOf("const TOOLS"));
+    const names = [...tools.matchAll(/^\s+name: "([a-z_]+)",$/gm)].map((m) => m[1]);
+    // A new tool is a deliberate change of this list: a decision, a review and a test of its own.
+    expect(names).toEqual(["list_connections"]);
+    expect((code.match(/annotations: READ_ONLY/g) ?? []).length).toBe(names.length);
+    for (const name of names)
+      expect(name).not.toMatch(/write|insert|update|delete|drop|create|alter|import|exec|run_sql/);
+  });
+
+  it("/mcp has its own guard, in the front door and in the route, and never the cookie's", () => {
+    const proxy = stripComments(read("apps/web/proxy.ts"));
+    expect(proxy).toMatch(/pathname === "\/mcp"/);
+    expect(proxy).toContain("evaluateMcpRequest(mcpFactsFromRequest(request), security)");
+    const route = stripComments(read("apps/web/app/mcp/route.ts"));
+    expect(route).toContain(
+      "evaluateMcpRequest(mcpFactsFromRequest(request), readSecurityConfig())",
+    );
+    expect(route).not.toMatch(/cookie|sessionCookieName|guardRequest|handleRoute/i);
+    // The cookie guard never reads an Authorization header, so the token of /mcp is no credential for the app.
+    const guard = stripComments(read("apps/web/lib/security/request-guard.ts"));
+    const cookieGuard = guard.slice(
+      guard.indexOf("export function evaluateRequest"),
+      guard.indexOf("export interface McpRequestFacts"),
+    );
+    expect(cookieGuard).not.toMatch(/authorization|bearer|mcpToken/i);
+  });
+
+  it("the guard refuses a browser (Origin, Sec-Fetch-Site), compares the token in constant time, and the route answers 404 before anything is shared", () => {
+    const guard = stripComments(read("apps/web/lib/security/request-guard.ts"));
+    expect(guard).toMatch(/facts\.origin !== null \|\| facts\.secFetchSite !== null/);
+    expect(guard).toMatch(/tokensMatch\(config\.mcpToken, readBearer\(facts\.authorization\)\)/);
+    expect(stripComments(read("apps/web/app/mcp/route.ts"))).toMatch(/if \(!mcp\.anyShared\(\)\)/);
+  });
+
+  it("what is shared is kept in memory only: no file, no profile, no storage", () => {
+    const service = stripComments(read("apps/web/lib/server/mcp-service.ts"));
+    expect(service).not.toMatch(
+      /writeFile|fs\/|storage|profile|localStorage|sessionStorage|setDataAccess/,
+    );
+    expect(stripComments(read("packages/shared-types/src/postgres-connection.ts"))).not.toMatch(
+      /claude|mcp/i,
+    );
+  });
+
+  it("mcp.json holds the token of /mcp and nothing of the browser's session, and is written 0600", () => {
+    const file = stripComments(read("packages/cli/src/mcp-file.ts"));
+    expect(file).toContain("0o600");
+    const cli = stripComments(read("packages/cli/src/index.ts"));
+    expect(cli).toMatch(/writeMcpFile\(dataDir, \{ pid: process\.pid, port, token: mcpToken \}\)/);
+    expect(cli).toContain("const mcpToken = generateSessionToken()");
+  });
+
+  it("the bridge writes nothing but protocol to stdout", () => {
+    const bridge = stripComments(read("packages/cli/src/mcp-bridge.ts"));
+    expect(bridge).not.toMatch(/console\.|process\.stdout\.write/);
+    expect(bridge).toContain("output.write(`${answer}\\n`)");
+  });
+});

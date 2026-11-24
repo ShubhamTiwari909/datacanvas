@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  evaluateMcpRequest,
   evaluateRequest,
   isAllowedHost,
   isAllowedOrigin,
@@ -22,6 +23,7 @@ const config: SecurityConfig = {
   token: TOKEN,
   tokenRequired: true,
   writesEnabled: false,
+  mcpToken: null,
 };
 
 function facts(overrides: Partial<RequestFacts> = {}): RequestFacts {
@@ -109,12 +111,19 @@ describe("readSecurityConfig", () => {
       token: "abc",
       tokenRequired: true,
       writesEnabled: false,
+      mcpToken: null,
     });
   });
 
   it("requires a token in production even when none was configured (fail closed)", () => {
     const cfg = readSecurityConfig({ NODE_ENV: "production", PORT: "4747" });
-    expect(cfg).toEqual({ port: 4747, token: null, tokenRequired: true, writesEnabled: false });
+    expect(cfg).toEqual({
+      port: 4747,
+      token: null,
+      tokenRequired: true,
+      writesEnabled: false,
+      mcpToken: null,
+    });
   });
 
   it("enables writes only for the exact value the CLI sets", () => {
@@ -205,6 +214,7 @@ describe("evaluateRequest", () => {
       token: null,
       tokenRequired: true,
       writesEnabled: false,
+      mcpToken: null,
     });
     expect(d).toMatchObject({ ok: false, status: 503 });
   });
@@ -215,6 +225,7 @@ describe("evaluateRequest", () => {
       token: null,
       tokenRequired: false,
       writesEnabled: false,
+      mcpToken: null,
     };
     expect(evaluateRequest(facts({ cookieToken: null }), open).ok).toBe(true);
     expect(evaluateRequest(facts({ host: "evil.example:1" }), open).ok).toBe(false);
@@ -223,5 +234,109 @@ describe("evaluateRequest", () => {
   it("never echoes request data in the refusal message", () => {
     const d = evaluateRequest(facts({ host: "evil-marker.example:4747" }), config);
     expect(JSON.stringify(d)).not.toContain("evil-marker");
+  });
+});
+
+describe("the guard of /mcp (decision 169)", () => {
+  const MCP = "m".repeat(43);
+  const mcpConfig: SecurityConfig = { ...config, mcpToken: MCP };
+  const ok = {
+    host: "127.0.0.1:4747",
+    origin: null,
+    secFetchSite: null,
+    authorization: `Bearer ${MCP}`,
+  };
+
+  it("lets a program with the token through", () => {
+    expect(evaluateMcpRequest(ok, mcpConfig)).toEqual({ ok: true });
+    expect(evaluateMcpRequest({ ...ok, host: "localhost:4747" }, mcpConfig)).toEqual({ ok: true });
+  });
+
+  it("does not exist (404) when no token was given to the server", () => {
+    expect(evaluateMcpRequest(ok, { ...config, mcpToken: null })).toMatchObject({
+      ok: false,
+      status: 404,
+    });
+  });
+
+  it("refuses another Host (DNS rebinding) before it looks at the token", () => {
+    for (const host of ["evil.example:4747", "127.0.0.1:9999", "127.0.0.1", null]) {
+      expect(evaluateMcpRequest({ ...ok, host }, mcpConfig)).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+    }
+  });
+
+  it("refuses anything that comes from a browser, even with the right token: an Origin or a Sec-Fetch-Site header", () => {
+    for (const patch of [
+      { origin: "http://127.0.0.1:4747" },
+      { origin: "http://evil.example" },
+      { origin: "null" },
+      { secFetchSite: "same-origin" },
+      { secFetchSite: "cross-site" },
+    ]) {
+      expect(evaluateMcpRequest({ ...ok, ...patch }, mcpConfig)).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+    }
+  });
+
+  it("needs the bearer token of /mcp: nothing, a wrong one, another scheme, and the SESSION token are refused", () => {
+    for (const authorization of [
+      null,
+      "",
+      `Bearer ${"x".repeat(43)}`,
+      `Basic ${MCP}`,
+      `bearer ${MCP}`,
+      `Bearer ${TOKEN}`,
+      `Bearer ${MCP} extra`,
+      MCP,
+    ]) {
+      expect(evaluateMcpRequest({ ...ok, authorization }, mcpConfig)).toMatchObject({
+        ok: false,
+        status: 401,
+      });
+    }
+  });
+
+  it("the MCP token is not a credential anywhere else: the cookie guard never reads an Authorization header", () => {
+    const d = evaluateRequest(
+      {
+        method: "GET",
+        pathname: "/api/connections",
+        host: "127.0.0.1:4747",
+        origin: null,
+        secFetchSite: null,
+        cookieToken: MCP,
+      },
+      mcpConfig,
+    );
+    expect(d).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it("a server whose MCP token equals the session token does not offer /mcp at all", () => {
+    const same = readSecurityConfig({
+      DATACANVAS_SESSION_TOKEN: TOKEN,
+      DATACANVAS_MCP_TOKEN: TOKEN,
+      PORT: "4747",
+    });
+    expect(same.mcpToken).toBeNull();
+    const other = readSecurityConfig({
+      DATACANVAS_SESSION_TOKEN: TOKEN,
+      DATACANVAS_MCP_TOKEN: MCP,
+      PORT: "4747",
+    });
+    expect(other.mcpToken).toBe(MCP);
+    expect(readSecurityConfig({ DATACANVAS_SESSION_TOKEN: TOKEN }).mcpToken).toBeNull();
+  });
+
+  it("answers with sentences that repeat nothing of the request", () => {
+    const refused = evaluateMcpRequest(
+      { ...ok, authorization: "Bearer " + "q".repeat(43) },
+      mcpConfig,
+    );
+    expect(JSON.stringify(refused)).not.toContain("q".repeat(10));
   });
 });

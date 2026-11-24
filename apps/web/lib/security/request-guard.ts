@@ -34,6 +34,12 @@ export function sessionCookieName(port: number | null): string {
 /** Query parameter that carries the token on the very first page load only. */
 export const TOKEN_QUERY_PARAM = "token";
 
+/**
+ * The variable through which the CLI gives the server the token of `/mcp` (`docs/mcp-server-plan.md`, section 5.2;
+ * decision 169). It is a DIFFERENT secret from the session token: it is accepted on that one route and nowhere else.
+ */
+export const MCP_TOKEN_ENV = "DATACANVAS_MCP_TOKEN";
+
 export interface SecurityConfig {
   /** The port the server listens on, or null when unknown (development only). */
   port: number | null;
@@ -52,6 +58,8 @@ export interface SecurityConfig {
    * server): see `readSecurityConfig`. Nothing in the API can change it.
    */
   writesEnabled: boolean;
+  /** The token `/mcp` requires, or null when none was given (then `/mcp` does not exist). Never the session token. */
+  mcpToken: string | null;
 }
 
 /** Name of the environment variable through which the CLI says writes are enabled (exactly "1"). */
@@ -71,6 +79,8 @@ export function readSecurityConfig(
     // Writes need the session token as well: without one only the Host check would stand in
     // front of them (a development server has no token), so they stay off.
     writesEnabled: env[ENABLE_WRITES_ENV] === "1" && token !== null,
+    // The same value as the session token would give the browser's credential the power of the program's: refused.
+    mcpToken: env[MCP_TOKEN_ENV] && env[MCP_TOKEN_ENV] !== token ? env[MCP_TOKEN_ENV] : null,
   };
 }
 
@@ -197,6 +207,68 @@ export function evaluateRequest(facts: RequestFacts, config: SecurityConfig): Gu
     }
   }
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------- /mcp ---
+
+/** What the guard of `/mcp` needs to know: a program's request, not a browser's. */
+export interface McpRequestFacts {
+  host: string | null;
+  origin: string | null;
+  secFetchSite: string | null;
+  /** The `Authorization` header. */
+  authorization: string | null;
+}
+
+export type McpGuardDecision =
+  { ok: true } | { ok: false; status: 401 | 403 | 404; message: string };
+
+/** The bearer token of an `Authorization` header, or null. */
+export function readBearer(header: string | null): string | null {
+  const match = /^Bearer ([A-Za-z0-9_-]{16,128})$/.exec(header ?? "");
+  return match ? (match[1] ?? null) : null;
+}
+
+/**
+ * The guard of `/mcp` (decision 169). Its callers are programs (a stdio bridge, an MCP client), not browsers:
+ *  1. no token configured: the route does not exist (404), so nothing answers on it by accident;
+ *  2. the Host check, as everywhere (DNS rebinding);
+ *  3. a request with an `Origin` header, or a `Sec-Fetch-Site` header, is from a BROWSER and is refused (403): a web page
+ *     must not be able to call this even if it learned the token (the specification asks a local server to do this). (Not
+ *     `Sec-Fetch-Mode`: Node's own `fetch`, which the bridge and the official client use, sends `cors` there.)
+ *  4. the bearer token of `/mcp`, compared in constant time. The session token is a different secret and is refused here,
+ *     and this token is refused on every other route (the cookie guard never reads an `Authorization` header).
+ * Every refusal is a fixed sentence that repeats nothing of the request.
+ */
+export function evaluateMcpRequest(
+  facts: McpRequestFacts,
+  config: SecurityConfig,
+): McpGuardDecision {
+  if (config.mcpToken === null) return { ok: false, status: 404, message: "Not found." };
+  if (!isAllowedHost(facts.host, config.port)) {
+    return {
+      ok: false,
+      status: 403,
+      message: "This request was refused because of its Host header.",
+    };
+  }
+  if (facts.origin !== null || facts.secFetchSite !== null) {
+    return { ok: false, status: 403, message: "Requests from web pages are not allowed here." };
+  }
+  if (!tokensMatch(config.mcpToken, readBearer(facts.authorization))) {
+    return { ok: false, status: 401, message: "A valid token is required." };
+  }
+  return { ok: true };
+}
+
+export function mcpFactsFromRequest(request: Request): McpRequestFacts {
+  const url = new URL(request.url);
+  return {
+    host: request.headers.get("host") ?? url.host,
+    origin: request.headers.get("origin"),
+    secFetchSite: request.headers.get("sec-fetch-site"),
+    authorization: request.headers.get("authorization"),
+  };
 }
 
 /** Collect the facts about a standard `Request` (used by route handlers). */

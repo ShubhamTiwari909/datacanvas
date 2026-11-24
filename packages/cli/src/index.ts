@@ -25,6 +25,8 @@ import {
   writeInstance,
 } from "./instance.js";
 import { isSupportedNode, unsupportedNodeMessage } from "./node-version.js";
+import { runBridge } from "./mcp-bridge.js";
+import { removeMcpFile, writeMcpFile } from "./mcp-file.js";
 import { findFreePort, isPortFree } from "./port.js";
 import { VERSION } from "./version.js";
 import {
@@ -38,6 +40,7 @@ const HELP = `DataCanvas ${VERSION}
 A local-first visual PostgreSQL explorer.
 
 Usage: datacanvas [options]
+       datacanvas mcp      A bridge for a Claude app: connects it to the running DataCanvas (read only)
 
 Options:
   --port <number>   Port to listen on (default: ${DEFAULT_PORT}, or the next free port)
@@ -63,6 +66,13 @@ function checkNodeVersion(): void {
 
 async function main(): Promise<void> {
   checkNodeVersion();
+
+  // `datacanvas mcp`: the stdio bridge a Claude app starts (docs/mcp-server-plan.md, section 5.3). Nothing but protocol
+  // may go to stdout, so it runs before anything that prints.
+  if (process.argv[2] === "mcp") {
+    await runBridge(resolveDataDir());
+    return;
+  }
 
   let values;
   try {
@@ -149,7 +159,9 @@ async function main(): Promise<void> {
   console.log(`DataCanvas ${VERSION}: starting…`);
   // A new secret for every run. Only this process and the server it starts know it.
   const sessionToken = generateSessionToken();
-  const server = startWebServer(serverJs, port, sessionToken, { enableWrites });
+  // The token of `/mcp` is another secret, never the session token: it is accepted on that one route only.
+  const mcpToken = generateSessionToken();
+  const server = startWebServer(serverJs, port, sessionToken, { enableWrites, mcpToken });
 
   // Shutdown handling. `shuttingDown` stops a second Ctrl+C from racing the first.
   let shuttingDown = false;
@@ -159,6 +171,7 @@ async function main(): Promise<void> {
     console.log("\nStopping DataCanvas…");
     await stopWebServer(server);
     await removeInstance(dataDir, process.pid).catch(() => {});
+    await removeMcpFile(dataDir, process.pid).catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
@@ -197,6 +210,8 @@ async function main(): Promise<void> {
   }).catch(
     () => {}, // not being able to write it only disables "open the running one"
   );
+  // For `datacanvas mcp`, the bridge a Claude app starts (mode 0600, deleted on shutdown).
+  await writeMcpFile(dataDir, { pid: process.pid, port, token: mcpToken }).catch(() => {});
   if (!values["no-open"]) openBrowser(url);
 }
 

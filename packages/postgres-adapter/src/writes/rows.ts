@@ -504,6 +504,11 @@ async function splitByCurrent(
     expected: ReadonlyArray<{ column: string; value: string | null }>;
   }>,
 ): Promise<{ kept: number[]; skipped: number[] }> {
+  // A NUL cannot be in any PostgreSQL text: say so about the value it is in, instead of letting the cast of a value
+  // that was seen (compared as text) end in the message about the type of the key.
+  if (rows.some((r) => r.expected.some((e) => e.value !== null && e.value.includes("\u0000")))) {
+    throw invalidChange("A value contains a NUL character, which PostgreSQL cannot store.");
+  }
   const kept: number[] = [];
   const skipped: number[] = [];
   const identities = new Set<string>();

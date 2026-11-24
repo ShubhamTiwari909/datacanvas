@@ -48,7 +48,7 @@
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.6",
-    "axe-core": "4.14.0",
+    "axe-core": "4.14.1",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.6",
@@ -57,5 +57,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "dompurify": "^3.5.0"
   }
 }

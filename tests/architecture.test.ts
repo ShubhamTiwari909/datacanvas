@@ -6,6 +6,7 @@
  * Only relative imports are allowed (plus `vitest` in test files and in
  * `testing/contract.ts`, the shared contract test suite).
  */
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,5 +241,17 @@ describe("the proxy buffers the largest body a route accepts", () => {
     );
     expect(limits.length).toBe(2);
     for (const limit of limits) expect(configured).toBeGreaterThanOrEqual(limit);
+  });
+});
+
+describe("the repository holds no leftovers of editing", () => {
+  it("tracks no backup file (.bak, .bk, .orig, .rej, a trailing ~)", () => {
+    let files: string[];
+    try {
+      files = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n");
+    } catch {
+      return; // not a git checkout (a packed source): nothing to check
+    }
+    expect(files.filter((f) => /\.(bak|bk|orig|rej)$|~$/.test(f))).toEqual([]);
   });
 });

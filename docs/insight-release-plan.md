@@ -48,17 +48,17 @@ Set per request by `proxy.ts` (a header on the HTML response; static files do no
 default-src 'none';
 script-src 'self' 'nonce-<random>' 'strict-dynamic';
 style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:;
+img-src 'self' data:;
 font-src 'self';
 connect-src 'self';
-worker-src 'self' blob:;
+worker-src 'self';
 object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
 ```
 
 - `script-src` takes a nonce that the framework puts on its own inline and loaded scripts when the page is rendered per request; `'strict-dynamic'` lets those scripts load their chunks. In **development only**, `'unsafe-eval'` is added (the dev server needs it); the packaged app never has it.
 - `style-src` keeps `'unsafe-inline'`: React Flow and the menus set `style` attributes, which a nonce cannot cover. That is a smaller hole than scripts (no code runs from a style) and is said in `SECURITY.md`.
-- `worker-src` has `'self'` for Monaco's editor worker (built into the package) and `blob:` in case a dependency makes one from a blob; the spike (section 4.2) decides whether `blob:` is needed.
-- `img-src` has `data:` and `blob:` for the image export and the canvas; `connect-src 'self'` is the API.
+- `worker-src` has `'self'` for Monaco's editor worker (built into the package). **The spike found that `blob:` is not needed**, nor `data:` fonts, and both were left out.
+- `img-src` has `'self'` and `data:`; `connect-src 'self'` is the API. The image export is a download, which no policy governs.
 
 ### 4.2 The spike comes first (V1)
 
@@ -180,3 +180,11 @@ V1 goes first because it is the only item that can change how every screen loads
 - **Quoting for five text formats** is a place for a subtle bug. The tests that use hostile names, and the SQL round trip against a real database, are the answer; the review looks at this first.
 - **The statistics differ by server version and role** (`pg_stats` columns, a restricted role sees fewer). Tests against 12 to 18, and the screen says why a figure is missing instead of showing zero.
 - **Scope creep from "insight".** A plan viewer and statistics invite a query advisor and a health score. Neither is promised: they are opinions the product would then have to defend.
+
+## 14. What V1 found (2026-11-24)
+
+- The spike ran the **whole Playwright suite** with the policy enforced and a listener for `securitypolicyviolation` on every page (the `page` fixture, which now fails any test that breaks the policy). **It found exactly one violation:** zod 4 checks whether it may compile a function with `Function("")`, which the policy refuses (caught by zod, but still reported). The browser's zod is now `jitless` (decision 163).
+- **No screen needed a looser policy**: not the SQL and JSON editors (Monaco's worker is `'self'`), not the canvas, not the dialogs or the downloads. `blob:` and `data:` fonts were left out; `data:` images are kept.
+- The nonce needs the page to be rendered per request (the layout reads the request's headers); the tests pin that every script of the page has the nonce of its response and that it differs on every response.
+- `'strict-dynamic'` allows a script element made by a script that already runs; markup that the parser reads (an inline handler, a script written into the page) does not run, and `e2e/csp.spec.ts` pins that.
+- The suite also showed two timing weaknesses unrelated to the policy, both fixed in the tests: the axe checks now settle colours first (`settleForAxe`, in every spec that runs axe) and the 1,000-table test waits for the nodes to be measured before counting the ones drawn.

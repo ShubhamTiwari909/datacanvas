@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTestDatabase, testDatabaseUrl } from "@datacanvas/postgres-adapter/testing";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cli = path.join(root, ".package/bin/datacanvas.mjs");
@@ -90,7 +90,31 @@ export interface TestDb {
   url: string;
 }
 
-export const test = base.extend<{ app: RunningApp; writableApp: RunningApp; database: TestDb }>({
+export const test = base.extend<{
+  app: RunningApp;
+  writableApp: RunningApp;
+  database: TestDb;
+  /** True only for a test that causes a violation on purpose (the policy's own test). */
+  allowCspViolations: boolean;
+}>({
+  allowCspViolations: [false, { option: true }],
+  // Every test that opens a page also checks that the page broke none of the Content-Security-Policy (a script that
+  // would not run, a stylesheet, an image or a connection that was blocked): a violation fails the test.
+  page: async ({ page, allowCspViolations }, use) => {
+    const violations: string[] = [];
+    await page.exposeFunction("__reportCspViolation", (what: string) => violations.push(what));
+    await page.addInitScript(() => {
+      document.addEventListener("securitypolicyviolation", (event) => {
+        const report = (window as unknown as { __reportCspViolation?: (what: string) => void })
+          .__reportCspViolation;
+        report?.(
+          `${event.violatedDirective}: ${event.blockedURI || "inline"} (${event.sourceFile ?? ""})`,
+        );
+      });
+    });
+    await use(page);
+    if (!allowCspViolations) expect(violations, "Content-Security-Policy violations").toEqual([]);
+  },
   // DataCanvas started with --enable-writes, for the editing tests.
   // eslint-disable-next-line no-empty-pattern
   writableApp: async ({}, use) => {
@@ -120,5 +144,21 @@ export const test = base.extend<{ app: RunningApp; writableApp: RunningApp; data
     await db.dispose();
   },
 });
+
+/**
+ * Call before running axe. A colour that is still moving (a button changing with the theme, or going towards its hover
+ * colour under a mouse left where the last click was) gives a contrast that is not the resting one, and on a slow
+ * machine the check can land in the middle: stop the transitions, move the mouse away and let two frames paint.
+ */
+export async function settleForAxe(page: Page): Promise<void> {
+  await page.mouse.move(0, 0);
+  await page.addStyleTag({
+    content: "*,*::before,*::after{transition:none!important;animation:none!important}",
+  });
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+  );
+}
 
 export { expect };

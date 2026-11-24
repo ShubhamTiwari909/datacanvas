@@ -18,7 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import type { Locator, Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const shots = process.env.UI_FORMS_DIR ?? path.join(here, "../test-results/ui-forms");
@@ -88,6 +88,7 @@ async function inspect(page: Page, name: string, theme: string): Promise<void> {
   }
   await designRules(page, name);
 
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async () => {
     const axe = (

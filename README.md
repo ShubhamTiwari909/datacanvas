@@ -8,6 +8,8 @@ npx --yes @shubhamtiwari909/datacanvas
 
 That is the whole installation. You only need [Node.js](https://nodejs.org) 20.9 or newer: no clone, no build, no `.env` file, no account. It prints a private link and opens your browser; press Ctrl+C to stop.
 
+**Documentation:** [pg-visualizer-docs.vercel.app](https://pg-visualizer-docs.vercel.app/)
+
 ![The schema overview: one card per schema with counts, connections and the most connected tables](docs/images/overview.png)
 
 ![The paths tab: the shortest route between two tables and the generated join SQL](docs/images/paths.png)

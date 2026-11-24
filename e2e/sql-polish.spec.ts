@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import type { Page } from "@playwright/test";
-import { expect, test, type TestDb } from "./fixtures";
+import { expect, test, type TestDb, settleForAxe } from "./fixtures";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const shots = process.env.SQL_VIEW_DIR ?? path.join(here, "../test-results/sql-view");
@@ -75,6 +75,7 @@ async function runUntil(page: Page, text: string, shown: () => Promise<void>) {
 }
 
 async function axeOn(page: Page, name: string, within = "body"): Promise<void> {
+  await settleForAxe(page);
   await page.addScriptTag({ content: axeSource });
   const result = await page.evaluate(async (within) => {
     const axe = (

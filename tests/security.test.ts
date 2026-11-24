@@ -1398,3 +1398,56 @@ describe("writes: no request carries SQL", () => {
     expect(mock).not.toMatch(/\b(LIKE|ILIKE|SIMILAR TO)\b/);
   });
 });
+
+describe("the Content-Security-Policy is made for each request and nothing in the page runs without it", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const sources = walk(path.join(root, "apps/web")).filter(
+    (f) =>
+      /\.(ts|tsx)$/.test(f) &&
+      !/\.test\.tsx?$/.test(f) &&
+      !f.includes("node_modules") &&
+      !f.includes("/.next/") &&
+      !f.includes("/dist/"),
+  );
+
+  it("the proxy gives every page a policy with a new nonce, on the request (for the framework) and the response", () => {
+    const proxy = read("apps/web/proxy.ts");
+    expect(proxy).toContain("makeNonce()");
+    expect(proxy).toContain("buildCsp(nonce");
+    expect(proxy).toMatch(/headers\.set\("Content-Security-Policy", policy\)/);
+    expect(proxy).toMatch(/headers\.set\("x-nonce", nonce\)/);
+    expect(proxy).toMatch(/response\.headers\.set\("Content-Security-Policy", policy\)/);
+    // The nonce is made inside the function that serves a request: a constant would be the same for every page.
+    expect(proxy.slice(0, proxy.indexOf("export function proxy"))).not.toMatch(/makeNonce\(\)/);
+  });
+
+  it("the one script of ours has the nonce, and no other component writes a script", () => {
+    expect(read("apps/web/app/layout.tsx")).toMatch(/<script nonce=\{nonce\}/);
+    for (const file of sources) {
+      const code = readFileSync(file, "utf8");
+      if (file.endsWith("app/layout.tsx")) continue;
+      expect(code, rel(file)).not.toMatch(/<script\b/);
+      expect(code, rel(file)).not.toMatch(/\bdangerouslySetInnerHTML\b/);
+    }
+  });
+
+  it("no code of the app compiles code from text (eval, new Function), which the policy would refuse", () => {
+    for (const file of sources) {
+      expect(readFileSync(file, "utf8"), rel(file)).not.toMatch(/\beval\s*\(|new\s+Function\s*\(/);
+    }
+  });
+
+  it("the browser is told not to ask zod for code generation, before any response is parsed", () => {
+    expect(read("apps/web/lib/zod-config.ts")).toContain("z.config({ jitless: true })");
+    expect(read("apps/web/lib/api-client.ts")).toMatch(/^import "@\/lib\/zod-config";/m);
+    expect(read("apps/web/app/layout.tsx")).toContain("<BrowserSetup />");
+  });
+
+  it("the policy has no unsafe-inline for scripts and no eval outside development", () => {
+    const code = read("apps/web/lib/security/csp.ts");
+    const scriptSrc = code.slice(code.indexOf('"script-src"'), code.indexOf('"style-src"'));
+    expect(scriptSrc).not.toContain("unsafe-inline");
+    expect((scriptSrc.match(/unsafe-eval/g) ?? []).length).toBe(1);
+    expect(scriptSrc).toMatch(/options\.dev \? \["'unsafe-eval'"\]/);
+  });
+});

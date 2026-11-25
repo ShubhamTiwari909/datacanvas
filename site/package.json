@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "description": "Documentation site for DataCanvas (Astro + Starlight). Not part of the pnpm workspace and not published.",
   "engines": {
     "node": ">=22.12.0"

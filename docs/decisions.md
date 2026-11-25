@@ -544,7 +544,7 @@ Short records of choices that are not obvious from the code. Newest at the botto
 
 ## 86. The release gate reports; it never decides
 
-**Decision:** `npm run release:check` fails while the version, license, repository or security contact are missing, and the package build copies such metadata from the root `package.json` instead of defaulting it.
+**Decision:** `pnpm run release:check` fails while the version, license, repository or security contact are missing, and the package build copies such metadata from the root `package.json` instead of defaulting it.
 
 **Why:** a license and a repository address are legal and organizational decisions. A default would either be wrong or hide that a decision is pending. A failing gate makes the open items impossible to forget, and the release workflow runs it so a tag cannot publish around it.
 
@@ -556,7 +556,7 @@ Short records of choices that are not obvious from the code. Newest at the botto
 
 ## 88. Screenshots are generated, not hand-made
 
-**Decision:** README images come from a Playwright spec against the sample database (`npm run screenshots`).
+**Decision:** README images come from a Playwright spec against the sample database (`pnpm run screenshots`).
 
 **Why:** they stay accurate when the interface changes, contain no real schema, and anyone can regenerate them.
 
@@ -595,7 +595,7 @@ Follow-up decisions are 91 and 92.
 
 ## 94. PostgreSQL 12 to 18 matrix
 
-**Decision:** the database-facing tests run against PostgreSQL 12 through 18, locally through Docker (`npm run test:pg-matrix`, alpine images) and in CI as a job matrix.
+**Decision:** the database-facing tests run against PostgreSQL 12 through 18, locally through Docker (`pnpm run test:pg-matrix`, alpine images) and in CI as a job matrix.
 
 **Why:** catalog layouts and defaults change between versions (`reltuples` is -1 for never-analysed tables from 14, partition behaviour, generated columns from 12). 12 is the floor because the fixtures use generated columns. Older versions are not tested and not promised.
 
@@ -675,7 +675,7 @@ Follow-up decisions are 91 and 92.
 
 **Decision:** the published package keeps `engines.node >=20.9.0`. The repository's own `engines` is `^20.19.0 || >=22.12.0`, and the CI job `install-qa` builds on Node 22 and then runs the packed package on the Node version under test (20.9.0 and 22).
 
-**Why:** the `install-qa` jobs on Node 20.9.0 failed on every push, including on `main`, because `@tailwindcss/node` loads `magic-string` (ES module only since its 1.x line) with `require()`, which Node supports by default only from 20.19 and 22.12; the error is `ERR_REQUIRE_ESM` inside the PostCSS step of `next build`. The job exists to prove that users can install and run the prebuilt package on the oldest supported Node, and users never build, so building on 20.9.0 tested nothing a user does. **Trade-off:** contributors on Node 20.9 to 20.18 (and on Node 21) can no longer build from source; they get an `engines` warning and a failed build, and must upgrade Node. Users of the published package are unaffected. **How it was found:** reproduced locally by clearing `apps/web/.next` and building on Node 20.13.1 (the same error), and checked that `npm run verify:package` passes on Node 20.13.1 against a package built by Node 22 (22 checks). **A trap:** Next's persistent cache can store the failed PostCSS result, so a build on Node 22 right after a failed build on Node 20 fails too until `.next` is deleted; and a warm cache hides the failure entirely, which is why it passed locally for so long. **Not covered:** running the packed package on exactly 20.9.0 was not possible locally (only 20.13.1 was available); the CI matrix does that.
+**Why:** the `install-qa` jobs on Node 20.9.0 failed on every push, including on `main`, because `@tailwindcss/node` loads `magic-string` (ES module only since its 1.x line) with `require()`, which Node supports by default only from 20.19 and 22.12; the error is `ERR_REQUIRE_ESM` inside the PostCSS step of `next build`. The job exists to prove that users can install and run the prebuilt package on the oldest supported Node, and users never build, so building on 20.9.0 tested nothing a user does. **Trade-off:** contributors on Node 20.9 to 20.18 (and on Node 21) can no longer build from source; they get an `engines` warning and a failed build, and must upgrade Node. Users of the published package are unaffected. **How it was found:** reproduced locally by clearing `apps/web/.next` and building on Node 20.13.1 (the same error), and checked that `pnpm run verify:package` passes on Node 20.13.1 against a package built by Node 22 (22 checks). **A trap:** Next's persistent cache can store the failed PostCSS result, so a build on Node 22 right after a failed build on Node 20 fails too until `.next` is deleted; and a warm cache hides the failure entirely, which is why it passed locally for so long. **Not covered:** running the packed package on exactly 20.9.0 was not possible locally (only 20.13.1 was available); the CI matrix does that.
 
 ## 108. Viewing table rows is opt-in per connection, off by default, and remembered with the saved connection
 
@@ -873,7 +873,7 @@ _(Shipped in 1.3.0: see decisions 116 to 122.)_
 
 ## 140. Writes need a session token
 
-**Decision:** the writes switch is on only when the process was started with `--enable-writes` AND has a session token. The CLI always sets a token; a development server (`npm run dev`) has none, so writes stay off there.
+**Decision:** the writes switch is on only when the process was started with `--enable-writes` AND has a session token. The CLI always sets a token; a development server (`pnpm run dev`) has none, so writes stay off there.
 
 **Why:** without a token only the Host check stands in front of the write routes. Found in the 1.5.2 review.
 
@@ -1107,3 +1107,9 @@ Opening the page that holds the editor loads about 4.9 MB (1.3 MB compressed) in
 **Decision (2026-11-24, `docs/mcp-server-plan.md`, section 15):** 1.11.0 is the **MCP server**, built before anything else; the write side's second part becomes 1.12.0 (its plan and decisions stand). DataCanvas serves a **hand-written subset of the protocol** (`initialize`, `ping`, `tools/list`, `tools/call`; `packages/mcp`, no runtime dependency beyond zod; the official SDK is a dev dependency of the tests only) as **stateless Streamable HTTP on `127.0.0.1/mcp`**, plus the **stdio bridge `datacanvas mcp`** that a Claude app starts. The endpoint has **a token of its own** (`DATACANVAS_MCP_TOKEN`, made by the CLI for each run; never the session token, accepted as `Authorization: Bearer` on `/mcp` only, refused on every other route, and the session token refused on `/mcp`), applies the Host check, **refuses a request that carries `Origin` or `Sec-Fetch-Site`** (a browser; not `Sec-Fetch-Mode`, which Node's own `fetch` sends), and **answers 404 until a connection is shared**, before the body is read. The token for the bridge is kept in `~/.datacanvas/mcp.json` (mode 0600, the pid, the port and the token, deleted on shutdown). **Sharing is per connection, off by default, in memory only** (never in a profile, gone on restart, disconnect, and for the data level when viewing table data is switched off), at **two levels**: structure (the default) and data (which needs "Allow viewing table data" and a tick in the dialog that says what leaves the machine). **Approval mode is on by default for the data level** (a query or a read of rows waits for Approve, two minutes), with Pause and an in-memory **activity list** that never holds a returned value. **A superuser or file-reading role is refused at the data level until acknowledged.** **Hidden columns** are replaced by NULLs and named in `run_readonly_query`, and a query that names one is refused, said plainly to be a hint (the role is the control). The **tool set of version 1** is eight read-only tools, pinned by a test, with no write tool, no resources and no prompts. An **independent review** comes before the PR; Claude Desktop (stdio) and Claude Code (stdio and HTTP) are the supported clients.
 
 **Why:** the data stays local until the client sends it, the connections are already open (no credential is given to Claude), and the read-only machinery is already built and reviewed, so the new surface is a protocol, a token and a switch: small enough to design, pin and test.
+
+## 170. Development moves from npm to pnpm; the published package is still an npm package
+
+**Decision (2026-11-25):** contributors install and run scripts with **pnpm** (`pnpm-workspace.yaml`, `pnpm-lock.yaml`, `packageManager` in the root `package.json`, `pnpm install --frozen-lockfile` in CI). Workspace packages depend on each other with `workspace:*`. `nodeLinker: hoisted` keeps `node_modules` flat like npm's. What users receive does not change: `npx`, `npm pack`, `npm publish --provenance` (trusted publishing needs npm 11.5.1 or newer, so the release workflow still installs it) and the packed-tarball test all stay on npm. This supersedes the "npm workspaces" choice in decision 6.
+
+**Why:** pnpm's install is faster and its lockfile is stricter. The first install found two undeclared dependencies that npm's hoisting had hidden (`pg` for the web app's path-finder test and for `e2e/`, and `@datacanvas/postgres-adapter` for `e2e/fixtures.ts`); they are now declared. The hoisted layout is kept because `scripts/build-package.mjs` prunes sharp's native add-ons by their `node_modules/@img` path: with pnpm's default symlinked `.pnpm/` store the script refused to build ("native add-ons would be shipped").

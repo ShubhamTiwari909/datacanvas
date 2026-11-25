@@ -118,7 +118,7 @@ async function main(): Promise<void> {
   const serverJs = fileURLToPath(new URL("../web/apps/web/server.js", import.meta.url));
   if (!existsSync(serverJs)) {
     fail(
-      "The bundled web app was not found. If you are developing DataCanvas, run `npm run package` " +
+      "The bundled web app was not found. If you are developing DataCanvas, run `pnpm run package` " +
         "and start the CLI from the .package folder.",
     );
   }

@@ -43,7 +43,7 @@ the source; its purpose is **Unknown** and it is not documented.
 ## Ports
 
 - Default **4747** on `127.0.0.1`; the next free port if busy; an explicit `--port` must be free.
-- The development server (`npm run dev`) uses `next dev -H 127.0.0.1 -p 4747`.
+- The development server (`pnpm run dev`) uses `next dev -H 127.0.0.1 -p 4747`.
 - The test database in `examples/docker-compose.yml` is bound to `127.0.0.1:54329`.
 
 ## Network behaviour
@@ -60,7 +60,7 @@ server and sends what it reads on.
 | --------------------------- | ------------------------------------------------------------- |
 | Node.js (run the package)   | 20.9 or newer                                                 |
 | Node.js (build from source) | `^20.19.0 \|\| >=22.12.0`                                     |
-| npm                         | 10 or newer                                                   |
+| pnpm                        | 10 or newer                                                   |
 | PostgreSQL                  | 12 to 18 tested (a CI matrix runs the database tests on each) |
 
 ---

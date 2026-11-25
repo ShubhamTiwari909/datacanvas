@@ -13,53 +13,51 @@
   "private": true,
   "description": "DataCanvas: a local-first visual PostgreSQL explorer (monorepo root, not published).",
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": "^20.19.0 || >=22.12.0",
+    "pnpm": ">=10"
   },
   "scripts": {
-    "dev": "tsc -b && npm run dev -w apps/web",
-    "build": "tsc -b && npm run build -w apps/web",
+    "dev": "tsc -b && pnpm --filter @datacanvas/web run dev",
+    "build": "tsc -b && pnpm --filter @datacanvas/web run build",
     "build:packages": "tsc -b",
-    "typecheck": "tsc -b && npm run typecheck -w apps/web && tsc -p e2e",
+    "typecheck": "tsc -b && pnpm --filter @datacanvas/web run typecheck && tsc -p e2e",
     "clean": "tsc -b --clean",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "test": "tsc -b && vitest run",
     "test:watch": "vitest",
-    "package": "npm run build && node scripts/build-package.mjs",
+    "package": "pnpm run build && node scripts/build-package.mjs",
     "verify:package": "node scripts/verify-package.mjs",
-    "test:e2e": "npx playwright test",
-    "screenshots": "SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts",
+    "test:e2e": "pnpm exec playwright test",
+    "screenshots": "SCREENSHOTS=1 pnpm exec playwright test e2e/screenshots.spec.ts",
     "release:check": "node scripts/release-check.mjs",
     "notices": "node scripts/generate-notices.mjs && prettier --write THIRD-PARTY-NOTICES.md",
     "test:pg-matrix": "node scripts/pg-matrix.mjs",
     "start": "node .package/bin/datacanvas.mjs",
-    "app": "npm run package && npm run start --",
+    "app": "pnpm run package && pnpm run start --",
     "publish:npm": "node scripts/publish.mjs"
   },
   "devDependencies": {
+    "@datacanvas/postgres-adapter": "workspace:*",
     "@eslint/js": "^9.39.5",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@playwright/test": "^1.64.0",
     "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
     "axe-core": "4.14.1",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.6",
     "eslint-config-prettier": "^10.1.8",
+    "pg": "^8.23.1",
     "prettier": "^3.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0"
-  },
-  "overrides": {
-    "dompurify": "^3.5.0"
   }
 }

@@ -16,22 +16,22 @@ Vitest includes `apps/**/*.test.ts`, `packages/**/*.test.ts` and `tests/**/*.tes
 with the `@/` alias mapped to `apps/web`.
 
 ```bash
-npm test                 # tsc -b, then vitest run (database tests are skipped without a database)
-npm run test:watch
-npm run package && npm run test:e2e
-npm run verify:package
-npm run test:pg-matrix
+pnpm test                 # tsc -b, then vitest run (database tests are skipped without a database)
+pnpm run test:watch
+pnpm run package && pnpm run test:e2e
+pnpm run verify:package
+pnpm run test:pg-matrix
 ```
 
 ## PostgreSQL integration tests
 
-`npm test` runs without a database; the PostgreSQL integration tests are skipped. To run them, start a
+`pnpm test` runs without a database; the PostgreSQL integration tests are skipped. To run them, start a
 disposable PostgreSQL and point `DATACANVAS_TEST_PG_URL` at its `postgres` database:
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d
 export DATACANVAS_TEST_PG_URL="postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable"
-npm test
+pnpm test
 docker compose -f examples/docker-compose.yml down -v
 ```
 
@@ -40,7 +40,7 @@ afterwards. The compose file binds `127.0.0.1:54329` and keeps data in `tmpfs`. 
 server that holds data you care about.** Any PostgreSQL 12 or newer reachable over TCP works, as long as the
 account may create databases and roles and the server uses password authentication.
 
-`npm run test:pg-matrix` (`scripts/pg-matrix.mjs`) runs all PostgreSQL-facing tests against versions 12 to 18,
+`pnpm run test:pg-matrix` (`scripts/pg-matrix.mjs`) runs all PostgreSQL-facing tests against versions 12 to 18,
 one Docker container per version (it downloads images).
 
 ## The shared contract suite
@@ -82,9 +82,9 @@ and screenshots. Failure traces are uploaded by CI from `test-results/`.
 
 `.github/workflows/ci.yml` (on push to `main` and on pull requests; read-only permissions):
 
-1. **check** (Ubuntu, Node 22, PostgreSQL 17 service): `npm ci`, `npm run check`,
-   `npm audit --omit=dev --audit-level=moderate`, `npm run package`, `npm run verify:package`, Playwright
-   Chromium install, `npm run test:e2e`.
+1. **check** (Ubuntu, Node 22, PostgreSQL 17 service): `pnpm install --frozen-lockfile`, `pnpm run check`,
+   `pnpm audit --prod --audit-level moderate`, `pnpm run package`, `pnpm run verify:package`, Playwright
+   Chromium install, `pnpm run test:e2e`.
 2. **postgres-versions**: PostgreSQL 12 to 18 matrix, running the adapter, connection-service integration and
    path-finder tests.
 3. **install-qa**: macOS, Linux and Windows, Node 20.9.0 and 22: build on Node 22, then install the packed

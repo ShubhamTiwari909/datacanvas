@@ -5,14 +5,14 @@ description: The non-negotiable rules for changes to DataCanvas and where each i
 
 These are stated in `CONTRIBUTING.md` and reinforced by tests and lint rules.
 
-| #   | Rule                                                                                                                                                 | Enforced by                                                                                                |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 1   | **Install simplicity is a requirement.** No native modules, no `postinstall` scripts, no new setup steps for end users.                              | `scripts/build-package.mjs` fails on any `.node` file and on install scripts; `release:check`              |
-| 2   | **Keep route handlers thin.** Validate with Zod, call a service, return JSON. Database logic lives in framework-free packages.                       | Review; `tests/architecture.test.ts` for package independence                                              |
-| 3   | **Never add an endpoint that runs arbitrary SQL.** (The SQL tab's single `…/run` route is the sole, read-only exception.)                            | `tests/security.test.ts`                                                                                   |
-| 4   | **No `any`.** Untrusted input is validated at runtime, not asserted.                                                                                 | ESLint `no-explicit-any: error`                                                                            |
-| 5   | **Every dependency needs a documented purpose.** Record non-obvious choices in `docs/decisions.md`; run `npm run notices` when a dependency changes. | Review; `release:check`                                                                                    |
-| 6   | **Never log or return credentials or connection strings.**                                                                                           | Route tests that push a distinctive password through every endpoint; no-`console` rules on sensitive paths |
+| #   | Rule                                                                                                                                                  | Enforced by                                                                                                |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 1   | **Install simplicity is a requirement.** No native modules, no `postinstall` scripts, no new setup steps for end users.                               | `scripts/build-package.mjs` fails on any `.node` file and on install scripts; `release:check`              |
+| 2   | **Keep route handlers thin.** Validate with Zod, call a service, return JSON. Database logic lives in framework-free packages.                        | Review; `tests/architecture.test.ts` for package independence                                              |
+| 3   | **Never add an endpoint that runs arbitrary SQL.** (The SQL tab's single `…/run` route is the sole, read-only exception.)                             | `tests/security.test.ts`                                                                                   |
+| 4   | **No `any`.** Untrusted input is validated at runtime, not asserted.                                                                                  | ESLint `no-explicit-any: error`                                                                            |
+| 5   | **Every dependency needs a documented purpose.** Record non-obvious choices in `docs/decisions.md`; run `pnpm run notices` when a dependency changes. | Review; `release:check`                                                                                    |
+| 6   | **Never log or return credentials or connection strings.**                                                                                            | Route tests that push a distinctive password through every endpoint; no-`console` rules on sensitive paths |
 
 ## Rules that follow from the security model
 

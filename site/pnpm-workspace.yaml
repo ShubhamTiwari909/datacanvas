@@ -1,0 +1,8 @@
+# site/ is a separate project from the monorepo in the folder above: this file makes it
+# its own pnpm root, with its own lockfile.
+packages:
+  - "."
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

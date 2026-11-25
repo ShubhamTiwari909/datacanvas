@@ -1,6 +1,6 @@
 # DataCanvas in a container. Build it from the already packaged app:
 #
-#   npm run package                       # makes .package/ (see docs/releasing.md)
+#   pnpm run package                       # makes .package/ (see docs/releasing.md)
 #   docker build -t datacanvas .
 #   docker run --rm -p 127.0.0.1:4747:4747 -v datacanvas-data:/data datacanvas
 #

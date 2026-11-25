@@ -1,0 +1,20 @@
+# pnpm workspace. The packages are the folders below; they depend on each other
+# with `workspace:*`. (site/ is a separate project with its own lockfile.)
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Forces a patched dompurify for every dependency that pulls one in.
+overrides:
+  dompurify: ^3.5.0
+
+# pnpm 10 skips dependency install scripts unless listed. esbuild's only checks
+# that its platform binary works; everything else needs no install script.
+onlyBuiltDependencies:
+  - esbuild
+
+# Lay node_modules out flat, like npm. scripts/build-package.mjs assembles the
+# published package from the Next.js standalone output and expects npm's layout
+# (for example it prunes sharp's native add-ons by their node_modules/@img path);
+# pnpm's default symlinked .pnpm/ store would slip past that and ship them.
+nodeLinker: hoisted

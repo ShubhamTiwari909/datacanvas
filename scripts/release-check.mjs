@@ -1,11 +1,11 @@
 /**
  * Release gate: refuses to continue while anything a public release needs is
- * missing. It reads the assembled package (`npm run package` first) and the
+ * missing. It reads the assembled package (`pnpm run package` first) and the
  * repository, and prints every blocker, not just the first.
  *
  * It decides nothing for the maintainer: choosing a license, a repository
  * address or a contact is a human decision, so those are reported, never
- * filled in. Run with `npm run release:check`.
+ * filled in. Run with `pnpm run release:check`.
  */
 import { execFileSync } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
@@ -27,7 +27,7 @@ async function main() {
   try {
     pkg = JSON.parse(await readFile(path.join(root, ".package/package.json"), "utf8"));
   } catch {
-    console.error("Run `npm run package` first: .package/package.json does not exist.");
+    console.error("Run `pnpm run package` first: .package/package.json does not exist.");
     process.exit(1);
   }
 
@@ -55,7 +55,7 @@ async function main() {
 
   for (const file of ["NOTICE", "THIRD-PARTY-NOTICES.md"]) {
     if (!(await exists(file)))
-      blockers.push(`no ${file} (run \`npm run notices\` for the notices file)`);
+      blockers.push(`no ${file} (run \`pnpm run notices\` for the notices file)`);
   }
 
   const security = await readFile(path.join(root, "SECURITY.md"), "utf8");

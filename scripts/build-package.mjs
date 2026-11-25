@@ -1,7 +1,7 @@
 /**
  * Assemble the publishable `datacanvas` npm package into `.package/`.
  *
- * Run through `npm run package` (which first runs the normal build). Output:
+ * Run through `pnpm run package` (which first runs the normal build). Output:
  *
  *   .package/
  *   ├── bin/datacanvas.mjs       the CLI, bundled into one file (esbuild)
@@ -149,7 +149,7 @@ async function createExternalAliasShims(aliasDir, nodeModulesOut) {
 async function main() {
   if (!(await exists(path.join(standaloneDir, "apps/web/server.js")))) {
     fail(
-      "Next.js standalone output not found. Run `npm run build` first (or use `npm run package`).",
+      "Next.js standalone output not found. Run `pnpm run build` first (or use `pnpm run package`).",
     );
   }
 
@@ -219,7 +219,7 @@ async function main() {
 
   // 5. package.json for the published package. Release metadata (license,
   // repository, ...) comes from the ROOT package.json, where the maintainer
-  // sets it once; we never invent it. `npm run release:check` refuses to
+  // sets it once; we never invent it. `pnpm run release:check` refuses to
   // release while any of it is missing.
   const rootPkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   const releaseMetadata = Object.fromEntries(

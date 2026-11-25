@@ -1,7 +1,7 @@
 /**
  * Integration tests: the real PostgreSQL adapter against a real PostgreSQL server.
  *
- * Skipped unless DATACANVAS_TEST_PG_URL is set, so a plain `npm test` needs no
+ * Skipped unless DATACANVAS_TEST_PG_URL is set, so a plain `pnpm test` needs no
  * database. To run them, start a disposable server (see
  * examples/docker-compose.yml) and point the variable at its `postgres`
  * database, for example:

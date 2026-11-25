@@ -20,16 +20,16 @@ datacanvas/
 
 ## How a workspace imports another
 
-1. The root `package.json` declares `"workspaces": ["apps/*", "packages/*"]`.
-2. `npm install` finds each workspace and creates a symlink for it inside the root `node_modules` (for example `node_modules/@datacanvas/shared-types` points to `packages/shared-types`).
+1. `pnpm-workspace.yaml` lists the workspaces (`apps/*` and `packages/*`), and packages depend on each other with `workspace:*`.
+2. `pnpm install` finds each workspace and creates a symlink for it inside the root `node_modules` (for example `node_modules/@datacanvas/shared-types` points to `packages/shared-types`).
 3. `packages/cli` lists `@datacanvas/shared-types` in its `dependencies`, so Node resolves `import ... from "@datacanvas/shared-types"` through that symlink to `packages/shared-types/package.json`, whose `exports` field points at `dist/index.js`.
 4. For the compiler, `packages/cli/tsconfig.json` has a project `reference` to `../shared-types`. `tsc -b` builds shared-types first, then cli reads its generated `.d.ts` files.
 
-Because the entry point is the compiled `dist/` output, a package must be built before another can run against it. `npm run build` handles the ordering.
+Because the entry point is the compiled `dist/` output, a package must be built before another can run against it. `pnpm run build` handles the ordering.
 
 ## How the build works
 
-`npm run build` runs `tsc -b` (build mode) at the root. It reads `tsconfig.json`, follows the `references`, and for each package compiles `src/` to `dist/` (JavaScript, type declarations and source maps). Incremental build info is cached so unchanged packages are skipped.
+`pnpm run build` runs `tsc -b` (build mode) at the root. It reads `tsconfig.json`, follows the `references`, and for each package compiles `src/` to `dist/` (JavaScript, type declarations and source maps). Incremental build info is cached so unchanged packages are skipped.
 
 ## Target architecture (from the plan)
 
@@ -125,7 +125,7 @@ Startup order: Node check, parse arguments, locate `server.js`, choose port, spa
 
 ### How the npm package is assembled (`scripts/build-package.mjs`)
 
-`npm run package` runs the normal build, then assembles `.package/`:
+`pnpm run package` runs the normal build, then assembles `.package/`:
 
 ```text
 .package/
@@ -147,7 +147,7 @@ Result: a ~3.4 MB tarball, no native code, no install scripts. Installing it off
 ### Verifying the packed package (manual spike)
 
 ```text
-npm run package
+pnpm run package
 cd .package && npm pack --pack-destination <scratch folder>
 cd <fresh empty folder> && npm install --offline <path to .tgz>
 ./node_modules/.bin/datacanvas --no-open
@@ -360,7 +360,7 @@ Cardinality is computed in TypeScript (`deriveCardinality`, unit tested): a fore
 | Shared **contract suite** (`@datacanvas/database-core/contract`) | mock: no, PostgreSQL: yes      | the mock and the real adapter behave identically                                                                                                                                                                              |
 | PostgreSQL integration tests                                     | yes (`DATACANVAS_TEST_PG_URL`) | real catalogs, partitions, expression/GIN/INCLUDE indexes, composite FKs, read-only enforcement, timeouts, connection hygiene, real error codes (wrong password, missing database, no TLS, no CONNECT privilege, closed port) |
 
-Integration tests create a uniquely named database and role on a disposable server, load `examples/ecommerce.sql`, and drop both afterwards. They are skipped when the environment variable is absent, so `npm test` works anywhere.
+Integration tests create a uniquely named database and role on a disposable server, load `examples/ecommerce.sql`, and drop both afterwards. They are skipped when the environment variable is absent, so `pnpm test` works anywhere.
 
 ## Phase 6: the first complete explorer
 
@@ -663,7 +663,7 @@ Verified in one browser on one machine. No independent review. No full Content-S
 5. **Start** `web/apps/web/server.js` as a child process on `127.0.0.1` with a fresh token, wait for `/api/health`, write `run.json`, print the link, open the browser (`open`, `start`, `xdg-open`; the link is printed anyway).
 6. **Shutdown** (Ctrl+C / SIGTERM): the CLI signals the server, which (via `instrumentation.ts` and `lib/server/shutdown.ts`) closes every database session and forgets all credentials within 3 s, then exits; the CLI removes `run.json`. The CLI sets `NEXT_MANUAL_SIG_HANDLE=1` so Next.js does not exit first.
 
-**Packaging:** `npm run package` assembles `.package/` (CLI + standalone web output + bundled `node_modules`, `files` allowlist, `engines.node`, no install scripts, no native add-ons). `npm run verify:package` then tests the PACKED tarball: it runs `npm pack`, installs the tarball into an empty project, and exercises the installed command (22 checks, including token protection, instance reuse and clean shutdown). It prints the tarball size and cold-start time.
+**Packaging:** `pnpm run package` assembles `.package/` (CLI + standalone web output + bundled `node_modules`, `files` allowlist, `engines.node`, no install scripts, no native add-ons). `pnpm run verify:package` then tests the PACKED tarball: it runs `npm pack`, installs the tarball into an empty project, and exercises the installed command (22 checks, including token protection, instance reuse and clean shutdown). It prints the tarball size and cold-start time.
 
 ## Phase 11: what is not covered
 
@@ -676,9 +676,9 @@ Four layers, from fast to slow:
 1. **Unit tests (Vitest)**: pure logic, schemas, the request guard, workspace migration, the CLI helpers.
 2. **Integration tests (Vitest)**: the PostgreSQL adapter and the services against a real, disposable PostgreSQL (`DATACANVAS_TEST_PG_URL`; skipped without it), plus a performance test on a 600-table schema (`postgres.adapter.performance.test.ts`).
 3. **Rule tests** (`tests/`): architecture and security rules that fail when someone breaks them quietly.
-4. **End-to-end (Playwright, `e2e/`)**: a real Chromium against the real packaged app. `e2e/fixtures.ts` starts `.package/bin/datacanvas.mjs` on a free port with a private data folder and a throwaway database. Specs: `core-flow` (connect, browse, canvas, drag a node, autosave, reload, disconnect, reconnect, layout restored), `install-qa` (wrong password, unreachable database, TLS mismatch, port in use), `performance` (400 tables). Run with `npm run package && npm run test:e2e`.
+4. **End-to-end (Playwright, `e2e/`)**: a real Chromium against the real packaged app. `e2e/fixtures.ts` starts `.package/bin/datacanvas.mjs` on a free port with a private data folder and a throwaway database. Specs: `core-flow` (connect, browse, canvas, drag a node, autosave, reload, disconnect, reconnect, layout restored), `install-qa` (wrong password, unreachable database, TLS mismatch, port in use), `performance` (400 tables). Run with `pnpm run package && pnpm run test:e2e`.
 
-`npm run verify:package` is the install test: it packs, installs the tarball into an empty project and drives the installed command (22 checks).
+`pnpm run verify:package` is the install test: it packs, installs the tarball into an empty project and drives the installed command (22 checks).
 
 `.github/workflows/ci.yml` runs everything on Linux and the install check on macOS, Linux and Windows with two Node versions.
 
@@ -690,8 +690,8 @@ The CI file has never run on GitHub. Nothing was run on Windows or Linux, or in 
 
 Everything that can be prepared without the maintainer's accounts is in place:
 
-- **User docs:** README (one-line install on the first screen, screenshots in `docs/images/` made by `npm run screenshots`), `docs/getting-started.md`, `SECURITY.md`, `CHANGELOG.md`, issue and pull-request templates.
-- **Release gate:** `npm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and lists every blocker: placeholder version, missing license, repository or security contact, missing changelog section. It reports, and never fills in, decisions that belong to the maintainer.
+- **User docs:** README (one-line install on the first screen, screenshots in `docs/images/` made by `pnpm run screenshots`), `docs/getting-started.md`, `SECURITY.md`, `CHANGELOG.md`, issue and pull-request templates.
+- **Release gate:** `pnpm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and lists every blocker: placeholder version, missing license, repository or security contact, missing changelog section. It reports, and never fills in, decisions that belong to the maintainer.
 - **Metadata:** `scripts/build-package.mjs` copies `license`, `author`, `repository`, `homepage` and `bugs` from the root `package.json` into the published package; it never invents them.
 - **Release workflow:** `.github/workflows/release.yml` runs on a pushed `v*` tag, repeats the whole check, requires `release:check` to pass and the tag to match the version, then publishes with npm provenance through trusted publishing (no stored token).
 - **Releasing:** `docs/releasing.md` lists the steps, the accounts and what is still open.
@@ -704,7 +704,7 @@ Nothing has been published or pushed. There is no LICENSE, no repository address
 
 `examples/odd-schema.sql` is a deliberately awkward database: names with spaces, capitals, accents, quotes, dots, emoji and SQL-looking text; the 63-byte name limit; the same table name in two schemas; enums, domains, composite types, arrays, ranges and generated columns; tables with no columns, no key, or 301 columns; composite, self-referencing, circular, deferrable and cross-schema foreign keys; inheritance; nested list/range/hash partitions with a foreign key to a partitioned parent; views of views and materialized views; expression, partial, covering, GIN and BRIN indexes; temporary and unlogged tables.
 
-`postgres.adapter.odd-schema.test.ts` loads it into a throwaway database and pins down what the adapter returns for each case (31 tests). `scripts/pg-matrix.mjs` (`npm run test:pg-matrix`) runs all PostgreSQL-facing tests against PostgreSQL 12 to 18, one Docker container per version; CI does the same with a job matrix.
+`postgres.adapter.odd-schema.test.ts` loads it into a throwaway database and pins down what the adapter returns for each case (31 tests). `scripts/pg-matrix.mjs` (`pnpm run test:pg-matrix`) runs all PostgreSQL-facing tests against PostgreSQL 12 to 18, one Docker container per version; CI does the same with a job matrix.
 
 **Result on PostgreSQL 17:** no adapter bug was found in these cases. One gap was confirmed, foreign tables (for example `postgres_fdw`) being hidden; it is now fixed (decision 93).
 
@@ -805,7 +805,7 @@ Rules shared by the queries, each pinned by a test against a real server: system
 
 `GET /api/connections/:id/objects` returns them. In the app, the **Objects** tab (`features/objects`) has one tab per kind with a name filter. For a view it shows what it reads and which views read it (names are links that show the table on the canvas); for row-level security it groups policies per table and flags the two situations that are easy to miss: security **on** with no policies (non-exempt roles see no rows) and policies with security **off** (they do nothing). Lists show the first 100 and offer the rest. Snapshots store the objects (at most 10,000 of each kind), and the comparison shows them next to the table changes, with long definitions as before and after blocks.
 
-Tests: the queries against a real PostgreSQL (`postgres.adapter.objects.test.ts`, run by `npm run test:pg-matrix`), the normal form, the diff, the file format and its bounds, the 1 to 2 upgrade, the service and the route (all with the mock adapter), the list helpers, and an end-to-end test (`e2e/objects.spec.ts`). **Not covered:** aggregates and window functions (no body of their own), event triggers, rules, publications and subscriptions, foreign data wrappers and servers, collations, operators, casts, roles and grants, `COMMENT`s on objects other than views, types, functions and extensions, and dependencies of functions on tables (PostgreSQL does not record what a function body reads).
+Tests: the queries against a real PostgreSQL (`postgres.adapter.objects.test.ts`, run by `pnpm run test:pg-matrix`), the normal form, the diff, the file format and its bounds, the 1 to 2 upgrade, the service and the route (all with the mock adapter), the list helpers, and an end-to-end test (`e2e/objects.spec.ts`). **Not covered:** aggregates and window functions (no body of their own), event triggers, rules, publications and subscriptions, foreign data wrappers and servers, collations, operators, casts, roles and grants, `COMMENT`s on objects other than views, types, functions and extensions, and dependencies of functions on tables (PostgreSQL does not record what a function body reads).
 
 ## Reading table rows (adapter layer, data viewer M1)
 
@@ -896,7 +896,7 @@ The only feature that changes a database. Everything else here stays read-only, 
 
 **Routes**, all under `/api/connections/:id/`, inside `handleRoute`, `no-store`, JSON bodies only: `GET writes` (status), `POST writes/unlock`, `POST writes/lock`, `POST writes/edit-info`, `POST writes/preview` (body limit 1 MB), `POST writes/apply`, `GET writes/history`, and `GET role`.
 
-**Tests.** The builders (text, parameter order, hostile names, the conflict check, no `CASCADE`), the strict schemas, the write service and preview store, the routes, the mock adapter's write side, and rule tests (every write route guarded and no-store; only the write service uses the write capability; no write path uses `console`; read, snapshot and structure-capture paths never plan or apply; the history entry has no value field); adapter integration tests against a real PostgreSQL on the awkward-schema cases, and on PostgreSQL 12 to 18 through `npm run test:pg-matrix`; and nine Playwright tests (`e2e/writes.spec.ts`) against a throwaway database, started with and without `--enable-writes`.
+**Tests.** The builders (text, parameter order, hostile names, the conflict check, no `CASCADE`), the strict schemas, the write service and preview store, the routes, the mock adapter's write side, and rule tests (every write route guarded and no-store; only the write service uses the write capability; no write path uses `console`; read, snapshot and structure-capture paths never plan or apply; the history entry has no value field); adapter integration tests against a real PostgreSQL on the awkward-schema cases, and on PostgreSQL 12 to 18 through `pnpm run test:pg-matrix`; and nine Playwright tests (`e2e/writes.spec.ts`) against a throwaway database, started with and without `--enable-writes`.
 
 ## Claude reading a connection (1.11.0, MCP)
 

@@ -32,17 +32,18 @@ jobs:
       DATACANVAS_TEST_PG_URL: postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm audit --omit=dev --audit-level=moderate
-      - run: npm run package
-      - run: npm run verify:package
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm audit --prod --audit-level moderate
+      - run: pnpm run package
+      - run: pnpm run verify:package
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -69,13 +70,14 @@ jobs:
       DATACANVAS_TEST_PG_URL: postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx tsc -b
-      - run: npx vitest run packages/postgres-adapter apps/web/lib/server/connection-service.integration apps/web/features/paths
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc -b
+      - run: pnpm exec vitest run packages/postgres-adapter apps/web/lib/server/connection-service.integration apps/web/features/paths
 
   install-qa:
     strategy:
@@ -89,15 +91,16 @@ jobs:
       # BUILD on Node 22. The build tool (Tailwind's @tailwindcss/node) loads magic-string, which
       # is an ES module only, with require(); that works from Node 20.19 and 22.12 and fails on
       # 20.9 to 20.18. Users never build: they install the prebuilt package.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run package
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run package
       # RUN the packed package on the Node version under test. This is what the job proves:
       # the one-command install works on the oldest Node we support (20.9.0) and on a current one.
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm run verify:package
+      - run: pnpm run verify:package

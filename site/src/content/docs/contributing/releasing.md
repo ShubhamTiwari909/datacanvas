@@ -11,12 +11,12 @@ maintainer's step**; this documentation never publishes anything.
 
 1. Set the version in `packages/cli/package.json` (the package takes its version from there) and add its
    section to `CHANGELOG.md` (rename "Unreleased").
-2. `npm run check` (with a test PostgreSQL for the database tests), `npm run test:e2e`, and
-   `npm run test:pg-matrix` if database code changed.
+2. `pnpm run check` (with a test PostgreSQL for the database tests), `pnpm run test:e2e`, and
+   `pnpm run test:pg-matrix` if database code changed.
 3. `npm login` with the account that owns the package (two-factor authentication on).
-4. `npm run publish:npm` is a **rehearsal**: it rebuilds, tests the packed tarball, runs the release gate,
+4. `pnpm run publish:npm` is a **rehearsal**: it rebuilds, tests the packed tarball, runs the release gate,
    refuses a version that already exists, and does everything except upload (`--dry-run`).
-5. `npm run publish:npm -- --publish` uploads. It publishes only when `npm whoami` is the expected account
+5. `pnpm run publish:npm -- --publish` uploads. It publishes only when `npm whoami` is the expected account
    (`EXPECTED_NPM_USER` in `scripts/publish.mjs`), then waits for the registry to list the version. A new
    version can take a minute to appear, and npm may hold an upload for approval; if the script says the
    version is not visible yet, check the package page and **do not run it again for the same version**.
@@ -30,10 +30,10 @@ twice, so a mistake means a new version number.
 
 ## The release gate
 
-`npm run release:check` reads the assembled `.package/` and the repository and prints **every** blocker (not
+`pnpm run release:check` reads the assembled `.package/` and the repository and prints **every** blocker (not
 just the first): package name pattern, real version, `license`, a `LICENSE` file, `repository`, `bugs`,
 `engines.node`, `bin.datacanvas`, no install scripts, and `NOTICE` / `THIRD-PARTY-NOTICES.md`. It decides
-nothing for the maintainer. Run `npm run package` first.
+nothing for the maintainer. Run `pnpm run package` first.
 
 ## Tag-driven release (optional)
 
@@ -58,7 +58,7 @@ tag. **Do not publish the same version both ways.**
 - Windows and Linux were never tested by hand; the CI workflow had its first run only recently.
 - Managed PostgreSQL services (RDS, Supabase, Neon, Azure) are untested.
 - No independent security review. (`docs/releasing.md` still lists "no full Content-Security-Policy"; since 1.10.0 every page has one with a nonce, with the residual risks listed in [Known limits](/security/limits/).)
-- No demo GIF in the README (regenerate screenshots with `npm run screenshots`).
+- No demo GIF in the README (regenerate screenshots with `pnpm run screenshots`).
 
 ---
 

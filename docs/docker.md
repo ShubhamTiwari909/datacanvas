@@ -9,8 +9,8 @@ Nothing here weakens the protections. Inside a container the program has to list
 The image is built from the packaged app, so build that first (this needs a clone of the repository and Node.js 20.19 or newer; the image itself uses `node:22-alpine`):
 
 ```bash
-npm install
-npm run package          # makes .package/ (the same folder npm publishes)
+pnpm install
+pnpm run package          # makes .package/ (the same folder npm publishes)
 docker build -t datacanvas .
 ```
 

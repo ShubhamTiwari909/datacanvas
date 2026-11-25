@@ -4,7 +4,7 @@
  * Testing the monorepo would miss anything that only works because the
  * repository is lying around (a missing file, a dependency not bundled...).
  *
- * Run with `npm run verify:package` (after `npm run package`). It checks:
+ * Run with `pnpm run verify:package` (after `pnpm run package`). It checks:
  *   - the tarball lists only what we intend to publish, no native add-ons;
  *   - it installs with no scripts and no network access to the registry;
  *   - `--version` and `--help` work;
@@ -70,7 +70,7 @@ async function main() {
   try {
     await stat(path.join(packageDir, "package.json"));
   } catch {
-    throw new Error("Run `npm run package` first: .package/ does not exist.");
+    throw new Error("Run `pnpm run package` first: .package/ does not exist.");
   }
   const work = await mkdtemp(path.join(os.tmpdir(), "datacanvas-verify-"));
   console.log(`Working in ${work}\n`);

@@ -3,8 +3,8 @@ title: Maintaining this site
 description: How the documentation site is built and previewed, how it relates to docs/, and how to refresh it when the code changes.
 ---
 
-This site lives in `site/`, an Astro + Starlight project that is **separate from the npm workspaces** (the
-root `workspaces` are `apps/*` and `packages/*`). It is not published and not part of the npm package. The
+This site lives in `site/`, an Astro + Starlight project that is **separate from the pnpm workspace** (the
+root `pnpm-workspace.yaml` lists `apps/*` and `packages/*`). It is not published and not part of the npm package. The
 pre-existing `docs/` folder is untouched: it stays the project's long-form engineering notes, and this site
 organises that knowledge by reader task.
 
@@ -12,10 +12,10 @@ organises that knowledge by reader task.
 
 ```bash
 cd site
-npm install          # first time only; creates site/node_modules and site/package-lock.json
-npm run dev          # local dev server (Astro prints the address)
-npm run build        # static site into site/dist
-npm run preview      # serve the built site locally
+pnpm install          # first time only; creates site/node_modules and uses site/pnpm-lock.yaml
+pnpm run dev          # local dev server (Astro prints the address)
+pnpm run build        # static site into site/dist
+pnpm run preview      # serve the built site locally
 ```
 
 Requirements: Node.js `>=22.12.0` (`site/package.json` `engines`). The project pins `astro ^6.4.8` and
@@ -47,7 +47,7 @@ Adding a page: create a Markdown file under `src/content/docs/<section>/`, give 
 - Statements that are interpretation are marked **Inference**; things the repository does not establish are
   marked **Unknown**.
 - Screenshots in `src/assets/screenshots/` are copies of `docs/images/`. Regenerate the originals with
-  `npm run screenshots` (needs the packaged app and a test database), then copy them again.
+  `pnpm run screenshots` (needs the packaged app and a test database), then copy them again.
 - Do not copy secret values, customer data or connection strings into pages. Document names of configuration
   variables only.
 

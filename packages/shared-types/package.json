@@ -20,6 +20,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@datacanvas/database-core": "*"
+    "@datacanvas/database-core": "workspace:*"
   }
 }

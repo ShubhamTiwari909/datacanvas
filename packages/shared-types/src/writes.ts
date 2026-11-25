@@ -193,6 +193,64 @@ export const insertRowsChangeSchema = z
     "Every row needs one value for each column.",
   );
 
+/** The rows of an import by key: the same bounds as an import. */
+const keyedImportRowsSchema = z
+  .array(
+    z
+      .array(z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).refine(wellFormed, WELL_FORMED).nullable())
+      .max(WRITE_MAX_IMPORT_COLUMNS),
+  )
+  .min(1)
+  .max(WRITE_MAX_IMPORT_ROWS);
+const keyColumnsSchema = z.array(identifierSchema).min(1).max(WRITE_MAX_CHANGE_PARTS);
+
+/** Update or insert by a key the table has (4.1 of the plan). An empty list of columns to update leaves rows alone. */
+export const upsertRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("upsert_rows"),
+    table: tableSchema,
+    key: keyColumnsSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: keyedImportRowsSchema,
+    updateColumns: z.array(identifierSchema).max(WRITE_MAX_IMPORT_COLUMNS),
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  )
+  .refine((c) => new Set(c.key).size === c.key.length, "A key column is listed twice.")
+  .refine((c) => c.key.every((k) => c.columns.includes(k)), "Every key column must be mapped.")
+  .refine(
+    (c) => new Set(c.updateColumns).size === c.updateColumns.length,
+    "A column to update is listed twice.",
+  )
+  .refine(
+    (c) => c.updateColumns.every((u) => c.columns.includes(u) && !c.key.includes(u)),
+    "A column to update must be mapped, and not be part of the key.",
+  );
+
+/** Update only, by a key the table has (4.2 of the plan): every column that is not the key is set. */
+export const updateByKeyChangeSchema = z
+  .strictObject({
+    kind: z.literal("update_by_key"),
+    table: tableSchema,
+    key: keyColumnsSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: keyedImportRowsSchema,
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  )
+  .refine((c) => new Set(c.key).size === c.key.length, "A key column is listed twice.")
+  .refine((c) => c.key.every((k) => c.columns.includes(k)), "Every key column must be mapped.")
+  .refine(
+    (c) => c.columns.some((name) => !c.key.includes(name)),
+    "At least one column that is not the key must be mapped.",
+  );
+
 // ------------------------------------------------------- column definitions ---
 
 export const COLUMN_TYPE_NAME_LIST = [
@@ -398,6 +456,8 @@ export const changeSchema = z.discriminatedUnion("kind", [
   updateRowsChangeSchema,
   deleteRowsChangeSchema,
   insertRowsChangeSchema,
+  upsertRowsChangeSchema,
+  updateByKeyChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,
@@ -490,6 +550,14 @@ export const changePreviewSchema = z.object({
    * saw, or are gone. They are left out of the change, which does the other rows only.
    */
   skipped: z.array(z.number().int()).default([]),
+  /**
+   * For an import by key (`upsert_rows`, `update_by_key`): how many rows of the file are new, how many find a row
+   * that will be overwritten, and how many find a row that is left as it is. Counts only. Null for other changes.
+   */
+  counts: z
+    .object({ insert: z.number().int(), update: z.number().int(), unchanged: z.number().int() })
+    .nullable()
+    .default(null),
 });
 export type ChangePreview = z.infer<typeof changePreviewSchema>;
 export const previewChangeResponseSchema = z.object({ preview: changePreviewSchema });
@@ -509,7 +577,15 @@ export const historyEntrySchema = z.object({
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 
 export const applyChangeResponseSchema = z.object({
-  result: z.object({ rowCount: z.number(), entry: historyEntrySchema }),
+  result: z.object({
+    rowCount: z.number(),
+    entry: historyEntrySchema,
+    /**
+     * For an import by key: the rows inserted and updated. `exact` is false when the database could not say row by
+     * row (a partitioned table, or a role that may not read the table): the split is then the preview's estimate.
+     */
+    split: z.object({ inserted: z.number(), updated: z.number(), exact: z.boolean() }).optional(),
+  }),
 });
 /** The migration file of a session: the changes of structure as SQL (decision 138). */
 export const migrationFileSchema = z.object({
@@ -555,6 +631,8 @@ export const tableEditInfoSchema = z.object({
       onUpdate: referentialActionInputSchema,
     }),
   ),
+  /** The keys an import by key may use (structure only). */
+  uniqueKeys: z.array(z.object({ name: z.string(), columns: z.array(z.string()) })).optional(),
 });
 export const editInfoResponseSchema = z.object({ info: tableEditInfoSchema });
 

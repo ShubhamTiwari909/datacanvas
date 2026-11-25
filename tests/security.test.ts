@@ -896,8 +896,16 @@ describe("an import is batches of one fixed statement with every value bound, an
     );
     expect(built).not.toMatch(/header\b/);
     expect(built).toContain("columns.push(column)");
+    // The dialog builds every mode's change through `buildChange`, which reads the rows with `buildImport` and adds
+    // only the key and the columns to update (names of the table, chosen by the person).
+    const change = plan.slice(
+      plan.indexOf("export function buildChange"),
+      plan.indexOf("export function validateRequestForImport"),
+    );
+    expect(change).toContain("buildImport(table, input)");
+    expect(change).not.toMatch(/header\b/);
     expect(stripComments(read("apps/web/features/import/import-dialog.tsx"))).toContain(
-      "buildImport(",
+      "buildChange(",
     );
   });
 
@@ -908,13 +916,18 @@ describe("an import is batches of one fixed statement with every value bound, an
     expect(rows).toContain("tableoid::text || ':' || ctid::text AS row_id");
     expect(rows).toContain('if (repeated) throw invalidChange("A row is listed twice.")');
     const schema = read("packages/shared-types/src/writes.ts");
-    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(4);
+    // A value, a key value, a cell of an import, a cell of an import by key, a literal default.
+    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(5);
   });
 
-  it("the preview store keeps at most two imports per connection", () => {
+  it("the preview store keeps at most two imports per connection, an import by key counted as an import", () => {
     const store = stripComments(read("apps/web/lib/server/preview-store.ts"));
     expect(store).toMatch(/MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2/);
-    expect(store).toContain('plan.change.kind === "insert_rows"');
+    expect(store).toMatch(
+      /IMPORT_KINDS[^=]*= new Set\(\[\s*"insert_rows",\s*"upsert_rows",\s*"update_by_key",?\s*\]\)/,
+    );
+    expect(store).toContain("if (IMPORT_KINDS.has(plan.change.kind))");
+    expect(store).toContain("IMPORT_KINDS.has(stored.plan.change.kind)");
   });
 
   it("is kept nowhere: not in the stores, the autosave or the saved layouts", () => {
@@ -928,6 +941,174 @@ describe("an import is batches of one fixed statement with every value bound, an
         /features\/import|insert_rows|csv-parse/,
       );
     }
+  });
+});
+
+describe("an import by key is batches of two fixed statements, its key re-derived from the catalog", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const keyed = stripComments(read("packages/postgres-adapter/src/writes/keyed.ts"));
+  const builders = keyed.slice(
+    keyed.indexOf("export function buildUpsertBatch"),
+    keyed.indexOf("interface KeyedImport"),
+  );
+  const planners = keyed.slice(keyed.indexOf("interface KeyedImport"));
+  const BUILDERS = [
+    "buildUpsertBatch",
+    "buildUpdateByKeyBatch",
+    "buildFindExisting",
+    "buildFindRepeatedKeys",
+  ];
+  const builder = (name: string) => {
+    const start = builders.indexOf(`export function ${name}`);
+    const next = builders.indexOf("export function", start + 1);
+    return builders.slice(start, next === -1 ? builders.length : next);
+  };
+
+  it("finds the builders and the planners", () => {
+    for (const name of BUILDERS) expect(builders, name).toContain(`export function ${name}`);
+    expect(planners).toContain("export async function planUpsertRows");
+    expect(planners).toContain("export async function planUpdateByKey");
+  });
+
+  it("has no text of SQL in the planners: every statement comes from a builder, but the savepoint of the checks", () => {
+    const texts = (planners.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|CONFLICT|RETURNING)\b/);
+    }
+    const queries = planners.match(/db\.query(<[^>]*>)?\([^)]*\)/g) ?? [];
+    expect(queries.length).toBeGreaterThan(0);
+    for (const call of queries) {
+      expect(call, call).toMatch(
+        /db\.query(<[^>]*>)?\((\w+\.text, \w+\.values|"(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) dc_keyed_check")\)/,
+      );
+    }
+  });
+
+  it("builds each statement from quoted catalog names, catalog types and one bound array per column, never a value", () => {
+    for (const name of BUILDERS) {
+      const code = builder(name);
+      expect(code, name).toContain("unnest(${arrays(");
+      expect(code, name).toContain("castType");
+      const text = code.slice(code.indexOf("text:"), code.indexOf("values:"));
+      expect(text, name).not.toMatch(/\brows\b|\br\[|\.value\b/);
+    }
+    expect(keyed).toContain("`$${i + 1}::text[]`");
+    const upsert = builder("buildUpsertBatch");
+    expect(upsert).toContain("quoteQualified(table.schema, table.name)");
+    expect(upsert).toContain("EXCLUDED.${quoteIdentifier(u)}");
+    expect(upsert).toContain("ON CONFLICT (${target})");
+    expect(upsert).toContain(" RETURNING (dc_t.xmax = 0) AS inserted");
+    expect(builder("buildUpdateByKeyBatch")).toContain("quoteQualified(table.schema, table.name)");
+    // The reads of the preview only read: they write nothing.
+    for (const name of ["buildFindExisting", "buildFindRepeatedKeys"]) {
+      const text = builder(name).slice(builder(name).indexOf("text:"));
+      expect(text, name).toMatch(/`SELECT /);
+      expect(text, name).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
+    }
+  });
+
+  it("every write statement names the rows it must report, and apply rolls back on any other count", () => {
+    expect(builder("buildUpsertBatch")).toContain("expectRows: plan.expectRows");
+    expect(builder("buildUpdateByKeyBatch")).toContain("expectRows: rows.length");
+    expect(planners).toContain("expectRows: doUpdate ? rows.length : rows.length - foundHere");
+    expect((planners.match(/expect: "any"/g) ?? []).length).toBe(2);
+    expect((planners.match(/guard: \{ relations: \[guardRelation\(/g) ?? []).length).toBe(2);
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(index).toMatch(/statement\.expectRows !== undefined && count !== statement\.expectRows/);
+    expect(index).toMatch(/signal\?\.aborted/);
+  });
+
+  it("re-derives the key from the catalog at preview: a primary key or unique constraint that may be used", () => {
+    expect(planners).toContain("await listUniqueKeys(db, table.oid)");
+    expect(planners).toContain("const chosen = same.find((k) => k.eligible)");
+    expect(planners).toContain("key: chosen.columns");
+    // The conflict target and the keyed condition are the chosen constraint's columns, never the request's names.
+    expect(planners).toMatch(
+      /buildUpsertBatch\(change\.table, plan\.columns, plan\.key, update, rows,/,
+    );
+    expect(planners).toMatch(
+      /buildUpdateByKeyBatch\(\s*change\.table,\s*plan\.columns,\s*plan\.key,/,
+    );
+    const catalog = stripComments(read("packages/postgres-adapter/src/writes/catalog.ts"));
+    const keys = catalog.slice(
+      catalog.indexOf("export async function listUniqueKeys"),
+      catalog.indexOf("export async function listUniqueColumns"),
+    );
+    for (const rule of [
+      "NOT con.condeferrable",
+      "ix.indpred IS NULL",
+      "ix.indexprs IS NULL",
+      "ix.indisvalid",
+      "NOT a.attnotnull",
+      "con.contype IN ('p', 'u')",
+    ]) {
+      expect(keys, rule).toContain(rule);
+    }
+    // The columns to update stay outside every unique key of the table.
+    expect(planners).toContain("await listUniqueColumns(db, table.oid)");
+    // `xmax` only where it works: an ordinary table the role may read.
+    expect(planners).toContain(
+      'doUpdate && table.relkind === "r" && (await canSelectTable(db, table.oid))',
+    );
+  });
+
+  it("refuses a repeated key over the whole file, and finds existing rows by a read in the preview's transaction", () => {
+    expect(planners).toContain("buildFindRepeatedKeys(key, plan.keyRows)");
+    expect(planners).toContain("buildFindExisting(ref, key, batch)");
+    expect(planners).toMatch(
+      /if \(kept\.length === 0\) \{\s*throw new DatabaseError\("row_changed"/,
+    );
+    // The refusals name rows by number and columns by name: no message reads a cell.
+    const messages = (planners.match(/`[^`]*`/g) ?? []).join("\n");
+    expect(messages).not.toMatch(/change\.rows\[|keyRows\[|\.key\[\d\]/);
+  });
+
+  it("the schemas are strict and bounded, with no field that holds SQL", () => {
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const keyedImportRowsSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect((part.match(/z\s*\.strictObject/g) ?? []).length).toBe(2);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|conflict)\b/i);
+    for (const limit of [
+      "WRITE_MAX_IMPORT_ROWS",
+      "WRITE_MAX_IMPORT_COLUMNS",
+      "WRITE_MAX_IMPORT_CELL_CHARS",
+      "WRITE_MAX_CHANGE_PARTS",
+    ]) {
+      expect(part, limit).toContain(limit);
+    }
+  });
+
+  it("a failure is a fixed sentence chosen by its SQLSTATE", () => {
+    const errors = stripComments(read("packages/postgres-adapter/src/connection/write-errors.ts"));
+    for (const code of ["55000", "42P10", "21000"]) {
+      expect(errors, code).toMatch(
+        new RegExp(`case "${code}":\\s*return fail\\(\\s*"invalid_change",\\s*"`),
+      );
+    }
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planUpsertRows|planUpdateByKey/.test(
+          readFileSync(f, "utf8"),
+        ),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(index).toContain(
+      'if (change.kind === "upsert_rows") return planUpsertRows(db, change);',
+    );
+    expect(index).toContain(
+      'if (change.kind === "update_by_key") return planUpdateByKey(db, change);',
+    );
   });
 });
 

@@ -128,13 +128,45 @@ export interface InsertRowsChange {
   rows: Array<Array<string | null>>;
 }
 
+/**
+ * Update or insert from an import (`docs/write-side-v2-plan.md`, 4.1 and 13.1): the `insert_rows` batch with
+ * `ON CONFLICT (key) DO UPDATE SET` the `updateColumns` (or `DO NOTHING` when that list is empty). `key` names the
+ * columns of one of the table's own primary-key or unique constraints; the server checks at preview that it is
+ * exactly one (not partial, not on expressions, not deferrable, every column NOT NULL) and that every key column
+ * is among `columns`. `updateColumns` are mapped columns outside every unique key of the table. Two rows of the
+ * file with the same key are refused at preview. The preview counts the rows that already exist.
+ */
+export interface UpsertRowsChange {
+  kind: "upsert_rows";
+  table: TableRef;
+  key: string[];
+  columns: string[];
+  rows: Array<Array<string | null>>;
+  updateColumns: string[];
+}
+
+/**
+ * Update only, by key, from an import (`docs/write-side-v2-plan.md`, 4.2 and 13.2): each row of the file sets the
+ * columns that are not the key on the row its key finds. `key` follows the rules of `UpsertRowsChange`. Rows that
+ * find no row are left out at preview (`skipped`); a repeated key is refused before planning.
+ */
+export interface UpdateByKeyChange {
+  kind: "update_by_key";
+  table: TableRef;
+  key: string[];
+  columns: string[];
+  rows: Array<Array<string | null>>;
+}
+
 export type RowChange =
   | UpdateRowChange
   | InsertRowChange
   | DeleteRowChange
   | UpdateRowsChange
   | DeleteRowsChange
-  | InsertRowsChange;
+  | InsertRowsChange
+  | UpsertRowsChange
+  | UpdateByKeyChange;
 
 // ------------------------------------------------------- column definitions ---
 
@@ -359,6 +391,8 @@ export const ROW_CHANGE_KINDS = [
   "update_rows",
   "delete_rows",
   "insert_rows",
+  "upsert_rows",
+  "update_by_key",
 ] as const;
 export const STRUCTURE_CHANGE_KINDS = [
   "create_table",
@@ -382,6 +416,8 @@ export const STRUCTURE_CHANGE_KINDS = [
 export const DESTRUCTIVE_CHANGE_KINDS: readonly ChangeKind[] = [
   "delete_row",
   "delete_rows",
+  // It overwrites existing rows (an upsert is destructive only when its preview finds rows it would overwrite).
+  "update_by_key",
   "drop_constraint",
   "drop_index",
   "drop_column",
@@ -416,6 +452,8 @@ export function changeColumns(change: Change): string[] {
     case "delete_rows":
       return (change.rows[0]?.key ?? []).map((k) => k.column);
     case "insert_rows":
+    case "upsert_rows":
+    case "update_by_key":
       return [...change.columns];
     case "create_table":
       return change.columns.map((c) => c.name);
@@ -502,6 +540,22 @@ export interface PlannedStatement {
   values: (string | null | Array<string | null>)[];
   /** When set, the statement must report exactly this many rows or the whole change is rolled back. */
   expectRows?: number;
+  /**
+   * An upsert batch that returns one boolean per row it wrote, `inserted` (`RETURNING (xmax = 0) AS inserted`):
+   * applying counts the inserted and updated rows from it. Nothing else comes back (never a value).
+   */
+  countsInserted?: boolean;
+}
+
+/**
+ * What the preview of an import by key found, before anything is written (counts only, never a key or a value):
+ * how many rows of the file are new (`insert`), how many find a row that will be overwritten (`update`), and how
+ * many find a row that is left as it is (`unchanged`: an upsert with no column to update).
+ */
+export interface RowCounts {
+  insert: number;
+  update: number;
+  unchanged: number;
 }
 
 /** The part of an `AbortSignal` that applying a change looks at between statements (no DOM types here). */
@@ -562,6 +616,8 @@ export interface PlannedChange {
    * or no longer exist. They are NOT in `statements`: the plan changes the other rows only.
    */
   skipped?: number[];
+  /** For `upsert_rows` and `update_by_key`: what the preview counted (see `RowCounts`). */
+  counts?: RowCounts;
 }
 
 /** The statement texts as shown to the person (values are `$1`, `$2`, ...). */
@@ -589,6 +645,12 @@ export function statementText(plan: Pick<PlannedChange, "statements">): string {
 export interface AppliedChange {
   /** Rows reported by the statements (1 for a row change). */
   rowCount: number;
+  /**
+   * For `upsert_rows` and `update_by_key`: how the rows written split. `exact` is false when the database could not
+   * say row by row (an upsert into a partitioned table, or a role that may not read the table): the numbers are
+   * then the preview's estimate, and only their sum (`rowCount`) was checked.
+   */
+  split?: { inserted: number; updated: number; exact: boolean };
 }
 
 // ----------------------------------------------------- editing a table: info ---
@@ -635,6 +697,18 @@ export interface TableEditInfo {
   /** Row-level security may hide rows from the connected role. */
   rowSecurity: boolean;
   incomingForeignKeys: IncomingForeignKey[];
+  /**
+   * The keys an import by key may use (`upsert_rows`, `update_by_key`): the table's primary key and unique
+   * constraints that are not partial, not on expressions, not deferrable, with every column NOT NULL. Structure
+   * only. Optional so that older callers keep working; the PostgreSQL adapter always fills it.
+   */
+  uniqueKeys?: UniqueKeyInfo[];
+}
+
+/** A constraint an import by key may use: its name and its columns, in the constraint's order. */
+export interface UniqueKeyInfo {
+  name: string;
+  columns: string[];
 }
 
 // --------------------------------------------------------------- the role ---

@@ -14,6 +14,7 @@ import type { KeyValue, RowPage, TableEditInfo, TableRef } from "@datacanvas/dat
 import { Button } from "@/components/ui/button";
 import type { GridEditing, GridSelection } from "@/features/data/data-grid";
 import { ImportDialog } from "@/features/import/import-dialog";
+import { appliedText, isKeyedImport } from "@/features/import/keyed-text";
 import { useAsyncData } from "@/lib/use-async-data";
 import { useConnectionWrites, writesReady } from "@/stores/writes-store";
 import { getEditInfo } from "./api";
@@ -338,7 +339,9 @@ export function useRowEditing({
                     ? `${many(result.rowCount)} deleted.`
                     : change.kind === "insert_rows"
                       ? `${many(result.rowCount)} added.`
-                      : "The row was changed.",
+                      : isKeyedImport(change)
+                        ? appliedText(change, result)
+                        : "The row was changed.",
           );
           // The rows that were changed or removed are not the rows that were chosen any more.
           if (change.kind === "update_rows" || change.kind === "delete_rows") clearSelection();

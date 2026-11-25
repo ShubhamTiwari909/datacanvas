@@ -241,21 +241,46 @@ export const VALIDATE_MAX_BODY_BYTES = 32 * 1024 * 1024;
  * writing a row (decision 157). `insert` checks up to 100,000 rows (an import); `update` checks one row, found by its key.
  * Strict, and bounded in every list. The values are values: never logged, saved or echoed.
  */
-export const validateRequestSchema = z.strictObject({
-  schema: identifierSchema,
-  table: identifierSchema,
-  mode: z.enum(["insert", "update"]),
-  columns: z.array(identifierSchema).max(50),
-  rows: z
-    .array(z.array(z.string().max(100_000).nullable()).max(50))
-    .min(1)
-    .max(100_000),
-  key: z
-    .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
-    .min(1)
-    .max(32)
-    .optional(),
-});
+export const validateRequestSchema = z
+  .strictObject({
+    schema: identifierSchema,
+    table: identifierSchema,
+    mode: z.enum(["insert", "update"]),
+    columns: z.array(identifierSchema).max(50),
+    rows: z
+      .array(z.array(z.string().max(100_000).nullable()).max(50))
+      .min(1)
+      .max(100_000),
+    key: z
+      .array(z.strictObject({ column: identifierSchema, value: z.string().max(4096) }))
+      .min(1)
+      .max(32)
+      .optional(),
+    /** `insert` only: list every failing row, up to 1,000, with a longer deadline (the import that leaves them out). */
+    listAll: z.boolean().optional(),
+    /**
+     * `insert` only: the import will be an upsert keyed by these columns (a primary key or unique constraint
+     * of the table, every column among `columns`). A match on this key is an update, not `unique_existing`.
+     */
+    upsertKey: z.array(identifierSchema).min(1).max(32).optional(),
+  })
+  .refine((body) => body.mode === "insert" || body.listAll === undefined, {
+    message: "listAll is for an insert only.",
+    path: ["listAll"],
+  })
+  .refine((body) => body.mode === "insert" || body.upsertKey === undefined, {
+    message: "upsertKey is for an insert only.",
+    path: ["upsertKey"],
+  })
+  .refine(
+    (body) =>
+      body.upsertKey === undefined || new Set(body.upsertKey).size === body.upsertKey.length,
+    { message: "upsertKey names a column twice.", path: ["upsertKey"] },
+  )
+  .refine(
+    (body) => body.upsertKey === undefined || body.upsertKey.every((c) => body.columns.includes(c)),
+    { message: "Every column of upsertKey must be one of columns.", path: ["upsertKey"] },
+  );
 export type ValidateRequestBody = z.input<typeof validateRequestSchema>;
 export type ParsedValidateRequest = z.output<typeof validateRequestSchema>;
 

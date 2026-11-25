@@ -48,6 +48,7 @@ import {
   listConstraints,
   listIncomingForeignKeys,
   listTriggers,
+  listUniqueKeys,
   loadTable,
   type CatalogColumn,
   type CatalogTable,
@@ -197,17 +198,24 @@ export async function describeForEdit(db: Queryable, ref: TableRef): Promise<Tab
       : [],
     rowSecurity,
     incomingForeignKeys: isTable ? await listIncomingForeignKeys(db, table.oid) : [],
+    // The keys an import by key may use: structure only, and only those `ON CONFLICT` and a keyed update can use.
+    uniqueKeys:
+      reason === null
+        ? (await listUniqueKeys(db, table.oid))
+            .filter((k) => k.eligible)
+            .map((k) => ({ name: k.name, columns: k.columns }))
+        : [],
   };
 }
 
 // --------------------------------------------------------------- planning ---
 
-interface EditableTable {
+export interface EditableTable {
   table: CatalogTable;
   key: string[];
 }
 
-async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTable> {
+export async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTable> {
   const table = await loadTable(db, ref);
   if (!table) throw new DatabaseError("not_found");
   const reason = notEditableReason(table);
@@ -219,14 +227,14 @@ async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTa
   return { table, key: order.columns };
 }
 
-function findColumn(table: CatalogTable, name: string): CatalogColumn {
+export function findColumn(table: CatalogTable, name: string): CatalogColumn {
   const column = table.columns.find((c) => c.name === name);
   if (!column) throw invalidChange(`The column ${name} does not exist (any more).`);
   return column;
 }
 
 /** The person gives a value for this column: refuse what the database fills or what cannot be typed. */
-function requireWritable(column: CatalogColumn): void {
+export function requireWritable(column: CatalogColumn): void {
   if (column.generated) {
     throw invalidChange(`${column.name} is a generated column: the database computes it.`);
   }
@@ -312,7 +320,7 @@ async function checkValues(
   }
 }
 
-function referencedWarning(
+export function referencedWarning(
   fks: readonly IncomingForeignKey[],
   action: "delete" | "update",
   columns: readonly string[] | null,
@@ -398,7 +406,7 @@ async function planUpdate(db: Queryable, change: UpdateRowChange): Promise<Plann
  * default gets it, one filled by the database (identity or generated) is
  * computed, and one with neither gets NULL.
  */
-function omittedWords(table: CatalogTable, given: readonly TypedValue[]): string {
+export function omittedWords(table: CatalogTable, given: readonly TypedValue[]): string {
   const left = table.columns.filter((c) => !given.some((g) => g.column === c.name));
   const filled = left.filter((c) => c.generated || c.identity !== null).map((c) => c.name);
   const defaulted = left
@@ -545,7 +553,7 @@ async function splitByCurrent(
 }
 
 /** The warnings of a row change, for several rows: a trigger runs for each of them. */
-async function bulkWarnings(
+export async function bulkWarnings(
   db: Queryable,
   ref: TableRef,
   table: CatalogTable,

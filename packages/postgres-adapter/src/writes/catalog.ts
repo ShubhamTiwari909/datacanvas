@@ -349,6 +349,102 @@ export async function hasUniqueKeyOn(
   return rows.length > 0;
 }
 
+// --------------------------------------------------- keys of an import by key ---
+
+export interface CatalogUniqueKey {
+  name: string;
+  /** The constraint's columns, in its own order. */
+  columns: string[];
+  primary: boolean;
+  /**
+   * May an import by key use it (`docs/write-side-v2-plan.md`, 4.1 and 13.1)? A primary key or unique constraint
+   * whose index is valid, not partial and not on expressions, that is NOT deferrable (`ON CONFLICT` refuses a
+   * deferrable arbiter, 55000), not a period constraint (PostgreSQL 18), and whose every column is NOT NULL (NULL
+   * never conflicts and never matches).
+   */
+  eligible: boolean;
+}
+
+/** The table's primary key and unique constraints (never a row), the primary key first. */
+export async function listUniqueKeys(db: Queryable, oid: string): Promise<CatalogUniqueKey[]> {
+  const { rows } = await db.query<{
+    name: string;
+    type: string;
+    columns: string[];
+    eligible: boolean;
+  }>(
+    `SELECT con.conname::text AS name, con.contype::text AS type,
+       ARRAY(
+         SELECT a.attname::text
+         FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+         JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+         ORDER BY k.ord
+       ) AS columns,
+       COALESCE(
+         NOT con.condeferrable
+         AND NOT COALESCE((to_jsonb(con) ->> 'conperiod')::boolean, false)
+         AND ix.indisunique AND ix.indisvalid AND ix.indpred IS NULL AND ix.indexprs IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest(con.conkey) AS k(attnum)
+           JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+           WHERE NOT a.attnotnull
+         ),
+         false
+       ) AS eligible
+     FROM pg_catalog.pg_constraint con
+     LEFT JOIN pg_catalog.pg_index ix ON ix.indexrelid = con.conindid
+     WHERE con.conrelid = $1::oid AND con.contype IN ('p', 'u')
+     ORDER BY (con.contype = 'p') DESC, con.conname`,
+    [oid],
+  );
+  return rows.map((r) => ({
+    name: r.name,
+    columns: r.columns,
+    primary: r.type === "p",
+    eligible: r.eligible,
+  }));
+}
+
+/**
+ * The columns an upsert must not update: every column of the table's unique indexes (the primary key, every
+ * unique constraint, and unique indexes without a constraint, eligible or not), and every column a partial or
+ * expression unique index reads. A conflict on a unique index that is not the arbiter is an error, not an update
+ * (13.1, item 4), and updating a key can move a row under a foreign key.
+ */
+export async function listUniqueColumns(db: Queryable, oid: string): Promise<string[]> {
+  const { rows } = await db.query<{ name: string }>(
+    `SELECT DISTINCT a.attname::text AS name
+     FROM pg_catalog.pg_index ix
+     JOIN pg_catalog.pg_attribute a
+       ON a.attrelid = ix.indrelid AND a.attnum > 0 AND NOT a.attisdropped
+     WHERE ix.indrelid = $1::oid AND ix.indisunique
+       AND (
+         EXISTS (
+           SELECT 1 FROM generate_series(0, ix.indnkeyatts - 1) AS g(pos)
+           WHERE ix.indkey[g.pos] = a.attnum
+         )
+         OR ((ix.indexprs IS NOT NULL OR ix.indpred IS NOT NULL) AND EXISTS (
+           SELECT 1 FROM pg_catalog.pg_depend d
+           WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = ix.indexrelid
+             AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = ix.indrelid
+             AND d.refobjsubid = a.attnum
+         ))
+       )
+     ORDER BY 1`,
+    [oid],
+  );
+  return rows.map((r) => r.name);
+}
+
+/** May the connected role read the table (`SELECT` on it, which `RETURNING (xmax = 0)` needs: 13.1, item 7)? */
+export async function canSelectTable(db: Queryable, oid: string): Promise<boolean> {
+  const { rows } = await db.query<{ can: boolean }>(
+    `SELECT pg_catalog.has_table_privilege($1::oid, 'SELECT') AS can`,
+    [oid],
+  );
+  return rows[0]?.can === true;
+}
+
 // ------------------------------------------------------------- dependents ---
 
 /**

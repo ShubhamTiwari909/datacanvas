@@ -294,6 +294,8 @@ export class ConnectionService {
           columns: request.columns,
           rows: request.rows,
           ...(request.key ? { key: request.key } : {}),
+          ...(request.listAll !== undefined ? { listAll: request.listAll } : {}),
+          ...(request.upsertKey !== undefined ? { upsertKey: request.upsertKey } : {}),
         }),
       ),
     );

@@ -24,6 +24,13 @@ export const MAX_PREVIEWS_PER_CONNECTION = 20;
  */
 export const MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2;
 
+/** The changes that carry a whole file: an import, an update or insert, an update by key. They share the cap above. */
+export const IMPORT_KINDS: ReadonlySet<string> = new Set([
+  "insert_rows",
+  "upsert_rows",
+  "update_by_key",
+]);
+
 interface Stored {
   connectionId: string;
   plan: PlannedChange;
@@ -64,10 +71,10 @@ export class PreviewStore {
     for (const [id] of mine.slice(0, Math.max(0, mine.length - MAX_PREVIEWS_PER_CONNECTION + 1))) {
       this.previews.delete(id);
     }
-    if (plan.change.kind === "insert_rows") {
+    if (IMPORT_KINDS.has(plan.change.kind)) {
       const imports = [...this.previews].filter(
         ([, stored]) =>
-          stored.connectionId === connectionId && stored.plan.change.kind === "insert_rows",
+          stored.connectionId === connectionId && IMPORT_KINDS.has(stored.plan.change.kind),
       );
       for (const [id] of imports.slice(
         0,

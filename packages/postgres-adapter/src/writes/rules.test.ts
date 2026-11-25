@@ -36,6 +36,7 @@ describe("write path source rules", () => {
       "catalog.ts",
       "guard.ts",
       "index.ts",
+      "keyed.ts",
       "rows.ts",
       "sql.ts",
       "structure.ts",

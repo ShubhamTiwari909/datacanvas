@@ -23,13 +23,14 @@ import type { Pool } from "pg";
 import {
   DatabaseError,
   IssueCollector,
-  VALIDATE_MAX_FAILURES_FOUND,
+  VALIDATE_LIST_ALL_TIMEOUT_MS,
   VALIDATE_ROWS_LISTED,
   buildReport,
   checkValidateRequest,
   isSensitiveColumnName,
   quoteIdentifier,
   quoteQualified,
+  validationLimits,
   type ValidateRequest,
   type ValidationNote,
   type ValidationReport,
@@ -118,6 +119,13 @@ export function buildUpdateInsert(
   };
 }
 
+/** How many row numbers a query lists: a whole number written into the statement, never a value of a row. */
+function listed(rowsListed: number): number {
+  if (!Number.isSafeInteger(rowsListed) || rowsListed < 1)
+    throw new DatabaseError("invalid_request");
+  return rowsListed;
+}
+
 /** `"a" IS NOT NULL AND "b" IS NOT NULL` for columns of an alias. */
 function allPresent(alias: string, columns: readonly string[]): string {
   return columns.map((c) => `${alias}.${quoteIdentifier(c)} IS NOT NULL`).join(" AND ");
@@ -127,13 +135,17 @@ function allPresent(alias: string, columns: readonly string[]): string {
  * Rows of the copy that repeat a value of a unique key within the copy:
  * `count` and the first row numbers. Only rows with every key column given count (a NULL is never equal).
  */
-export function buildDuplicatesQuery(rowColumn: string, columns: readonly string[]): string {
+export function buildDuplicatesQuery(
+  rowColumn: string,
+  columns: readonly string[],
+  rowsListed: number = VALIDATE_ROWS_LISTED,
+): string {
   const rowCol = quoteIdentifier(rowColumn);
   const parts = columns.map((c) => `c.${quoteIdentifier(c)}`).join(", ");
   return (
     `WITH dup AS (SELECT c.${rowCol} AS rn, count(*) OVER (PARTITION BY ${parts}) AS n ` +
     `FROM ${quoteIdentifier(COPY)} AS c WHERE ${allPresent("c", columns)}) ` +
-    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${VALIDATE_ROWS_LISTED}], '{}') AS rows ` +
+    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${listed(rowsListed)}], '{}') AS rows ` +
     `FROM dup WHERE n > 1`
   );
 }
@@ -141,12 +153,19 @@ export function buildDuplicatesQuery(rowColumn: string, columns: readonly string
 /**
  * Rows of the copy whose value of a unique key is already held by a row of the real table (other than the
  * row being updated, whose key is `self`).
+ *
+ * `upsertKey`, for an insert that will be an upsert: the row of the table that a row of the copy matches by
+ * this key is the row it would UPDATE, so a collision with that very row is not one:
+ * `... AND NOT (t."k" = c."k")`. The columns of an upsert key are NOT NULL in the table and in the copy, so
+ * `=` is never NULL here.
  */
 export function buildExistingQuery(
   table: { schema: string; name: string },
   rowColumn: string,
   columns: readonly string[],
   self: readonly TypedColumn[] | null,
+  rowsListed: number = VALIDATE_ROWS_LISTED,
+  upsertKey: readonly string[] | null = null,
 ): string {
   const rowCol = quoteIdentifier(rowColumn);
   const same = columns
@@ -155,11 +174,13 @@ export function buildExistingQuery(
   // The row being updated is not a collision with itself.
   const notSelf = self
     ? ` AND NOT (${self.map((k, i) => `t.${quoteIdentifier(k.name)} = CAST($${i + 1} AS ${k.castType})`).join(" AND ")})`
-    : "";
+    : upsertKey && upsertKey.length > 0
+      ? ` AND NOT (${upsertKey.map((k) => `t.${quoteIdentifier(k)} = c.${quoteIdentifier(k)}`).join(" AND ")})`
+      : "";
   return (
     `WITH hit AS (SELECT c.${rowCol} AS rn FROM ${quoteIdentifier(COPY)} AS c WHERE ${allPresent("c", columns)} ` +
     `AND EXISTS (SELECT 1 FROM ${quoteQualified(table.schema, table.name)} AS t WHERE ${same}${notSelf})) ` +
-    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${VALIDATE_ROWS_LISTED}], '{}') AS rows FROM hit`
+    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${listed(rowsListed)}], '{}') AS rows FROM hit`
   );
 }
 
@@ -170,6 +191,7 @@ export function buildOrphanQuery(
   columns: readonly string[],
   refColumns: readonly string[],
   full: boolean,
+  rowsListed: number = VALIDATE_ROWS_LISTED,
 ): string {
   const rowCol = quoteIdentifier(rowColumn);
   const match = columns
@@ -183,7 +205,7 @@ export function buildOrphanQuery(
     : `${allPresent("c", columns)} AND ${none}`;
   return (
     `WITH bad AS (SELECT c.${rowCol} AS rn FROM ${quoteIdentifier(COPY)} AS c WHERE ${broken}) ` +
-    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${VALIDATE_ROWS_LISTED}], '{}') AS rows FROM bad`
+    `SELECT count(*)::int AS n, COALESCE((array_agg(rn ORDER BY rn))[1:${listed(rowsListed)}], '{}') AS rows FROM bad`
   );
 }
 
@@ -194,6 +216,8 @@ interface UniqueKey {
   columns: string[];
   /** Partial, on an expression, or NULLS NOT DISTINCT: not checked, and the report says so. */
   complex: boolean;
+  /** The index of a primary key or unique constraint that is not deferrable: what an upsert may be keyed by. */
+  target: boolean;
 }
 
 const UNIQUE_SQL = `
@@ -205,7 +229,12 @@ const UNIQUE_SQL = `
       ORDER BY g.pos
     ) AS columns,
     (ix.indpred IS NOT NULL OR ix.indexprs IS NOT NULL
-      OR COALESCE((to_jsonb(ix) ->> 'indnullsnotdistinct')::boolean, false)) AS complex
+      OR COALESCE((to_jsonb(ix) ->> 'indnullsnotdistinct')::boolean, false)) AS complex,
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_constraint con
+      WHERE con.conindid = ix.indexrelid AND con.conrelid = ix.indrelid
+        AND con.contype IN ('p', 'u') AND NOT con.condeferrable
+    ) AS target
   FROM pg_catalog.pg_index ix
   JOIN pg_catalog.pg_class ic ON ic.oid = ix.indexrelid
   WHERE ix.indrelid = $1::oid AND ix.indisunique AND ix.indisvalid AND ix.indislive
@@ -265,6 +294,8 @@ interface Prepared {
   notes: ValidationNote[];
   /** For an update: the table's row key, with the values of the row. */
   key: Array<TypedColumn & { value: string }> | null;
+  /** For an insert that will be an upsert: the unique key it is keyed by (catalog names, catalog order). */
+  upsert: UniqueKey | null;
 }
 
 const bad = () => new DatabaseError("invalid_request");
@@ -330,6 +361,25 @@ async function prepare(db: Queryable, request: ValidateRequest): Promise<Prepare
   }
 
   const uniques = (await db.query<UniqueKey>(UNIQUE_SQL, [table.oid])).rows;
+
+  // An upsert's key must be exactly the columns of a primary key or unique constraint that can be a conflict
+  // target: not partial, on an expression or NULLS NOT DISTINCT, not deferrable (55000 as an arbiter), every
+  // column NOT NULL (a NULL never conflicts). Any other set of names is refused, whatever it holds.
+  let upsert: UniqueKey | null = null;
+  if (request.upsertKey !== undefined) {
+    const asked = new Set(request.upsertKey);
+    upsert =
+      uniques.find(
+        (u) =>
+          u.target &&
+          !u.complex &&
+          u.columns.length === asked.size &&
+          u.columns.every((c) => asked.has(c)) &&
+          u.columns.every((c) => byName.get(c)?.notNull === true && givenNames.has(c)),
+      ) ?? null;
+    if (!upsert) throw bad();
+  }
+
   const fks = (
     await db.query<{
       name: string;
@@ -378,6 +428,7 @@ async function prepare(db: Queryable, request: ValidateRequest): Promise<Prepare
     })),
     notes,
     key,
+    upsert,
   };
 }
 
@@ -467,9 +518,10 @@ async function run(
   prepared: Prepared,
   deadline: number,
 ): Promise<ValidationReport> {
-  const collector = new IssueCollector();
+  const limits = validationLimits(request);
+  const collector = new IssueCollector(limits.rowsListed);
   const notes = [...prepared.notes];
-  const { table, supplied, rowColumn } = prepared;
+  const { table, supplied, rowColumn, upsert } = prepared;
   const tooLate = () => {
     if (Date.now() > deadline) throw new DatabaseError("timeout");
   };
@@ -504,12 +556,25 @@ async function run(
     const typed = supplied.map((c) => ({ name: c.name, castType: c.castType }));
     const insert = buildBatchInsert(rowColumn, typed).text;
     let stopped = false;
-    const attempt = async (from: number, to: number): Promise<void> => {
-      if (stopped) return;
+    /**
+     * Put the rows `from` to `to` into the copy, halving on a failure. Answers whether they went in at once.
+     * `failing`: the slice is known to hold a failing row (its sibling went in whole, and their parent did
+     * not), so trying it whole would only fail again: it is halved straight away. Rows are judged one by
+     * one in the copy (no index, no trigger), so this saves statements and changes no answer; and should
+     * a rule ever judge rows together, a wrongly halved slice only costs the tries of its halves.
+     */
+    const attempt = async (from: number, to: number, failing = false): Promise<boolean> => {
+      if (stopped) return false;
       tooLate();
-      if (collector.failedRows >= VALIDATE_MAX_FAILURES_FOUND) {
+      if (collector.failedRows >= limits.stopAfter) {
         stopped = true;
-        return;
+        return false;
+      }
+      if (failing && to - from > 1) {
+        const mid = Math.floor((from + to) / 2);
+        const whole = await attempt(from, mid);
+        await attempt(mid, to, whole);
+        return false;
       }
       const slice = request.rows.slice(from, to);
       const arrays = [
@@ -520,6 +585,7 @@ async function run(
       try {
         await db.query(insert, arrays);
         await db.query("RELEASE SAVEPOINT dc_batch");
+        return true;
       } catch (error) {
         if (!isRowFailure(sqlstate(error))) throw error;
         await db.query("ROLLBACK TO SAVEPOINT dc_batch");
@@ -527,11 +593,12 @@ async function run(
         if (to - from === 1) {
           const failure = await classify(db, prepared, request, from, error);
           collector.add(failure.rule, failure.column, failure.constraint, from + 1);
-          return;
+          return false;
         }
         const mid = Math.floor((from + to) / 2);
-        await attempt(from, mid);
-        await attempt(mid, to);
+        const whole = await attempt(from, mid);
+        await attempt(mid, to, whole);
+        return false;
       }
     };
     await attempt(0, request.rows.length);
@@ -554,20 +621,41 @@ async function run(
       notes.push("defaults_not_applied");
       continue;
     }
+    // The key of an upsert: a row of the file matching an existing row by it is an update, not a failure.
+    const chosen = upsert !== null && unique.name === upsert.name;
     // "Does a row with this value exist?" asked of a hidden column is a way to read it one guess at a time.
-    if (unique.columns.some(isSensitiveColumnName)) {
+    // (The key of an upsert is still checked inside the file: that reads nothing of the table.)
+    if (!chosen && unique.columns.some(isSensitiveColumnName)) {
       notes.push("hidden_columns");
       continue;
     }
     tooLate();
+    // Over the whole file: two rows with one upsert key make the apply fail (21000), across batches too.
     if (request.mode === "insert" && request.rows.length > 1) {
-      const inside = await counted(db, buildDuplicatesQuery(rowColumn, unique.columns));
+      const inside = await counted(
+        db,
+        buildDuplicatesQuery(rowColumn, unique.columns, limits.rowsListed),
+      );
       collector.addMany("unique_in_request", null, unique.name, inside.n, inside.rows);
+    }
+    if (chosen) continue;
+    // Another key, judged against every row but the one being updated, which is found by the upsert key: a
+    // hidden column there would be read the same way, one guess at a time.
+    if (upsert !== null && upsert.columns.some(isSensitiveColumnName)) {
+      notes.push("hidden_columns");
+      continue;
     }
     const self = request.mode === "update" ? prepared.key : null;
     const existing = await counted(
       db,
-      buildExistingQuery(table, rowColumn, unique.columns, self),
+      buildExistingQuery(
+        table,
+        rowColumn,
+        unique.columns,
+        self,
+        limits.rowsListed,
+        upsert ? upsert.columns : null,
+      ),
       self ? self.map((k) => k.value) : [],
     );
     collector.addMany("unique_existing", null, unique.name, existing.n, existing.rows);
@@ -594,6 +682,7 @@ async function run(
           fk.columns,
           fk.refColumns,
           fk.full,
+          limits.rowsListed,
         ),
       );
       await db.query("RELEASE SAVEPOINT dc_fk");
@@ -607,6 +696,11 @@ async function run(
     }
   }
 
+  // With `listAll`, more failing rows than can be listed (found by the copy, or counted by a query) is what
+  // `stopped_early` says: the caller cannot be told every row.
+  if (limits.mostListed !== null && collector.mostFailedRows > limits.mostListed) {
+    notes.push("stopped_early");
+  }
   return buildReport(request.rows.length, collector, notes);
 }
 
@@ -620,7 +714,12 @@ export async function validateRows(
   request: ValidateRequest,
 ): Promise<ValidationReport> {
   checkValidateRequest(request);
-  const deadline = Date.now() + statementTimeoutMs;
+  // Listing every failing row takes longer than the usual deadline (section 13.3 of the write-side plan);
+  // each statement keeps the usual limit.
+  const allowedMs = request.listAll
+    ? Math.max(VALIDATE_LIST_ALL_TIMEOUT_MS, statementTimeoutMs)
+    : statementTimeoutMs;
+  const deadline = Date.now() + allowedMs;
   let prepared: Prepared | undefined;
   return withCheckingTransaction(
     pool,

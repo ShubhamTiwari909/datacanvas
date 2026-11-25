@@ -13,7 +13,32 @@ import {
   type InsertRowsChange,
   type TableEditInfo,
   type TableRef,
+  type UpdateByKeyChange,
+  type UpsertRowsChange,
 } from "@datacanvas/database-core";
+import type { ValidateRequestBody } from "@datacanvas/shared-types";
+import { validateRequestFor } from "@/features/writes/validation";
+
+/**
+ * What happens to rows already in the table (`docs/write-side-v2-plan.md`, 4.1 and 4.2): `insert` adds every row
+ * (`insert_rows`), `upsert` updates the rows its key finds and adds the others (`upsert_rows`), `update` updates
+ * only the rows its key finds (`update_by_key`).
+ */
+export type ImportMode = "insert" | "upsert" | "update";
+
+/** The mode, and for the two key modes the key's columns and (upsert) the columns to update. */
+export interface ImportChoice {
+  mode: ImportMode;
+  /** The chosen key's columns, in the constraint's order; null in insert mode. */
+  key: readonly string[] | null;
+  /** Upsert: the mapped columns to update when the key finds a row; empty leaves such rows as they are. */
+  updateColumns: readonly string[];
+}
+
+export const INSERT_CHOICE: ImportChoice = { mode: "insert", key: null, updateColumns: [] };
+
+/** The change an import builds, by mode. */
+export type ImportChange = InsertRowsChange | UpsertRowsChange | UpdateByKeyChange;
 
 /** How a field is read: an empty field is NULL or the empty string, and these exact words are NULL as well. */
 export interface NullRule {
@@ -38,14 +63,29 @@ export function importableColumns(info: TableEditInfo): TableEditInfo["columns"]
 }
 
 /**
+ * The columns a file column can go to in a mode: those an import can give a value to and, for an update only, the
+ * columns of the chosen key as well (the key only finds the row, so a column the database fills, such as a
+ * `GENERATED ALWAYS` identity, can still be the key). In the table's order.
+ */
+export function mappableColumns(
+  info: TableEditInfo,
+  choice: Pick<ImportChoice, "mode" | "key"> = INSERT_CHOICE,
+): TableEditInfo["columns"] {
+  const importable = new Set(importableColumns(info).map((c) => c.name));
+  const key = choice.mode === "update" ? (choice.key ?? []) : [];
+  return info.columns.filter((c) => importable.has(c.name) || key.includes(c.name));
+}
+
+/**
  * A suggestion for each file column: the column of the table with the same name (exactly, then without regard to
  * case and to `_`, `-` and spaces), each table column at most once; null (ignore) for the rest.
  */
 export function suggestMapping(
   header: readonly string[],
   info: TableEditInfo,
+  choice: Pick<ImportChoice, "mode" | "key"> = INSERT_CHOICE,
 ): Array<string | null> {
-  const names = importableColumns(info).map((c) => c.name);
+  const names = mappableColumns(info, choice).map((c) => c.name);
   const taken = new Set<string>();
   const loose = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, "");
   const result: Array<string | null> = header.map(() => null);
@@ -82,11 +122,15 @@ export function missingRequired(
     .map((c) => c.name);
 }
 
-/** Why the choices cannot be turned into an import yet, or null when they can. */
+/**
+ * Why the choices cannot be turned into an import yet, or null when they can. In a key mode every column of the key
+ * must be mapped; an update only needs a column that is not the key, and never the columns a new row would need.
+ */
 export function mappingProblem(
   info: TableEditInfo,
   mapping: ReadonlyArray<string | null>,
   dataRows: number,
+  choice: Pick<ImportChoice, "mode" | "key"> = INSERT_CHOICE,
 ): string | null {
   const chosen = mapping.filter((m): m is string => m !== null);
   if (chosen.length === 0)
@@ -95,11 +139,24 @@ export function mappingProblem(
   if (new Set(chosen).size !== chosen.length) {
     return "Two columns of the file go to the same column of the table. Ignore one of them.";
   }
-  const importable = new Set(importableColumns(info).map((c) => c.name));
-  if (chosen.some((c) => !importable.has(c)))
-    return "A column chosen cannot be given a value here.";
+  const mappable = new Set(mappableColumns(info, choice).map((c) => c.name));
+  if (chosen.some((c) => !mappable.has(c))) return "A column chosen cannot be given a value here.";
   if (dataRows === 0) return "The file has no rows below its first row.";
   if (dataRows > IMPORT_MAX_ROWS) return "Too many rows for one import.";
+  if (choice.mode !== "insert" && choice.key !== null) {
+    const unmapped = choice.key.filter((k) => !chosen.includes(k));
+    if (unmapped.length > 0) {
+      return unmapped.length === 1
+        ? `${unmapped[0]} is part of the key and is not mapped: choose a column of the file for it.`
+        : `${unmapped.join(", ")} are part of the key and are not mapped: choose columns of the file for them.`;
+    }
+    if (choice.mode === "update") {
+      const key = choice.key;
+      return chosen.some((c) => !key.includes(c))
+        ? null
+        : "Choose a column of the file for at least one column that is not the key: an update sets those.";
+    }
+  }
   const missing = missingRequired(info, mapping);
   if (missing.length > 0) {
     const importable = new Set(importableColumns(info).map((c) => c.name));
@@ -141,6 +198,51 @@ export function buildImport(table: TableRef, input: ImportInput): InsertRowsChan
     table: { schema: table.schema, name: table.name },
     columns,
     rows: dataRowsOf(input).map((row) => at.map((i) => readField(row[i] ?? "", input.rule))),
+  };
+}
+
+/**
+ * The change of the mode chosen: the columns and rows exactly as `buildImport` reads them (the same NULL rule, the
+ * empty string, every value as text), with the key and, for an update or insert, the columns to update. The key
+ * and the columns to update are names of the table, never of the file.
+ */
+export function buildChange(
+  table: TableRef,
+  input: ImportInput,
+  choice: ImportChoice = INSERT_CHOICE,
+): ImportChange {
+  const insert = buildImport(table, input);
+  if (choice.mode === "insert" || choice.key === null) return insert;
+  const { table: target, columns, rows } = insert;
+  if (choice.mode === "upsert") {
+    return {
+      kind: "upsert_rows",
+      table: target,
+      key: [...choice.key],
+      columns,
+      rows,
+      updateColumns: [...choice.updateColumns],
+    };
+  }
+  return { kind: "update_by_key", table: target, key: [...choice.key], columns, rows };
+}
+
+/**
+ * The validation of an import, or null when the mode has none (an update only: its preview checks the rows against
+ * the table). An update or insert is validated as an insert that names its key (`upsertKey`), so a row the key
+ * finds in the table is not counted as a repeated key.
+ */
+export function validateRequestForImport(change: ImportChange): ValidateRequestBody | null {
+  if (change.kind === "update_by_key") return null;
+  if (change.kind === "insert_rows") return validateRequestFor(change);
+  return {
+    ...validateRequestFor({
+      kind: "insert_rows",
+      table: change.table,
+      columns: change.columns,
+      rows: change.rows,
+    }),
+    upsertKey: [...change.key],
   };
 }
 

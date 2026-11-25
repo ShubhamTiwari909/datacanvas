@@ -44,6 +44,31 @@ describe("the mock adapter's write side", () => {
     expect(orders.rowSecurity).toBe(true);
   });
 
+  it("lists the keys an import by key may use, and refuses an import by key (the real adapter does it)", async () => {
+    const { adapter } = await setup();
+    const info = await adapter.describeForEdit(users);
+    expect(info.uniqueKeys).toEqual([
+      { name: "users_pkey", columns: ["id"] },
+      { name: "users_email_key", columns: ["email"] },
+    ]);
+    const rows = [["1", "a@x.test"]];
+    for (const change of [
+      {
+        kind: "upsert_rows",
+        table: users,
+        key: ["id"],
+        columns: ["id", "email"],
+        rows,
+        updateColumns: [],
+      },
+      { kind: "update_by_key", table: users, key: ["id"], columns: ["id", "email"], rows },
+    ] satisfies Change[]) {
+      await expect(adapter.previewChange(change)).rejects.toMatchObject({
+        code: "invalid_change",
+      });
+    }
+  });
+
   it("refuses a table that does not exist and a view", async () => {
     const { adapter } = await setup();
     await expect(adapter.describeForEdit({ schema: "public", name: "nope" })).rejects.toMatchObject(

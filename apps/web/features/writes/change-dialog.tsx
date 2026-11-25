@@ -12,9 +12,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import type { Change } from "@datacanvas/database-core";
+import type { AppliedChange, Change } from "@datacanvas/database-core";
 import type { ChangePreview, HistoryEntry } from "@datacanvas/shared-types";
 import { CopyButton } from "@/components/copy-button";
+import { countsText, isKeyedImport, skippedText } from "@/features/import/keyed-text";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,11 +38,18 @@ export interface ChangeRequest {
   title: string;
   /** For row changes: what the person saw and what they asked for. */
   beforeAfter?: BeforeAfterRow[];
+  /**
+   * For an import: the file's line of each row sent, by its position (0-based), so the rows the preview leaves out
+   * (`skipped`) are named by their line in the file.
+   */
+  rowLines?: readonly number[];
 }
 
 export interface AppliedResult {
   rowCount: number;
   entry: HistoryEntry;
+  /** For an import by key: how the rows written split (see `AppliedChange`). */
+  split?: AppliedChange["split"];
 }
 
 type Step =
@@ -137,6 +145,9 @@ export function ChangeDialog({
   }
 
   const canApply = step.kind === "ready" && (!step.preview.destructive || read);
+  const change = request?.change ?? null;
+  const keyed = change !== null && isKeyedImport(change);
+  const importing = change !== null && (change.kind === "insert_rows" || keyed);
 
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && close()}>
@@ -166,11 +177,36 @@ export function ChangeDialog({
           </div>
         ) : null}
 
+        {keyed ? (
+          // Always in the dialog for an import by key, so a screen reader announces the counts when they come.
+          <p
+            role="status"
+            aria-live="polite"
+            aria-label="What the preview counted"
+            className="text-sm font-medium empty:hidden"
+          >
+            {preview && change ? countsText(change, preview.counts) : null}
+          </p>
+        ) : null}
+
         {preview ? (
           <div className="flex flex-col gap-4">
             <p className="text-sm">{preview.effect}</p>
 
-            {preview.skipped.length > 0 ? (
+            {preview.skipped.length > 0 && change?.kind === "update_by_key" ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm"
+              >
+                <AlertTriangle
+                  className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+                  aria-hidden="true"
+                />
+                <p>{skippedText(preview.skipped, request?.rowLines)}</p>
+              </div>
+            ) : null}
+
+            {preview.skipped.length > 0 && change?.kind !== "update_by_key" ? (
               <div
                 role="status"
                 className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm"
@@ -265,12 +301,12 @@ export function ChangeDialog({
               >
                 {preview.statement}
               </pre>
-              {request?.change.kind === "update_row" ||
-              request?.change.kind === "insert_row" ||
-              request?.change.kind === "delete_row" ||
-              request?.change.kind === "update_rows" ||
-              request?.change.kind === "delete_rows" ||
-              request?.change.kind === "insert_rows" ? (
+              {change?.kind === "update_row" ||
+              change?.kind === "insert_row" ||
+              change?.kind === "delete_row" ||
+              change?.kind === "update_rows" ||
+              change?.kind === "delete_rows" ||
+              importing ? (
                 <p className="text-xs text-muted-foreground">
                   Values are sent separately as $1, $2 and so on, never as part of the statement.
                 </p>
@@ -339,7 +375,7 @@ export function ChangeDialog({
           <Button type="button" variant="outline" onClick={close}>
             {step.kind === "failed" || step.kind === "refused"
               ? "Close"
-              : step.kind === "applying" && request?.change.kind === "insert_rows"
+              : step.kind === "applying" && importing
                 ? "Cancel and roll back"
                 : "Cancel"}
           </Button>

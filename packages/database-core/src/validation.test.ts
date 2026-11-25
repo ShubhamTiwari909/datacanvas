@@ -4,13 +4,16 @@ import { IMPORT_MAX_ROWS } from "./changes.js";
 import {
   IssueCollector,
   NOTE_TEXT,
+  VALIDATE_LIST_ALL_MAX_FAILURES,
   VALIDATE_MAX_COLUMNS,
+  VALIDATE_MAX_FAILURES_FOUND,
   VALIDATE_MAX_ROWS,
   VALIDATE_MAX_VALUE_CHARS,
   VALIDATE_ROWS_LISTED,
   buildReport,
   checkValidateRequest,
   describeIssue,
+  validationLimits,
   type ValidateRequest,
   type ValidationNote,
   type ValidationRule,
@@ -118,8 +121,86 @@ describe("checkValidateRequest", () => {
       } as ValidateRequest,
     ],
     ["a mode that does not exist", { ...insert(), mode: "delete" } as unknown as ValidateRequest],
+    [
+      "listAll on an update",
+      {
+        table,
+        mode: "update",
+        columns: ["a"],
+        rows: [["1"]],
+        key: [{ column: "id", value: "1" }],
+        listAll: true,
+      } as ValidateRequest,
+    ],
+    [
+      "listAll: false on an update",
+      {
+        table,
+        mode: "update",
+        columns: ["a"],
+        rows: [["1"]],
+        key: [{ column: "id", value: "1" }],
+        listAll: false,
+      } as ValidateRequest,
+    ],
+    ["a listAll that is not a boolean", insert({ listAll: "yes" as unknown as boolean })],
+    [
+      "upsertKey on an update",
+      {
+        table,
+        mode: "update",
+        columns: ["a"],
+        rows: [["1"]],
+        key: [{ column: "id", value: "1" }],
+        upsertKey: ["a"],
+      } as ValidateRequest,
+    ],
+    ["an empty upsertKey", insert({ upsertKey: [] })],
+    ["an upsertKey that is not a list", insert({ upsertKey: "a" as unknown as string[] })],
+    ["an upsertKey that is null", insert({ upsertKey: null as unknown as string[] })],
+    ["an upsertKey with a number", insert({ upsertKey: [1] as unknown as string[] })],
+    ["an upsertKey naming a column twice", insert({ upsertKey: ["a", "a"] })],
+    ["an upsertKey naming a column not given", insert({ upsertKey: ["c"] })],
+    [
+      "an upsertKey of more than 32 columns",
+      (() => {
+        const columns = Array.from({ length: 33 }, (_, i) => `c${i}`);
+        return insert({ columns, rows: [columns.map(() => "1")], upsertKey: columns });
+      })(),
+    ],
   ])("refuses %s, with a fixed code", (_name, request) => {
     expect(refused(request)).toBe(true);
+  });
+
+  it("accepts listAll on an insert", () => {
+    expect(refused(insert({ listAll: true }))).toBe(false);
+    expect(refused(insert({ listAll: false }))).toBe(false);
+  });
+
+  it("accepts an upsertKey on an insert, alone or with listAll", () => {
+    expect(refused(insert({ upsertKey: ["a"] }))).toBe(false);
+    expect(refused(insert({ upsertKey: ["b", "a"], listAll: true }))).toBe(false);
+    const columns = Array.from({ length: 32 }, (_, i) => `c${i}`);
+    expect(refused(insert({ columns, rows: [columns.map(() => "1")], upsertKey: columns }))).toBe(
+      false,
+    );
+  });
+});
+
+describe("validationLimits", () => {
+  it("keeps the usual limits without listAll, and lists up to the limit with it", () => {
+    const usual = {
+      stopAfter: VALIDATE_MAX_FAILURES_FOUND,
+      rowsListed: VALIDATE_ROWS_LISTED,
+      mostListed: null,
+    };
+    expect(validationLimits({})).toEqual(usual);
+    expect(validationLimits({ listAll: false })).toEqual(usual);
+    expect(validationLimits({ listAll: true })).toEqual({
+      stopAfter: VALIDATE_LIST_ALL_MAX_FAILURES + 1,
+      rowsListed: VALIDATE_LIST_ALL_MAX_FAILURES,
+      mostListed: VALIDATE_LIST_ALL_MAX_FAILURES,
+    });
   });
 });
 
@@ -136,6 +217,23 @@ describe("IssueCollector and buildReport", () => {
     // A row that broke two rules is one failing row.
     expect(collector.failedRows).toBe(30);
     expect(buildReport(40, collector, []).passed).toBe(10);
+  });
+
+  it("lists as many rows as it is told to", () => {
+    const collector = new IssueCollector(VALIDATE_LIST_ALL_MAX_FAILURES);
+    for (let row = 1; row <= 1200; row++) collector.add("check", null, "price_ok", row);
+    collector.addMany(
+      "unique_existing",
+      null,
+      "k",
+      1100,
+      Array.from({ length: 1000 }, (_, i) => i + 1),
+    );
+    const [check, unique] = collector.issues();
+    expect(check!.rows).toHaveLength(VALIDATE_LIST_ALL_MAX_FAILURES);
+    expect(check!.count).toBe(1200);
+    expect(unique!.rows).toHaveLength(VALIDATE_LIST_ALL_MAX_FAILURES);
+    expect(collector.mostFailedRows).toBe(1300);
   });
 
   it("adds a counted batch from a query, keeping the rows sorted and not repeating one", () => {

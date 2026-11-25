@@ -101,6 +101,23 @@ export function mapWriteError(error: unknown): DatabaseError {
       );
     case "0A000":
       return fail("invalid_change", "PostgreSQL does not support this change on this table.");
+    // An import by key (`docs/write-side-v2-plan.md`, 13.1): the preview refuses each of these before it plans,
+    // so they mean the table changed since the preview. The messages hold no value.
+    case "55000":
+      return fail(
+        "invalid_change",
+        "PostgreSQL refused this change in the table's current state (for example a key that became deferrable). Nothing was changed. Preview again.",
+      );
+    case "42P10":
+      return fail(
+        "invalid_change",
+        "The key is no longer a unique key of the table. Nothing was changed. Preview again.",
+      );
+    case "21000":
+      return fail(
+        "invalid_change",
+        "Two rows have the same key, so one row would be changed twice. Nothing was changed.",
+      );
     case "57014":
       return fail("timeout", "The change took too long and was stopped. Nothing was changed.");
   }

@@ -25,6 +25,42 @@ export const VALIDATE_MAX_VALUE_CHARS = 100_000;
 export const VALIDATE_MAX_FAILURES_FOUND = 100;
 /** The row numbers listed for one rule. */
 export const VALIDATE_ROWS_LISTED = 20;
+/**
+ * With `listAll` (an import that may leave out its failing rows, `docs/write-side-v2-plan.md` 4.3): failing
+ * rows are searched for until MORE than this many are found, and each rule lists up to this many row numbers.
+ * More failing rows than this: the report says `stopped_early` (the file needs fixing, it is not "a few bad rows").
+ */
+export const VALIDATE_LIST_ALL_MAX_FAILURES = 1000;
+/**
+ * With `listAll`, the whole validation's deadline (section 13.3 of the plan: 1,000 failing rows spread out
+ * took 20 to 29 s, past the usual deadline of `statementTimeoutMs`). Never shorter than the usual one.
+ */
+export const VALIDATE_LIST_ALL_TIMEOUT_MS = 60_000;
+
+/** The limits of one validation: the usual ones, or those of `listAll`. */
+export interface ValidationLimits {
+  /** The search for failing rows stops once this many different rows have failed. */
+  stopAfter: number;
+  /** The row numbers listed for one rule. */
+  rowsListed: number;
+  /** Says `stopped_early` when more rows than this failed (rows named, plus rows counted without naming). */
+  mostListed: number | null;
+}
+
+export function validationLimits(request: Pick<ValidateRequest, "listAll">): ValidationLimits {
+  return request.listAll === true
+    ? {
+        // One more than the limit: finding the 1,001st failing row is how "more than 1,000" is known.
+        stopAfter: VALIDATE_LIST_ALL_MAX_FAILURES + 1,
+        rowsListed: VALIDATE_LIST_ALL_MAX_FAILURES,
+        mostListed: VALIDATE_LIST_ALL_MAX_FAILURES,
+      }
+    : {
+        stopAfter: VALIDATE_MAX_FAILURES_FOUND,
+        rowsListed: VALIDATE_ROWS_LISTED,
+        mostListed: null,
+      };
+}
 
 /**
  * What is asked.
@@ -40,6 +76,22 @@ export interface ValidateRequest {
   rows: Array<Array<string | null>>;
   /** For `update`: the key of the row. */
   key?: KeyValue[];
+  /**
+   * For `insert` only: list EVERY failing row, up to `VALIDATE_LIST_ALL_MAX_FAILURES`, with its own deadline
+   * (`VALIDATE_LIST_ALL_TIMEOUT_MS`). The report keeps its shape: `issues[].rows` then names every failing
+   * row (a row breaking two rules is in both), unless it says `stopped_early`: more rows failed than that.
+   */
+  listAll?: boolean;
+  /**
+   * For `insert` only: the rows will be an UPSERT keyed by these columns (`docs/write-side-v2-plan.md` 4.1,
+   * 13.1 items 4 and 8). They must be exactly the columns of a primary key or unique constraint of the table
+   * that can be a conflict target (not deferrable, every column NOT NULL), and all among `columns`; anything
+   * else is `invalid_request`. Then a row matching an existing row by this key is an update, not a failure
+   * (no `unique_existing` for this key), and for every other unique key a collision counts only with an
+   * existing row OTHER than the one the file row would update. Repeated keys in the file are still
+   * `unique_in_request`. Composes with `listAll`.
+   */
+  upsertKey?: string[];
 }
 
 export type ValidationRule =
@@ -68,7 +120,7 @@ export interface ValidationIssue {
   constraint: string | null;
   /** How many rows break this rule (at least this many when the report says it stopped early). */
   count: number;
-  /** The first `VALIDATE_ROWS_LISTED` row numbers (1-based, in the order of the request). */
+  /** The first `VALIDATE_ROWS_LISTED` row numbers (`VALIDATE_LIST_ALL_MAX_FAILURES` with `listAll`; 1-based, in the order of the request). */
   rows: number[];
 }
 
@@ -82,7 +134,7 @@ export type ValidationNote =
   | "other_unique_indexes"
   /** A foreign key could not be checked: the referenced table cannot be read by this role. */
   | "foreign_key_unreadable"
-  /** The search for failing rows stopped after `VALIDATE_MAX_FAILURES_FOUND`. */
+  /** The search for failing rows stopped after `VALIDATE_MAX_FAILURES_FOUND` (with `listAll`: more than `VALIDATE_LIST_ALL_MAX_FAILURES` rows failed). */
   | "stopped_early"
   /** A rule (a CHECK over several columns, a unique key or a foreign key) was judged without the defaults of the columns the row did not give. */
   | "defaults_not_applied"
@@ -127,7 +179,19 @@ export function checkValidateRequest(request: ValidateRequest): void {
       }
     }
   }
+  if (request.listAll !== undefined && typeof request.listAll !== "boolean") throw invalid();
+  const upsertKey: unknown = request.upsertKey;
+  if (upsertKey !== undefined) {
+    if (!Array.isArray(upsertKey) || upsertKey.length < 1 || upsertKey.length > 32) throw invalid();
+    if (!upsertKey.every((c) => typeof c === "string")) throw invalid();
+    if (new Set(upsertKey).size !== upsertKey.length) throw invalid();
+    // Every column of the key is given by the file: the key is what finds the row to update.
+    if (!upsertKey.every((c: string) => columns.includes(c))) throw invalid();
+  }
   if (mode === "update") {
+    // Listing every failing row, and an upsert, are for an import; an update checks one row.
+    if (request.listAll !== undefined) throw invalid();
+    if (upsertKey !== undefined) throw invalid();
     if (rows.length !== 1 || columns.length < 1) throw invalid();
     const key = request.key;
     if (!key || key.length < 1 || key.length > 32) throw invalid();
@@ -144,6 +208,9 @@ export class IssueCollector {
   /** Rows a query counted but did not list: they may be rows no other rule named. */
   private unseen = 0;
 
+  /** @param rowsListed the row numbers listed for one rule (`validationLimits(request).rowsListed`). */
+  constructor(private readonly rowsListed: number = VALIDATE_ROWS_LISTED) {}
+
   add(rule: ValidationRule, column: string | null, constraint: string | null, row: number): void {
     const key = JSON.stringify([rule, column, constraint]);
     let issue = this.byKey.get(key);
@@ -152,7 +219,7 @@ export class IssueCollector {
       this.byKey.set(key, issue);
     }
     issue.count += 1;
-    if (issue.rows.length < VALIDATE_ROWS_LISTED) issue.rows.push(row);
+    if (issue.rows.length < this.rowsListed) issue.rows.push(row);
     this.failed.add(row);
   }
 
@@ -174,8 +241,7 @@ export class IssueCollector {
     }
     issue.count += count;
     for (const row of rows) {
-      if (issue.rows.length < VALIDATE_ROWS_LISTED && !issue.rows.includes(row))
-        issue.rows.push(row);
+      if (issue.rows.length < this.rowsListed && !issue.rows.includes(row)) issue.rows.push(row);
       this.failed.add(row);
     }
   }

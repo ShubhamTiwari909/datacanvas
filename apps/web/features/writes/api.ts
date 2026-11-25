@@ -102,7 +102,13 @@ export async function requestApply(
    * answer, so reload the table to see it.
    */
   signal?: AbortSignal,
-): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {
+): Promise<
+  ApiResult<{
+    rowCount: number;
+    entry: HistoryEntry;
+    split?: { inserted: number; updated: number; exact: boolean };
+  }>
+> {
   const result = await apiRequest(`${base(connectionId)}/writes/apply`, applyChangeResponseSchema, {
     method: "POST",
     body: { previewId },

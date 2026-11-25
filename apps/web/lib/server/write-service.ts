@@ -33,6 +33,7 @@ import {
   isDatabaseError,
   isWritableAdapter,
   statementText,
+  type AppliedChange,
   type CancelSignal,
   type Change,
   type DatabaseAdapter,
@@ -177,6 +178,8 @@ export class WriteService {
       expiresAt: new Date(expiresAt).toISOString(),
       // A bulk change leaves out the rows that no longer hold what the person saw: their positions, no values.
       skipped: plan.skipped ?? [],
+      // An import by key: what the preview counted (new rows, rows overwritten, rows left alone). Counts only.
+      counts: plan.counts ? { ...plan.counts } : null,
     };
   }
 
@@ -190,7 +193,7 @@ export class WriteService {
     id: string,
     previewId: string,
     signal?: CancelSignal,
-  ): Promise<{ rowCount: number; entry: HistoryEntry }> {
+  ): Promise<{ rowCount: number; entry: HistoryEntry; split?: AppliedChange["split"] }> {
     this.requireUnlocked(id);
     // Checked BEFORE taking the preview, so a busy connection does not use it up.
     if (this.busy.has(id)) throw new ServiceError("write_busy", WRITE_MESSAGES.busy);
@@ -204,7 +207,11 @@ export class WriteService {
         this.requireUnlocked(id);
         return writable(adapter).applyChange(plan, signal);
       });
-      return { rowCount: applied.rowCount, entry: this.record(id, plan, null) };
+      const entry = this.record(id, plan, null);
+      // An import by key says how many rows it inserted and updated: counts only, never a value.
+      return applied.split
+        ? { rowCount: applied.rowCount, entry, split: { ...applied.split } }
+        : { rowCount: applied.rowCount, entry };
     } catch (error) {
       this.record(id, plan, errorCode(error));
       throw error;

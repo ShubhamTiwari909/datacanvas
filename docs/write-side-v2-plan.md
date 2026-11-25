@@ -133,17 +133,17 @@ Every new operation gets its rule tests (`tests/security.test.ts`): no text of S
 | **E3** | Bulk change of the rows a filter matches: keys resolved at preview, the typed count, the keyed batches                                                                                                                                                                                                                         | The rules above as tests; an end-to-end test with a short batch (a row deleted between the two) |
 | **E4** | `edit_cells` and the editing grid: pending changes, review, preview, the keyboard; **paste** if time allows                                                                                                                                                                                                                    | Planner tests (conflicts, key refusal), grid tests, axe, an end-to-end test                     |
 | **E5** | Edit a cut text value (`getCell` for text); the progress stream (**droppable**)                                                                                                                                                                                                                                                | Adapter and route tests; the stream tested with a cancel                                        |
-| **E6** | README, guide, `SECURITY.md`, the threat model (section 13 and the review table), decisions, changelog, version **1.11.0**; **the independent review of the whole write side of this release** (a fresh agent, throwaway tests, no source changed), every finding fixed with a test; the whole gate; the PostgreSQL matrix; PR | A PR the owner merges, and publishes themselves                                                 |
+| **E6** | README, guide, `SECURITY.md`, the threat model (section 13 and the review table), decisions, changelog, version **1.12.0**; **the independent review of the whole write side of this release** (a fresh agent, throwaway tests, no source changed), every finding fixed with a test; the whole gate; the PostgreSQL matrix; PR | A PR the owner merges, and publishes themselves                                                 |
 
 E1 to E4 are independent after E0 and can be done in any order; the order above puts the lowest risk first and the filter-wide change after the keyed batch it depends on.
 
 ## 10. Documentation to update (in the same change)
 
-README (what you can do), `docs/getting-started.md` (the import modes, the rejects file, the encoding menu, "all matching rows", the editing grid), `SECURITY.md` (new write operations, the held keys, what the preview counts), `docs/threat-model.md` (a section for the new operations and the review table), `docs/decisions.md` (the decisions below), `docs/advanced-data-workspace-plan.md` (sections 19 and 20 point here), `CHANGELOG.md`, the version in the root and `packages/cli` `package.json` and the three places in `package-lock.json`.
+README (what you can do), `docs/getting-started.md` (the import modes, the rejects file, the encoding menu, "all matching rows", the editing grid), `SECURITY.md` (new write operations, the held keys, what the preview counts), `docs/threat-model.md` (a section for the new operations and the review table), `docs/decisions.md` (the decisions below), `docs/advanced-data-workspace-plan.md` (sections 19 and 20 point here), `CHANGELOG.md`, the version in the root and `packages/cli` `package.json` (the project uses pnpm now, so there is no `package-lock.json`).
 
 ## 11. Decisions taken (2026-11-23): every recommendation accepted
 
-1. **Scope of 1.11.0.** _Recommend_ all of section 1. If it must be smaller: E1 and E2 (the import, finished), then E4; E3 last, because it is the largest risk.
+1. **Scope of 1.12.0.** _Recommend_ all of section 1. If it must be smaller: E1 and E2 (the import, finished), then E4; E3 last, because it is the largest risk.
 2. **"All rows matching this filter"** (section 6) **by keys resolved at preview**, never a `WHERE` in a write, with the count typed to confirm, 100,000 at most, an empty filter refused. _Recommend_ exactly this. The alternative (a `WHERE` built from the conditions at apply) is simpler and is the thing the project has refused since 1.4.
 3. **A bulk change by filter does not compare the values the person saw** (it is like a delete by key). _Recommend_ yes, said in the preview; the person who needs the check chooses the rows.
 4. **The progress stream.** _Recommend_ **do it last and drop it if E5 runs long**: it changes the shape of the apply route for a bar, and "Cancel and roll back" already works.
@@ -163,4 +163,100 @@ README (what you can do), `docs/getting-started.md` (the import modes, the rejec
 
 ## 13. What E0 found
 
-_To be written by E0, with the numbers (`ON CONFLICT` and `xmax` on each version, the cost of 1,000 failing rows, the memory of 100,000 keys, whether the framework streams and passes a cancel)._
+Measured on 2026-11-25 on **PostgreSQL 17.12** (the local Docker server of the tests, arm64), Node 22.14 and Next.js 16.4.6. The facts are pinned in three spike files in `packages/postgres-adapter/src/`: `postgres.adapter.keyed-writes-spike.test.ts` (sections 13.1 and 13.2; part of the usual suite whenever `DATACANVAS_TEST_PG_URL` is set, so `pnpm run test:pg-matrix` runs it), and the opt-in timings (`DC_SPIKE=1`, like the export spike of 1.8.0) in the same file, `postgres.adapter.listall-spike.test.ts` (13.3) and `postgres.adapter.held-keys-spike.test.ts` (13.4). **The run on PostgreSQL 12 to 16 and 18 is pending**: only `postgres:17` is available locally and no image was pulled (13.7 lists what may differ).
+
+### 13.1 `ON CONFLICT` and the `xmax` count
+
+The import batch with a conflict clause, `INSERT ... SELECT CAST(...) FROM unnest($1::text[], ...) AS x(...) ON CONFLICT (...)`, written by hand in the shape of `buildInsertBatch`:
+
+1. **The arbiter** is inferred from a primary key or a full unique constraint, single or composite, in any column order. Part of a composite key infers nothing (`42P10`); a partial unique index is not inferred without its predicate (`42P10`; with its predicate it is); an expression index is not inferred from a column list (`42P10`).
+2. **A `DEFERRABLE` unique constraint is refused as an arbiter: `55000`**, for `DO UPDATE` and `DO NOTHING` alike (and for `ON CONFLICT DO NOTHING` without a target, where every unique index is an arbiter). A deferrable constraint that is not the arbiter is checked as usual. **The plan did not say this:** the keys offered in 4.1 must also leave out deferrable constraints (`pg_constraint.condeferrable`), or the apply fails with an error the person cannot act on.
+3. **`NULL` never conflicts** in a nullable unique column (a second row with `NULL` is inserted); with `NULLS NOT DISTINCT` (15 and later) it conflicts and updates. This confirms the rule of 4.1 that every key column is `NOT NULL`.
+4. **A conflict on a unique constraint that is not the arbiter is an error (`23505`), not an update**: keyed by a unique `code`, a new code whose `id` belongs to another row rolls the whole import back. Two consequences for E2: the default "update every mapped column that is not the key" can include the columns of another unique constraint, even the primary key (`DO UPDATE SET "id" = EXCLUDED."id"` moves a row's key, and can meet `23505` or a foreign key), so those columns should be left out of the default or refused; and the validation of an upsert must not count a row of the file that matches an existing row **by the chosen key** as `unique_existing` (that row is an update), nor, for the other unique keys, a collision with the very row it updates.
+5. **The counts.** With `DO UPDATE`, `rowCount` is every row of the batch (inserted and updated); with `DO NOTHING`, only the rows that were new. `RETURNING (xmax = 0) AS inserted` says, row by row, which were inserted, and `rowCount` stays the number of rows, so the existing `expectRows` check is unchanged (500 booleans come back per batch, no value). Counted in the database instead (`WITH w AS (... RETURNING ...) SELECT count(*) FILTER ...`), `rowCount` is 1, so the check would have to read the counts. A `DO UPDATE ... WHERE` (say "only when something changed") leaves rows out of `rowCount`: do not add one.
+6. `xmax` reads "updated" for a row that an earlier batch of the same transaction inserted, and for a row that another session holds `FOR KEY SHARE` (an open transaction that added a child row): updating columns that are not the key does not wait for that lock.
+7. **`xmax` is not always available (this contradicts 4.1's "`RETURNING (xmax = 0)` in the batch"):** on a **partitioned table** it fails with `0A000` ("cannot retrieve a system column in this context"), and it needs **`SELECT` on the table** (a system column: grants on every user column are not enough, `42501`). The upsert itself works on a partitioned table. Recommendation: use `xmax` when the target is an ordinary table and the role may read it (both known at preview); otherwise the result says "N rows inserted or updated" and the preview's split (its read-only count of the existing keys) is shown as the estimate it is.
+8. **Two rows of one batch with the same key:** `DO UPDATE` fails with `21000` ("cannot affect row a second time"; the message and hint hold no value); `DO NOTHING` keeps the first and the batch is one row short, which the count check rolls back as `unexpected`. **Across two batches of one transaction it is not an error** (the second batch updates the row the first inserted), so the refusal of duplicate keys in 4.1 must be over the whole file, as the validation's `unique_in_request` already is, not per batch.
+9. **Triggers (a correction to 4.1):** `BEFORE INSERT` row triggers fire for **every** row of the batch, including the ones that turn into updates; then `BEFORE UPDATE` and `AFTER UPDATE` fire for those, and `AFTER INSERT` only for the new ones. The warning must say that the insert triggers run for every row.
+10. **Privileges:** a conflict target needs `SELECT` on the key's columns (even with `DO NOTHING`); `DO UPDATE SET "c" = EXCLUDED."c"` needs `SELECT` and `UPDATE` on `c`; `xmax` needs `SELECT` on the table. A refusal is `42501`, which is already `write_denied`.
+11. **Time:** 100,000 rows in 200 batches of 500, in one transaction, on a table of 200,000 rows: the upsert with `RETURNING (xmax = 0)` took **0.92 s**, half inserted and half updated, every batch counted.
+
+### 13.2 `UPDATE ... FROM unnest` and `DELETE ... USING unnest`
+
+1. `rowCount` is the number of **rows of the table touched**: every key present gives the number of keys carried; a key that matches no row (or a `NULL` key) makes it short.
+2. **A key carried twice counts once** (the row is updated once, with one of the two values, which one is not defined). So a batch of `update_by_key` with a repeated key is short and would roll back as `row_changed`, which is misleading. **The plan did not say this:** 4.2 must refuse a file with a repeated key (the validation's `unique_in_request` on the chosen key) before planning, so that "short" always means "a row is gone". The keys of section 6 come from a read of a unique key, so they cannot repeat.
+3. A key that does not cast fails the whole statement (`22P02`), as the import batch does; deleting a row that is still referenced is `23503`, as for one row; a composite key works the same.
+4. **One batch is planned as `Nested Loop > Function Scan (unnest) > Index Scan` on the key's index**, never a scan of the table (500 keys against 200,000 rows).
+5. **Time** for 100,000 rows in 200 batches of 500 in one transaction on 200,000 rows: `UPDATE` by an integer key **0.81 s**, by a text key **0.96 s**; `DELETE` by key **0.23 s**; each batch touched exactly the rows it carried. The bulk change of section 6 is seconds, not minutes.
+
+### 13.3 The cost of finding every failing row (`listAll`)
+
+The real `validateRows` (halving with savepoints), with only its stop (`VALIDATE_MAX_FAILURES_FOUND`, 100) raised so that it searches to the last failing row; a file of 100,000 rows of five columns into a table that already holds 100,000 rows. "Check" is a value a `CHECK` refuses (classified by its SQLSTATE alone); "type" is a value that does not cast, in the last column (classified by casting the row's cells one at a time, the costliest case). "Evenly" is the worst case for halving.
+
+| Failing rows | Where   | Kind  | Statements | Time    |
+| ------------ | ------- | ----- | ---------- | ------- |
+| 0            |         |       | 19         | 0.32 s  |
+| 100          | evenly  | check | 7,700      | 4.27 s  |
+| 500          | evenly  | check | 31,060     | 13.12 s |
+| 1,000        | evenly  | check | 55,108     | 22.70 s |
+| 2,000        | evenly  | check | 96,204     | 36.65 s |
+| 100          | evenly  | type  | 9,700      | 4.94 s  |
+| 500          | evenly  | type  | 41,060     | 16.45 s |
+| 1,000        | evenly  | type  | 75,108     | 29.36 s |
+| 2,000        | evenly  | type  | 136,204    | 51.49 s |
+| 1,000        | random  | check | 51,377     | 20.44 s |
+| 1,000        | a block | check | 8,131      | 3.33 s  |
+
+- The cost is **round trips** (about 0.4 ms each here): about 55 statements per failing row for the halving (`SAVEPOINT`, `INSERT`, `RELEASE` or `ROLLBACK TO` and `RELEASE` per slice), and 20 more for a value that does not cast. Re-inserting rows is the smaller part (no failure: 0.32 s for the whole file).
+- **This contradicts the assumption of 4.3 that 1,000 is affordable as things are:** the validation's deadline is the **whole** validation (`statementTimeoutMs`, 15 s by default, in `validateRows`), and 1,000 spread-out failing rows take 20 to 29 s; even 500 take 13 to 16 s. The limit of 100 of today already costs up to 5 s.
+- **Recommendation:** keep the **limit at 1,000** and give a `listAll` validation **its own deadline of 60 s** (twice the worst case measured), with the dialog's cancel. If the deadline must stay at 15 s, the limit is **250** (about 8 to 9 s at worst, by the slopes of the table). Fewer statements per slice (for example a savepoint kept and rolled back to, instead of released and made again) would lower the cost; that was not measured. The uniqueness and foreign-key queries list 20 row numbers (`[1:20]` and `VALIDATE_ROWS_LISTED`); `listAll` needs them raised to the limit, which costs one query each as now.
+- Writes need a local database, so local round trips are the case to plan for; over a slower link the time grows with the round trip.
+
+### 13.4 The memory of the held keys
+
+Heap measured after a full collection, the keys built as the driver makes strings:
+
+| Keys                                              | Held as                                        | Heap                     |
+| ------------------------------------------------- | ---------------------------------------------- | ------------------------ |
+| 100,000 integer keys                              | one `{ column, value }` per key column per row | 12.8 MB (128 bytes each) |
+| 100,000 integer keys                              | one array of text per batch of 500             | 3.3 MB (33 bytes each)   |
+| 100,000 (integer, 12-character text) keys         | arrays per batch                               | 7.5 MB                   |
+| 100,000 `uuid` keys (36 characters)               | arrays per batch                               | 6.5 MB                   |
+| 2,048 keys of 4,096 Latin-1 characters (the cap)  | arrays per batch                               | 8.4 MB                   |
+| 2,048 keys of 4,096 other characters (the cap)    | arrays per batch                               | 16.8 MB                  |
+| 100,000 keys of 4,096 Latin-1 characters (no cap) | arrays per batch                               | 412 MB                   |
+
+- The preview's read of 100,001 integer keys of a filter (key column only, ordered by the key, in a read-only transaction) took **39 ms**, and the driver's rows **6.6 MB**; an `int4` arrives as a number, so the plan turns it into text. 2,049 keys of 4,096 characters took about 1 s (compressed values).
+- **The 8 MB cap is sensible**: it binds only when the keys average more than about 84 characters (8,388,608 / 100,000), and it is below what one import preview already holds (a body of up to 32 MB, two per connection). Without it, 100,000 long keys would be about 400 MB. **A precision for 6.6:** "8 MB of key text" counts characters, and a string with any character outside Latin-1 takes two bytes a character, so the cap is **up to about 17 MB** of memory; the plan should say "8 million characters". At one such plan per connection and 10 connections, the worst case is about 170 MB.
+- **Hold the keys as the batches will bind them** (one array per key column per batch), not as `{ column, value }` objects: four times smaller.
+- A B-tree entry is limited to about 2,700 bytes, so a key value of 4,096 characters exists only when it compresses: the limit of a value is a cap, not a likely size.
+
+### 13.5 Streaming the apply answer, and the cancel
+
+- **From the code.** The apply route already hands `request.signal` to `writes.apply`, and `runPlan` checks it between statements. In Next.js 16.4.6, `request.signal` aborts when the response closes before it has finished (`signalFromNodeResponse`), which is before or after the first byte; a streamed body is written chunk by chunk with `res.flush()` when compression is on (`pipeToNodeResponse`); and the built-in compression does not compress `application/x-ndjson` (it is neither in its list nor `text/*` or `+json`). The export route already streams a `TransformStream` through the same path.
+- **A probe** (a throwaway Next.js app outside the repository, with a pass-through `proxy.js` like the app's `proxy.ts`, one route writing an NDJSON line every 200 ms; `next dev` and `next build` with `next start`, compression on): **the lines arrived 200 ms apart** in both, `application/x-ndjson` had no `Content-Encoding` (a `text/plain` answer was gzipped but still flushed line by line). **A client abort after three lines reached the handler**: `request.signal` aborted about 9 ms later, the stream's `cancel()` was called, and the work stopped before the next batch. So the framework streams and passes a cancel; nothing in 4.5 is contradicted.
+- Not checked: the real app (its `proxy.ts` and its standalone `server.js`, which runs the same router as `next start`), a reverse proxy in front, and browsers other than Node's `fetch`. The SQL run's end-to-end test already shows an abort reaching `request.signal` in the real app for a JSON answer.
+- For E5: every error before the first byte must be settled before the route returns its `Response` (as `exportRows` does with its first promise), and a write to a stream the client cancelled rejects, which must be treated as a cancel and roll back.
+
+### 13.6 What changes in the plan
+
+1. 4.1: leave out **deferrable** unique constraints from the keys offered (`55000`).
+2. 4.1: `RETURNING (xmax = 0)` **fails on a partitioned table** (`0A000`) and **needs `SELECT` on the table**; use it only where it works, and say "inserted or updated" otherwise.
+3. 4.1: `BEFORE INSERT` triggers run for **every** row of an upsert, not only the new ones.
+4. 4.1: the default updated columns must not include another unique key or the primary key (`23505`, or a key moved under a foreign key).
+5. 4.1 and E1: an upsert's validation must not count a match on the chosen key as `unique_existing`, nor a collision of another key with the row being updated.
+6. 4.2: refuse a file with a **repeated key** before planning `update_by_key` (a repeated key makes a short batch that would read as `row_changed`).
+7. 4.3: **1,000 failing rows do not fit the 15 s deadline** (20 to 29 s): a 60 s deadline for `listAll`, or a limit of 250.
+8. 6.6: the cap is 8 million **characters** (up to about 17 MB), held as arrays per batch.
+
+### 13.7 Pending: PostgreSQL 12 to 16 and 18
+
+Run `pnpm run test:pg-matrix` (it runs the keyed-writes spike with the rest of the adapter's tests), and the opt-in timings with `DC_SPIKE=1` against at least the oldest and newest versions. What may differ between versions:
+
+- `NULLS NOT DISTINCT` exists from 15 (its test skips itself below 15).
+- `RETURNING xmax` on a partitioned table (`0A000` expected from 12 on; to confirm on each).
+- The `xmax` readings of 13.1 (6): they follow from how a row lock is carried to the new row version, which PostgreSQL does not document.
+- The plan of a batch: the row estimate of `unnest` of a bound array comes from a planner support function (from 12).
+- PostgreSQL 18's `RETURNING old` and `new` might replace `xmax` there; not measured, and it is 18 only.
+- `55000` for a deferrable arbiter, `42P10`, `21000`, the trigger order and the privilege checks are long-standing (9.5 on) and expected the same.
+- The times and sizes are of one machine and one version; they are logged by the opt-in spikes, not asserted beyond loose bounds.

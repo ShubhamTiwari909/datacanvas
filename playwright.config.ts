@@ -1,11 +1,11 @@
 /**
  * End-to-end tests (Playwright). They drive a real browser against the REAL
  * packaged app: the fixture in e2e/fixtures.ts starts `.package/bin/datacanvas.mjs`
- * (run `npm run package` first) on a free port with a private data folder and a
+ * (run `pnpm run package` first) on a free port with a private data folder and a
  * throwaway PostgreSQL database.
  *
  * Needs DATACANVAS_TEST_PG_URL (see examples/docker-compose.yml). Run with
- * `npm run test:e2e`. One worker: each test file starts its own server.
+ * `pnpm run test:e2e`. One worker: each test file starts its own server.
  */
 import { defineConfig } from "@playwright/test";
 

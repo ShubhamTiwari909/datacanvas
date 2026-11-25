@@ -3,7 +3,7 @@ title: Architecture overview
 description: The monorepo layout, the layering rule that keeps database code out of the web framework, and the dependency edges between workspaces.
 ---
 
-DataCanvas is one npm **workspace monorepo** (`workspaces: ["apps/*", "packages/*"]` in the root
+DataCanvas is one pnpm **workspace monorepo** (`pnpm-workspace.yaml` lists `apps/*` and `packages/*`; in the root
 `package.json`) that produces **one published package**, `@shubhamtiwari909/datacanvas`. The root package
 `datacanvas-monorepo` is private and never published.
 
@@ -70,7 +70,7 @@ Declared in each package's `dependencies`:
 | `apps/web`         | `canvas-engine`, `database-core`, `mcp`, `postgres-adapter`, `shared-types`, plus the UI stack                                |
 
 Build time: packages compile with TypeScript project references (`tsc -b`, root `tsconfig.json` lists the
-six packages), each emitting `dist/`. A workspace imports another through the npm symlink to its
+six packages), each emitting `dist/`. A workspace imports another through the workspace symlink to its
 `package.json` `exports`, which points at `dist/`, so packages must be built before the web app runs.
 That is why root `dev` and `build` start with `tsc -b`.
 

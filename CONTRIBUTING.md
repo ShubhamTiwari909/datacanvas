@@ -3,27 +3,27 @@
 ## Setup
 
 ```bash
-npm install
-npm run check
+pnpm install
+pnpm run check
 ```
 
-Requires Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21) and npm 10+ to build from source (the build tool loads an ES-module-only dependency with `require()`). Ordinary users never run these commands, and need only Node.js 20.9+; they will use `npx @shubhamtiwari909/datacanvas`.
+Requires Node.js `^20.19.0 || >=22.12.0` (20.19 or newer on the 20 line, or 22.12 or newer; not Node 21) and pnpm 10+ to build from source (the build tool loads an ES-module-only dependency with `require()`). Ordinary users never run these commands, and need only Node.js 20.9+; they will use `npx @shubhamtiwari909/datacanvas`.
 
 ## Scripts (run from the repo root)
 
-| Script                   | What it does                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------- |
-| `npm run dev`            | Build the packages, then start the web app on 127.0.0.1:4747                 |
-| `npm run build`          | Build the packages, then the production Next.js app                          |
-| `npm run typecheck`      | Type-check the packages (`tsc -b`) and the web app (`tsc --noEmit`)          |
-| `npm run lint`           | ESLint across the repo                                                       |
-| `npm run format`         | Prettier: rewrite files                                                      |
-| `npm run format:check`   | Prettier: fail if any file is not formatted                                  |
-| `npm run check`          | format check, lint and typecheck together                                    |
-| `npm run test:pg-matrix` | Run the PostgreSQL tests on versions 12 to 18 with Docker (downloads images) |
-| `npm run clean`          | Remove build output of the TypeScript projects                               |
+| Script                    | What it does                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `pnpm run dev`            | Build the packages, then start the web app on 127.0.0.1:4747                 |
+| `pnpm run build`          | Build the packages, then the production Next.js app                          |
+| `pnpm run typecheck`      | Type-check the packages (`tsc -b`) and the web app (`tsc --noEmit`)          |
+| `pnpm run lint`           | ESLint across the repo                                                       |
+| `pnpm run format`         | Prettier: rewrite files                                                      |
+| `pnpm run format:check`   | Prettier: fail if any file is not formatted                                  |
+| `pnpm run check`          | format check, lint and typecheck together                                    |
+| `pnpm run test:pg-matrix` | Run the PostgreSQL tests on versions 12 to 18 with Docker (downloads images) |
+| `pnpm run clean`          | Remove build output of the TypeScript projects                               |
 
-Run `npm run check` before every commit.
+Run `pnpm run check` before every commit.
 
 ## Project rules
 
@@ -52,7 +52,7 @@ Documentation is written together with the code, not afterwards.
 
 ## Licensing of contributions
 
-DataCanvas is licensed under the Apache License 2.0. No contributor license agreement or sign-off is required: as section 5 of that license says, a contribution you submit is licensed under the same terms unless you state otherwise. Only submit code you have the right to contribute, and run `npm run notices` if you add or change a dependency (every new dependency also needs a documented purpose and a compatible license).
+DataCanvas is licensed under the Apache License 2.0. No contributor license agreement or sign-off is required: as section 5 of that license says, a contribution you submit is licensed under the same terms unless you state otherwise. Only submit code you have the right to contribute, and run `pnpm run notices` if you add or change a dependency (every new dependency also needs a documented purpose and a compatible license).
 
 ## Commits
 
@@ -63,7 +63,7 @@ Use short, imperative commit messages, for example `Add PostgreSQL connection te
 The real product is the packed npm package, not the monorepo. After changing anything that affects installation, test the tarball in a fresh folder:
 
 ```bash
-npm run package
+pnpm run package
 cd .package && npm pack --pack-destination /some/scratch/folder
 cd /some/other/fresh/folder
 npm install --offline /some/scratch/folder/shubhamtiwari909-datacanvas-<version>.tgz   # offline: proves nothing is downloaded
@@ -72,12 +72,12 @@ npm install --offline /some/scratch/folder/shubhamtiwari909-datacanvas-<version>
 
 ## Integration tests (PostgreSQL)
 
-`npm test` runs without a database: the PostgreSQL integration tests are skipped. To run them, start a disposable PostgreSQL and point `DATACANVAS_TEST_PG_URL` at its `postgres` database:
+`pnpm test` runs without a database: the PostgreSQL integration tests are skipped. To run them, start a disposable PostgreSQL and point `DATACANVAS_TEST_PG_URL` at its `postgres` database:
 
 ```bash
 docker compose -f examples/docker-compose.yml up -d
 export DATACANVAS_TEST_PG_URL="postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable"
-npm test
+pnpm test
 docker compose -f examples/docker-compose.yml down -v
 ```
 
@@ -88,7 +88,7 @@ Each run creates its own uniquely named database and role, loads `examples/ecomm
 Saved connections (never passwords) and workspaces live in `~/.datacanvas/` (`connections.json` and `workspaces/<id>.json`). Set `DATACANVAS_HOME` to use another folder, for example while testing by hand so your real data is not touched:
 
 ```bash
-DATACANVAS_HOME=/tmp/dc-test npm run dev
+DATACANVAS_HOME=/tmp/dc-test pnpm run dev
 ```
 
 Tests always use temporary folders, never the real one.

@@ -1,7 +1,7 @@
 /**
  * README screenshots, taken from the real packaged app against the sample shop
  * database (examples/ecommerce.sql). Not part of the normal run: it only does
- * anything when SCREENSHOTS=1 (see `npm run screenshots`), and writes into
+ * anything when SCREENSHOTS=1 (see `pnpm run screenshots`), and writes into
  * docs/images/. Re-run it whenever the interface changes.
  */
 import path from "node:path";

@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Documentation site for DataCanvas (Astro + Starlight). Not part of the npm workspaces and not published.",
+  "packageManager": "pnpm@10.33.0",
+  "description": "Documentation site for DataCanvas (Astro + Starlight). Not part of the pnpm workspace and not published.",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -15,6 +16,7 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.40.0",
-    "astro": "^6.4.8"
+    "astro": "^6.4.8",
+    "sharp": "0.34.5"
   }
 }

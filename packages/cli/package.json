@@ -11,6 +11,6 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@datacanvas/shared-types": "*"
+    "@datacanvas/shared-types": "workspace:*"
   }
 }

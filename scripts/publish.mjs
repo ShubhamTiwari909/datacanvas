@@ -1,14 +1,14 @@
 /**
  * Publish DataCanvas to npm from your own machine, with guard rails.
  *
- *   npm run publish:npm                       # rehearsal: everything except the upload
- *   npm run publish:npm -- --publish          # really publish (asks for your 2FA code)
- *   npm run publish:npm -- --publish --otp=123456
+ *   pnpm run publish:npm                       # rehearsal: everything except the upload
+ *   pnpm run publish:npm -- --publish          # really publish (asks for your 2FA code)
+ *   pnpm run publish:npm -- --publish --otp=123456
  *
  * What it does, in order, stopping at the first problem:
- *   1. builds the package (`npm run package`) and tests the PACKED tarball
- *      (`npm run verify:package`);
- *   2. runs the release gate (`npm run release:check`): version, license,
+ *   1. builds the package (`pnpm run package`) and tests the PACKED tarball
+ *      (`pnpm run verify:package`);
+ *   2. runs the release gate (`pnpm run release:check`): version, license,
  *      repository, security contact, changelog section;
  *   3. refuses if that exact version already exists on npm (a version can
  *      never be published twice);
@@ -78,9 +78,9 @@ async function main() {
   if (unknown.length)
     fail(`unknown option(s): ${unknown.join(", ")}. Use --publish and optionally --otp=<code>.`);
 
-  step("Build the package", "npm", ["run", "package"]);
-  step("Test the packed tarball", "npm", ["run", "verify:package"]);
-  step("Release gate", "npm", ["run", "release:check"]);
+  step("Build the package", "pnpm", ["run", "package"]);
+  step("Test the packed tarball", "pnpm", ["run", "verify:package"]);
+  step("Release gate", "pnpm", ["run", "release:check"]);
 
   const pkg = JSON.parse(await readFile(path.join(root, ".package/package.json"), "utf8"));
   const tag = pkg.version.includes("-") ? "next" : "latest";
@@ -117,7 +117,7 @@ async function main() {
   step(reallyPublish ? "Publish to npm" : "Rehearse the publish (dry run)", "npm", publishArgs);
 
   if (!reallyPublish) {
-    console.log("\nRehearsal finished. When you are ready:  npm run publish:npm -- --publish");
+    console.log("\nRehearsal finished. When you are ready:  pnpm run publish:npm -- --publish");
     return;
   }
   // `npm publish` exiting normally only means npm accepted the upload. A new

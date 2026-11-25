@@ -18,7 +18,7 @@ datacanvas mcp                A bridge for a Claude app (read only)
 Options are parsed with Node's `util.parseArgs` in **strict** mode: an unknown flag is an error, not
 silently ignored. When using `npx`, add them after the package name:
 `npx --yes @shubhamtiwari909/datacanvas --port 4900 --no-open`. From a repository clone, pass them
-after `--`: `npm run app -- --port 4900`.
+after `--`: `pnpm run app -- --port 4900`.
 
 ## Flags
 
@@ -116,7 +116,7 @@ server running until you stop it by hand (a documented limit).
 | Unsupported Node                                                       | Message and exit 1                                          |
 | Unknown flag                                                           | Error plus help text, exit 1                                |
 | Busy explicit port                                                     | `Port N is already in use…`, exit 1                         |
-| Bundled server missing (running the CLI from source without packaging) | Message to run `npm run package`, exit 1                    |
+| Bundled server missing (running the CLI from source without packaging) | Message to run `pnpm run package`, exit 1                   |
 | Server not ready in time                                               | Stopped, `The server did not become ready in time.`, exit 1 |
 
 ---

@@ -3,7 +3,7 @@ dist
 .next
 out
 coverage
-package-lock.json
+pnpm-lock.yaml
 *.tsbuildinfo
 
 # The planning document is hand-formatted (wide tables, ASCII diagrams)

@@ -5,10 +5,10 @@ How a version of DataCanvas gets to npm, and what is still open. The package is 
 ## Publishing a version
 
 1. Set the version in `packages/cli/package.json` (the package takes its version from there) and add its section to `CHANGELOG.md` (rename "Unreleased").
-2. `npm run check` (with a test PostgreSQL for the database tests, see `examples/docker-compose.yml`), `npm run test:e2e`, and `npm run test:pg-matrix` before every release (the database tests run on one version locally; the matrix is 12 to 18).
+2. `pnpm run check` (with a test PostgreSQL for the database tests, see `examples/docker-compose.yml`), `pnpm run test:e2e`, and `pnpm run test:pg-matrix` before every release (the database tests run on one version locally; the matrix is 12 to 18).
 3. `npm login` with the account that owns the package (two-factor authentication on).
-4. `npm run publish:npm` is a rehearsal: it rebuilds, tests the packed tarball, runs the release gate (`npm run release:check`), refuses a version that already exists, and does everything except upload (`--dry-run`).
-5. `npm run publish:npm -- --publish` uploads. It only publishes when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`), then waits for the registry to list the version. A new version can take a minute to appear, and npm may hold an upload for approval; if the script says the version is not visible yet, check the package page on npmjs.com and do not run it again for the same version.
+4. `pnpm run publish:npm` is a rehearsal: it rebuilds, tests the packed tarball, runs the release gate (`pnpm run release:check`), refuses a version that already exists, and does everything except upload (`--dry-run`).
+5. `pnpm run publish:npm -- --publish` uploads. It only publishes when `npm whoami` is the expected account (`EXPECTED_NPM_USER` in `scripts/publish.mjs`), then waits for the registry to list the version. A new version can take a minute to appear, and npm may hold an upload for approval; if the script says the version is not visible yet, check the package page on npmjs.com and do not run it again for the same version.
 6. Check it from a clean folder: `npx --yes @shubhamtiwari909/datacanvas@<version> --version`.
 7. Record it: `git tag v<version> && git push origin v<version>`.
 
@@ -27,6 +27,6 @@ A **pre-release** version (for example `1.1.0-rc.1`) is published under the `nex
 
 - Confirm with the relevant internal team that shipping `elkjs` (EPL-2.0 OR GPL-3.0-or-later, used under EPL-2.0) inside an Apache-2.0 package meets organization policy (decisions 69 and 91), and who the copyright holder in `NOTICE` should be.
 - The CI workflow had its first run only recently; Windows and Linux were never tested by hand.
-- Managed PostgreSQL services (RDS, Supabase, Neon, Azure) are untested; self-hosted PostgreSQL 12 to 18 passes (`npm run test:pg-matrix`).
+- Managed PostgreSQL services (RDS, Supabase, Neon, Azure) are untested; self-hosted PostgreSQL 12 to 18 passes (`pnpm run test:pg-matrix`).
 - No review by an outside party (see SECURITY.md and docs/threat-model.md).
-- No demo GIF in the README (screenshots exist; regenerate with `npm run screenshots`).
+- No demo GIF in the README (screenshots exist; regenerate with `pnpm run screenshots`).

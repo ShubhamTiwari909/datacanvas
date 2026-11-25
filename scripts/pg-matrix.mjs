@@ -2,8 +2,8 @@
  * Run the PostgreSQL tests against several PostgreSQL versions, one disposable
  * Docker container per version.
  *
- *   npm run test:pg-matrix                 # versions 12 to 18
- *   npm run test:pg-matrix -- 14 17        # only these
+ *   pnpm run test:pg-matrix                 # versions 12 to 18
+ *   pnpm run test:pg-matrix -- 14 17        # only these
  *
  * For each version: start `postgres:<version>-alpine` on a free loopback port
  * (data lives only inside the container and disappears with it), wait until it

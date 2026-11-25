@@ -2,7 +2,7 @@
 #
 #   docker compose -f examples/docker-compose.yml up -d
 #   export DATACANVAS_TEST_PG_URL="postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable"
-#   npm test
+#   pnpm test
 #
 # The tests create a uniquely named database inside this server, load
 # examples/ecommerce.sql into it, and drop it again, so nothing else is touched.

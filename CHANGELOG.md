@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- Development uses pnpm instead of npm (`pnpm install`, `pnpm run check`). The published package and `npx` are unchanged. See `docs/decisions.md`, decision 170.
+
 ## [1.11.1] - 2026-11-24
 
 A patch to the 1.11.0 MCP server. Version 1.12.0 stays reserved for the write side's second part (`docs/write-side-v2-plan.md`). Nothing in this release writes.

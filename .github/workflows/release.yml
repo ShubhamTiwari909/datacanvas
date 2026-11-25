@@ -28,20 +28,21 @@ jobs:
       DATACANVAS_TEST_PG_URL: postgresql://postgres:testpass@127.0.0.1:54329/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
           registry-url: https://registry.npmjs.org
       # Trusted publishing (OIDC) needs npm 11.5.1 or newer. Node 22 ships npm 10, which never asks for the OIDC token
       # and publishes without credentials: the registry then answers 404 (seen on the v1.11.0 tag).
       - run: npm install -g npm@^11.5.1 && npm --version
-      - run: npm ci
-      - run: npm run check
-      - run: npm audit --omit=dev --audit-level=moderate
-      - run: npm run package
-      - run: npm run verify:package
-      - run: npm run release:check
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm audit --prod --audit-level moderate
+      - run: pnpm run package
+      - run: pnpm run verify:package
+      - run: pnpm run release:check
       - name: The tag must match the package version
         run: |
           test "v$(node -p "require('./.package/package.json').version")" = "${GITHUB_REF_NAME}"

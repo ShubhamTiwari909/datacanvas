@@ -21,8 +21,8 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@datacanvas/database-core": "*",
-    "@datacanvas/shared-types": "*",
+    "@datacanvas/database-core": "workspace:*",
+    "@datacanvas/shared-types": "workspace:*",
     "pg": "^8.23.1"
   },
   "devDependencies": {

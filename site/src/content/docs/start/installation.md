@@ -10,10 +10,10 @@ machine, and then only through the Claude app you use.)
 
 ## Requirements
 
-| You are…                      | Node.js                                 | Notes                                                                                                                              |
-| ----------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Running the published package | 20.9 or newer                           | The CLI checks this at start and prints an actionable message if it is older.                                                      |
-| Building from a clone         | `^20.19.0 \|\| >=22.12.0` (not Node 21) | The build tool loads an ES-module-only dependency with `require()`, which Node supports only from those versions. npm 10 or newer. |
+| You are…                      | Node.js                                 | Notes                                                                                                                                |
+| ----------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Running the published package | 20.9 or newer                           | The CLI checks this at start and prints an actionable message if it is older.                                                        |
+| Building from a clone         | `^20.19.0 \|\| >=22.12.0` (not Node 21) | The build tool loads an ES-module-only dependency with `require()`, which Node supports only from those versions. ppnpm 10 or newer. |
 
 A PostgreSQL database to connect to is the only other thing you need. Versions 12 to 18 are covered
 by the project's test matrix (see [Testing](/contributing/testing/)).

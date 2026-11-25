@@ -55,7 +55,7 @@ link and exits. Stale files (after a crash) are ignored. A running instance whos
 flag is refused, not reused. `cli/src/data-dir.ts` repeats the web app's data-folder resolver on purpose (the
 CLI is bundled alone); `tests/data-dir.test.ts` fails if they disagree.
 
-## `npm run package` → `.package/`
+## `pnpm run package` → `.package/`
 
 `scripts/build-package.mjs` runs after the normal build and assembles:
 
@@ -83,7 +83,7 @@ Problems the script solves (each commented in the script and in `docs/architectu
 Guard rails: no native add-ons, and bundled packages must not define install scripts. The published package
 declares **no install scripts** and `engines.node` (the CLI itself requires 20.9+).
 
-## `npm run verify:package`
+## `pnpm run verify:package`
 
 Packs the tarball, installs it into an empty project, and exercises the installed command (22 checks per the
 project's notes, including token protection, instance reuse and clean shutdown), printing tarball size and
@@ -91,7 +91,7 @@ cold-start time. CI runs it on macOS, Linux and Windows with Node 20.9.0 and 22 
 
 ## Release gate
 
-`npm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and
+`pnpm run release:check` (`scripts/release-check.mjs`) inspects the assembled package and the repository and
 lists **every** blocker: package name pattern, a real version (not `0.0.0`), `license`, `LICENSE`,
 `repository`, `bugs`, `engines.node`, `bin.datacanvas`, no `preinstall`/`install`/`postinstall` scripts,
 `NOTICE` and `THIRD-PARTY-NOTICES.md`, and a changelog section. It reports and never fills in decisions that

@@ -5,7 +5,7 @@ description: Build and run DataCanvas from a clone, the root npm scripts, and th
 
 ## Requirements
 
-Node.js `^20.19.0 || >=22.12.0` (not Node 21) and npm 10 or newer. Building needs more than running: the
+Node.js `^20.19.0 || >=22.12.0` (not Node 21) and pnpm 10 or newer (`corepack enable` picks the pinned version). Building needs more than running: the
 build tool loads an ES-module-only dependency with `require()`, which Node supports only from those
 versions. Users of the published package still need only Node.js 20.9.
 
@@ -14,18 +14,18 @@ versions. Users of the published package still need only Node.js 20.9.
 ```bash
 git clone https://github.com/ShubhamTiwari909/datacanvas.git
 cd datacanvas
-npm install              # installs every workspace and links them together
-npm run app              # builds the app and runs it from this clone (about a minute the first time)
-npm run dev              # builds the packages, then starts the web app at http://127.0.0.1:4747
-npm run check            # format check + lint + typecheck + tests
+pnpm install              # installs every workspace and links them together
+pnpm run app              # builds the app and runs it from this clone (about a minute the first time)
+pnpm run dev              # builds the packages, then starts the web app at http://127.0.0.1:4747
+pnpm run check            # format check + lint + typecheck + tests
 ```
 
-Pass CLI options after `--`: `npm run app -- --port 4900 --enable-writes`.
+Pass CLI options after `--`: `pnpm run app -- --port 4900 --enable-writes`.
 
 While experimenting by hand, keep your real data untouched:
 
 ```bash
-DATACANVAS_HOME=/tmp/dc-test npm run dev
+DATACANVAS_HOME=/tmp/dc-test pnpm run dev
 ```
 
 ## Root scripts
@@ -47,7 +47,7 @@ DATACANVAS_HOME=/tmp/dc-test npm run dev
 | `start`, `app`                            | Run the CLI from `.package/`; package then start                                    |
 | `clean`                                   | Remove TypeScript build output                                                      |
 
-The README and `CONTRIBUTING.md` instruct running `npm run check` before every commit.
+The README and `CONTRIBUTING.md` instruct running `pnpm run check` before every commit.
 
 ## TypeScript conventions
 

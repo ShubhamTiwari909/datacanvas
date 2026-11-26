@@ -765,3 +765,129 @@ describe("WriteService: a change of the rows a filter matches", () => {
     expect(JSON.stringify(entry)).not.toContain(SECRET);
   });
 });
+
+describe("WriteService: an edit of cells in several rows", () => {
+  /** Every value, every value seen and every key value holds the marker: none may leave the server. */
+  const cells: Change = {
+    kind: "edit_cells",
+    table: users,
+    revealColumns: [],
+    rows: [
+      {
+        key: [{ column: "id", value: `1${SECRET}` }],
+        changes: [
+          { column: "email", value: `${SECRET}-email`, expected: `${SECRET}-seen` },
+          { column: "full_name", value: null, expected: `${SECRET}-name` },
+        ],
+      },
+      {
+        key: [{ column: "id", value: `2${SECRET}` }],
+        changes: [{ column: "email", value: `${SECRET}-other`, expected: null }],
+      },
+      {
+        key: [{ column: "id", value: `3${SECRET}` }],
+        changes: [{ column: "email", value: `${SECRET}-third`, expected: `${SECRET}-gone` }],
+      },
+    ],
+  };
+  /** What the real adapter plans: one single-row update per kept row, the third row left out (changed since). */
+  const planned = (change: Change): PlannedChange => ({
+    change,
+    statements: [
+      {
+        text: 'UPDATE "public"."users" SET "email" = CAST($1 AS text), "full_name" = CAST($2 AS text) WHERE "id" = CAST($3 AS integer) AND CAST("email" AS text) IS NOT DISTINCT FROM CAST($4 AS text) AND CAST("full_name" AS text) IS NOT DISTINCT FROM CAST($5 AS text) RETURNING 1',
+        values: [`${SECRET}-email`, null, `1${SECRET}`, `${SECRET}-seen`, `${SECRET}-name`],
+      },
+      {
+        text: 'UPDATE "public"."users" SET "email" = CAST($1 AS text) WHERE "id" = CAST($2 AS integer) AND CAST("email" AS text) IS NOT DISTINCT FROM CAST($3 AS text) RETURNING 1',
+        values: [`${SECRET}-other`, `2${SECRET}`, null],
+      },
+    ],
+    expect: "one_row",
+    category: "row",
+    effect:
+      "Changes 3 cells in 2 rows of public.users (email and full_name), each row found by its key, if its cells still hold the values you saw. All of them are changed or none is. 1 of the 3 rows changed since you loaded them (or are gone), so it is left out.",
+    warnings: [],
+    destructive: false,
+    skipped: [2],
+  });
+  function cellsSetup() {
+    const adapter = new MockDatabaseAdapter();
+    vi.spyOn(adapter, "previewChange").mockImplementation(async (change: Change) =>
+      planned(change),
+    );
+    const apply = vi
+      .spyOn(adapter, "applyChange")
+      .mockImplementation(async (plan: PlannedChange) => ({ rowCount: plan.statements.length }));
+    const context = setup({ adapter });
+    context.service.unlock(context.id, "shop");
+    return { ...context, apply };
+  }
+
+  it("is refused by the sample database, which changes one row at a time (as the real adapter's bulk changes are)", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    expect(await refusal(() => service.preview(id, cells))).toMatchObject({
+      code: "invalid_change",
+    });
+  });
+
+  it("previews the positions of the rows left out and the statements, never a value, a key or what was seen", async () => {
+    const { service, id } = cellsSetup();
+    const preview = await service.preview(id, cells);
+    expect(preview.skipped).toEqual([2]);
+    expect(preview.destructive).toBe(false);
+    expect(preview.counts).toBeNull();
+    expect(preview.confirmRows).toBeNull();
+    expect(preview.statement.split("\n")).toHaveLength(2);
+    expect(JSON.stringify(preview)).not.toContain(SECRET);
+  });
+
+  it("applies without a count to type, records the columns once and no SQL, and keeps every value out of the history and the console", async () => {
+    const { service, id, apply } = cellsSetup();
+    const { previewId } = await service.preview(id, cells);
+    const result = await service.apply(id, previewId);
+    expect(result.rowCount).toBe(2);
+    expect(result.entry).toMatchObject({
+      kind: "edit_cells",
+      table: users,
+      columns: ["email", "full_name"],
+      statement: null,
+      outcome: "applied",
+      errorCode: null,
+    });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect((await refusal(() => service.apply(id, previewId))).code).toBe("preview_expired");
+    expect(JSON.stringify(service.history(id))).not.toContain(SECRET);
+    expect(service.migration(id).script).not.toContain(SECRET);
+    expect(service.migration(id).rowChanges).toBe(1);
+    expect(JSON.stringify(logged)).not.toContain(SECRET);
+    expect(logged).toEqual([]);
+  });
+
+  it("records a failed apply by its code only", async () => {
+    const { service, id, apply } = cellsSetup();
+    apply.mockRejectedValueOnce(new DatabaseError("row_changed"));
+    const { previewId } = await service.preview(id, cells);
+    expect((await refusal(() => service.apply(id, previewId))).code).toBe("row_changed");
+    const [entry] = service.history(id);
+    expect(entry).toMatchObject({
+      kind: "edit_cells",
+      columns: ["email", "full_name"],
+      outcome: "failed",
+      errorCode: "row_changed",
+    });
+    expect(JSON.stringify(entry)).not.toContain(SECRET);
+    expect(JSON.stringify(logged)).not.toContain(SECRET);
+  });
+
+  it("needs all four switches, as every change does", async () => {
+    const { service, id } = cellsSetup();
+    service.lock(id);
+    expect((await refusal(() => service.preview(id, cells))).code).toBe("write_not_unlocked");
+    const off = setup({ writesEnabled: false });
+    expect((await refusal(() => off.service.preview(off.id, cells))).code).toBe(
+      "writes_not_enabled",
+    );
+  });
+});

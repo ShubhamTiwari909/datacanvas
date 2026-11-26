@@ -1326,6 +1326,144 @@ describe("a change of the rows a filter matches: the filter is only read, and ev
   });
 });
 
+describe("an edit of cells in several rows is single-row updates in one transaction, never a new statement", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const cells = stripComments(read("packages/postgres-adapter/src/writes/cells.ts"));
+  const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+  const plan = cells.slice(cells.indexOf("export async function planEditCells"));
+
+  it("finds the planner, and it is the only code in its file", () => {
+    expect(plan).toContain("export async function planEditCells");
+    expect((cells.match(/\bfunction\b/g) ?? []).length).toBe(1);
+  });
+
+  it("builds every statement with the builder of one row, and asks about the rows only with the one fixed read", () => {
+    // No SQL text at all here, and no query of its own: the statements come from `buildUpdateRow`, the reads from
+    // `checkValues` and `splitByCurrent` (the read of a bulk change, `buildRowStillHolds`), as for `update_rows`.
+    expect(cells).not.toMatch(/db\.query\(/);
+    const texts = (cells.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|SET|USING|RETURNING)\b/);
+    }
+    expect(cells).not.toMatch(/quoteIdentifier|quoteQualified|unnest|build\w+Batch/);
+    expect((cells.match(/\bbuild\w+\(/g) ?? []).sort()).toEqual(["buildUpdateRow("]);
+    expect(plan).toMatch(
+      /statements: kept\.map\(\(i\) => buildUpdateRow\(change\.table, keys\[i\]!, sets\[i\]!, seen\[i\]!\)\)/,
+    );
+    expect(plan).toMatch(/const \{ kept, skipped \} = await splitByCurrent\(/);
+    // Each row is compared with what was seen in exactly its own edited cells.
+    expect(plan).toContain("r.changes.map((c) => ({ column: c.column, value: c.expected }))");
+  });
+
+  it("every statement must change exactly one row, in one transaction under a plan guard, and none left is row_changed", () => {
+    expect((plan.match(/expect: "one_row"/g) ?? []).length).toBe(1);
+    expect(plan).not.toMatch(/expectRows|confirmRows|counts:/);
+    expect(
+      (
+        plan.match(
+          /guard: \{ relations: \[guardRelation\(table, \[\.\.\.key, \.\.\.names\], "row_exclusive"\)\] \}/g,
+        ) ?? []
+      ).length,
+    ).toBe(1);
+    expect(plan).toContain('if (kept.length === 0) throw new DatabaseError("row_changed")');
+    expect(plan).toMatch(/\n\s+skipped,\n/);
+    expect(index).toMatch(/if \(count === 0\) throw new DatabaseError\("row_changed"\)/);
+    expect(index).toMatch(/if \(count !== 1\) throw new DatabaseError\("unexpected"\)/);
+    // Like `update_rows` it compares each value it overwrites with what was seen: no tick, and not on the list.
+    expect(plan).toContain("destructive: false");
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    const destructive = core.slice(core.indexOf("export const DESTRUCTIVE_CHANGE_KINDS"));
+    expect(destructive.slice(0, destructive.indexOf("];"))).not.toContain('"edit_cells"');
+  });
+
+  it("refuses the columns the form refuses, a key column and a hidden one, before any value is checked or compared", () => {
+    for (const rule of [
+      "await requireEditable(db, change.table)",
+      "findColumn(table, name)",
+      "requireWritable(column)",
+      "if (key.includes(column.name))",
+      "isSensitiveColumnName(name) && !change.revealColumns.includes(name)",
+      "const hiddenKey = key.filter(hidden)",
+      "if (hidden(column.name))",
+    ]) {
+      expect(plan, rule).toContain(rule);
+    }
+    // Every column check and every refusal of the request comes before the first read of the database.
+    const firstRead = Math.min(
+      plan.indexOf("await checkValues("),
+      plan.indexOf("await splitByCurrent("),
+    );
+    for (const before of [
+      "const hiddenKey = key.filter(hidden)",
+      "const column = writable(cell.column)",
+      "distinctRows(keys)",
+    ]) {
+      expect(plan.indexOf(before), before).toBeGreaterThan(-1);
+      expect(plan.indexOf(before), before).toBeLessThan(firstRead);
+    }
+  });
+
+  it("refuses more rows or cells than the limits, a row named twice and a column twice in a row, in the schema and again in the planner", () => {
+    expect(plan).toMatch(/if \(change\.rows\.length > MAX_BULK_ROWS\) throw invalidChange/);
+    expect(plan).toContain("if (row.changes.length > EDIT_CELLS_MAX_CELLS_PER_ROW)");
+    expect(plan).toContain("text.length > MAX_CHANGE_VALUE_CHARS");
+    expect(plan).toContain("distinctRows(keys)");
+    expect(plan).toContain('throw invalidChange("A column is changed twice in one row.")');
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain("export const EDIT_CELLS_MAX_CELLS_PER_ROW = 50;");
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const cellChangeSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect((part.match(/z\s*\.strictObject\(/g) ?? []).length).toBe(3);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|query|filters?)\b/i);
+    for (const rule of [
+      ".max(WRITE_MAX_BULK_ROWS)",
+      ".max(WRITE_MAX_EDIT_CELLS_PER_ROW)",
+      ".max(WRITE_MAX_CHANGE_PARTS)",
+      "distinctKeys(c.rows)",
+      "revealColumns: revealColumnsSchema",
+      "value: valueSchema",
+      "expected: valueSchema",
+    ]) {
+      expect(part, rule).toContain(rule);
+    }
+    expect(schema).toContain("export const WRITE_MAX_EDIT_CELLS_PER_ROW = 50;");
+  });
+
+  it("keeps values out of what it says: the effect and the refusals name columns and counts, never a cell", () => {
+    const messages = (plan.match(/`[^`]*`/g) ?? []).join("\n");
+    expect(messages).not.toMatch(/\.value\b|\.expected\b|change\.rows\[|\.key\[/);
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain(
+      "return [...new Set(change.rows.flatMap((r) => r.changes.map((c) => c.column)))];",
+    );
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planEditCells/.test(readFileSync(f, "utf8")),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    expect(index).toContain('if (change.kind === "edit_cells") return planEditCells(db, change);');
+    const planners = walk(path.join(root, "packages/postgres-adapter/src"))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+      .filter((f) => /planEditCells\(/.test(readFileSync(f, "utf8")))
+      .map(rel)
+      .sort();
+    expect(planners).toEqual([
+      "packages/postgres-adapter/src/writes/cells.ts",
+      "packages/postgres-adapter/src/writes/index.ts",
+    ]);
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

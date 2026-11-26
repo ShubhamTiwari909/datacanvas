@@ -265,6 +265,8 @@ function Rows({
 
       {editing.hint}
 
+      {editing.pending}
+
       {/* Always shown once there is a page, even after a failed read: a condition that was refused has to be removable. */}
       <FilterBar
         schema={schema}

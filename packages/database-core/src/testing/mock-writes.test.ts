@@ -75,6 +75,41 @@ describe("the mock adapter's write side", () => {
     }
   });
 
+  it("refuses an edit of cells in several rows (the real adapter does it), names its columns once for the history, and needs no tick", async () => {
+    const { adapter, emails } = await setup();
+    const before = await emails();
+    const change: Change = {
+      kind: "edit_cells",
+      table: users,
+      revealColumns: [],
+      rows: [
+        {
+          key: [{ column: "id", value: "1" }],
+          changes: [
+            { column: "email", value: "secret-1@x.test", expected: "a@x.test" },
+            { column: "full_name", value: "secret-name", expected: null },
+          ],
+        },
+        {
+          key: [{ column: "id", value: "2" }],
+          changes: [{ column: "email", value: "secret-2@x.test", expected: "b@x.test" }],
+        },
+      ],
+    };
+    await expect(adapter.previewChange(change)).rejects.toMatchObject({
+      code: "invalid_change",
+      message: "The sample database changes one row at a time.",
+    });
+    expect(await emails()).toEqual(before);
+    // Names only, each once: never a key, a value or what was seen.
+    expect(changeColumns(change)).toEqual(["email", "full_name"]);
+    expect(JSON.stringify(changeColumns(change))).not.toMatch(/secret|x\.test/);
+    expect(ROW_CHANGE_KINDS).toContain("edit_cells");
+    // Like `update_rows`, each value it overwrites is compared with what was seen: not a destructive change.
+    expect(DESTRUCTIVE_CHANGE_KINDS).not.toContain("edit_cells");
+    expect(MATCHING_CHANGE_KINDS).not.toContain("edit_cells");
+  });
+
   it("refuses a change of the rows a filter matches (the real adapter does it), and names its columns for the history", async () => {
     const { adapter, emails } = await setup();
     const before = await emails();

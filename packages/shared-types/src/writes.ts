@@ -18,8 +18,10 @@ export const WRITE_MAX_CHANGE_COLUMNS = 100;
 export const WRITE_MAX_CHANGE_VALUE_CHARS = 100_000;
 export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
-/** Rows in one bulk change. */
+/** Rows in one bulk change (`update_rows`, `delete_rows`, `edit_cells`). */
 export const WRITE_MAX_BULK_ROWS = 500;
+/** Cells changed in one row of an `edit_cells` change. */
+export const WRITE_MAX_EDIT_CELLS_PER_ROW = 50;
 /** Limits of an import (mirrored from the core): rows, columns, characters in a cell. */
 export const WRITE_MAX_IMPORT_ROWS = 100_000;
 export const WRITE_MAX_IMPORT_COLUMNS = 50;
@@ -285,6 +287,40 @@ export const deleteMatchingChangeSchema = z.strictObject({
   revealColumns: revealColumnsSchema,
 });
 
+// --------------------------------------------------------------- edit cells ---
+
+/** One cell of a row of `edit_cells`: the column, its new value and the value that was seen there. */
+const cellChangeSchema = z.strictObject({
+  column: identifierSchema,
+  value: valueSchema,
+  expected: valueSchema,
+});
+
+const editCellsRowSchema = z
+  .strictObject({
+    key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
+    changes: z.array(cellChangeSchema).min(1).max(WRITE_MAX_EDIT_CELLS_PER_ROW),
+  })
+  .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice.")
+  .refine(
+    (r) => uniqueColumns(r.changes, (c) => c.column),
+    "A column is changed twice in one row.",
+  );
+
+/**
+ * Edit cells of several rows (section 5 of the write-side plan): each row its own columns and values, each cell with
+ * the value that was seen, each row named once by its whole key. `revealColumns` are the columns whose names look
+ * sensitive that the person revealed, as a page of rows takes them: a hidden column is never edited or compared.
+ */
+export const editCellsChangeSchema = z
+  .strictObject({
+    kind: z.literal("edit_cells"),
+    table: tableSchema,
+    revealColumns: revealColumnsSchema,
+    rows: z.array(editCellsRowSchema).min(1).max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
+
 // ------------------------------------------------------- column definitions ---
 
 export const COLUMN_TYPE_NAME_LIST = [
@@ -494,6 +530,7 @@ export const changeSchema = z.discriminatedUnion("kind", [
   updateByKeyChangeSchema,
   updateMatchingChangeSchema,
   deleteMatchingChangeSchema,
+  editCellsChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,

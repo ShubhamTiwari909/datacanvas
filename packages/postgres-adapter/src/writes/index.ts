@@ -14,6 +14,7 @@ import {
 } from "@datacanvas/database-core";
 import type { WriteClient } from "../connection/write.js";
 import type { Queryable } from "../introspection/types.js";
+import { planEditCells } from "./cells.js";
 import { verifyGuard } from "./guard.js";
 import { planUpdateByKey, planUpsertRows } from "./keyed.js";
 import { MATCHING_ROW_GONE, planDeleteMatching, planUpdateMatching } from "./matching.js";
@@ -29,6 +30,8 @@ export function planChange(db: Queryable, change: Change): Promise<PlannedChange
   // A change of the rows a filter matches: the filter is read at preview, the keyed batches write (`matching.ts`).
   if (change.kind === "update_matching") return planUpdateMatching(db, change);
   if (change.kind === "delete_matching") return planDeleteMatching(db, change);
+  // An edit of cells in several rows: one single-row update per row, each with its own columns (`cells.ts`).
+  if (change.kind === "edit_cells") return planEditCells(db, change);
   if (isRowChange(change)) return planRowChange(db, change);
   // Only the kinds on the list: an unknown kind never reaches a builder.
   if (!(STRUCTURE_CHANGE_KINDS as readonly string[]).includes(change.kind)) {

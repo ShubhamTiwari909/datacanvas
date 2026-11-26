@@ -2,19 +2,33 @@
  * The rows of one page as a real table: a caption, a sticky header, monospace
  * values, NULL and the empty string shown differently, hidden columns marked,
  * and keyboard navigation (one cell is a tab stop; arrow keys move; Enter opens
- * a value). Nothing here edits a cell: with writes unlocked (1.4.0) each row
- * gets Edit and Delete buttons, and F2 or a double click on a cell asks to edit
- * it, but the change itself goes through the editor and the preview.
+ * a value). With writes unlocked (1.4.0) each row gets Edit and Delete buttons
+ * and F2 opens the row's editor. A double click on a cell, or Enter (1.12.0),
+ * edits the cell in place: the value becomes a pending change, marked in the
+ * grid, and nothing is written until the pending changes are reviewed and
+ * previewed together.
  */
 "use client";
 
-import { memo, useCallback, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, EyeOff, Lock, Pencil, Trash2 } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Eye,
+  EyeOff,
+  Lock,
+  Pencil,
+  PencilLine,
+  Trash2,
+} from "lucide-react";
 import type { RowCell, RowColumn, RowFilter, RowPage, RowSort } from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useGridNavigation } from "@/lib/use-grid-navigation";
+import { CellEditor } from "@/features/writes/cell-editor";
+import type { PendingRow } from "@/features/writes/pending-cells";
 import { BLUR_IN_GRID, useBlurStore } from "./blur-store";
 import { wholeCellKey } from "@/features/json/cell-key";
 import { CellDialog, type CellSource, type OpenCell } from "./cell-dialog";
@@ -28,7 +42,26 @@ export interface GridEditing {
   /** Edit a row, starting at a column (by index) if one was chosen. */
   onEdit: (row: number, col: number | null) => void;
   onDelete: (row: number) => void;
+  /** Editing cells in place, with pending changes (1.12.0); absent where only rows are edited. */
+  cells?: GridCellEditing | null;
 }
+
+/** Editing cells in place: which cells can be edited, the pending changes, and setting one. */
+export interface GridCellEditing {
+  /** Why this cell cannot be edited in place, or null when it can. */
+  cellBlock: (row: number, col: number) => string | null;
+  /** The pending changes of the row at a position, or null. */
+  pendingRow: (row: number) => PendingRow | null;
+  /** Whether a column may hold NULL. */
+  nullable: (column: string) => boolean;
+  /** Keep a value as the pending change of a cell (the value on screen when it was the same removes it). */
+  onSet: (row: number, col: number, value: string | null) => void;
+  /** Take the last pending step back. */
+  onUndo: () => void;
+}
+
+/** A click that may be the first of a double click waits this long before it opens the value. */
+const DOUBLE_CLICK_MS = 250;
 
 /** What the grid needs to let rows be chosen for a bulk change (only passed while writes are unlocked and the table is editable). */
 export interface GridSelection {
@@ -79,6 +112,10 @@ export function DataGrid({
 }) {
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
   const blurred = useBlurStore((s) => s.blurred);
+  const cells = editing?.cells ?? null;
+  // The cell being edited in place, on the page it was opened on (another page closes it).
+  const [editor, setEditor] = useState<{ row: number; col: number; page: RowPage } | null>(null);
+  const editorAt = editor && editor.page === page ? editor : null;
 
   const open = useCallback(
     (row: number, col: number) => {
@@ -94,6 +131,21 @@ export function DataGrid({
     columns: page.columns.length,
     onOpen: open,
     onKey: (event, row, col) => {
+      const plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      if (event.key === "Enter" && plain && cells && cells.cellBlock(row, col) === null) {
+        setEditor({ row, col, page });
+        return true;
+      }
+      if (
+        cells &&
+        event.key.toLowerCase() === "z" &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        cells.onUndo();
+        return true;
+      }
       if (event.key === "F2" && editing && editing.rowBlock(row) === null) {
         editing.onEdit(row, col);
         return true;
@@ -101,6 +153,59 @@ export function DataGrid({
       return false;
     },
   });
+
+  // A single click on a cell that can be edited waits to see whether it is the first of a double click.
+  const clickTimer = useRef<number | null>(null);
+  const stopClickTimer = () => {
+    if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+    },
+    [],
+  );
+  const onCellClick = useCallback(
+    (row: number, col: number, detail: number) => {
+      if (!cells || cells.cellBlock(row, col) !== null) {
+        open(row, col);
+        return;
+      }
+      stopClickTimer();
+      if (detail > 1) return;
+      clickTimer.current = window.setTimeout(() => {
+        clickTimer.current = null;
+        open(row, col);
+      }, DOUBLE_CLICK_MS);
+    },
+    [cells, open],
+  );
+  const onCellDoubleClick = useCallback(
+    (row: number, col: number) => {
+      stopClickTimer();
+      if (cells && cells.cellBlock(row, col) === null) {
+        activate(row, col);
+        setEditor({ row, col, page });
+      } else if (editing && editing.rowBlock(row) === null) {
+        editing.onEdit(row, col);
+      }
+    },
+    [cells, editing, activate, page],
+  );
+  const onEditorDone = useCallback(
+    (row: number, col: number, value: string | null | undefined, refocus: boolean) => {
+      if (value !== undefined) cells?.onSet(row, col, value);
+      setEditor(null);
+      // Back to the cell, so the keyboard carries on from where it was (not when focus left for something else).
+      if (refocus) {
+        tableRef.current
+          ?.querySelector<HTMLElement>(`td[data-row="${row}"][data-col="${col}"]`)
+          ?.focus();
+      }
+    },
+    [cells, tableRef],
+  );
 
   return (
     <>
@@ -113,7 +218,12 @@ export function DataGrid({
         aria-busy={busy}
       >
         <table ref={tableRef} role="grid" className="w-full border-collapse text-left text-sm">
-          <caption className="sr-only">{caption}</caption>
+          <caption className="sr-only">
+            {caption}
+            {cells
+              ? ". Press Enter or double-click on a cell to edit it, and Space to see its value."
+              : null}
+          </caption>
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
               {selection ? (
@@ -149,10 +259,14 @@ export function DataGrid({
                 columns={page.columns}
                 activeCol={active.row === r ? active.col : -1}
                 onActivate={activate}
-                onOpen={open}
+                onCellClick={onCellClick}
+                onCellDoubleClick={onCellDoubleClick}
                 editing={editing}
                 selection={selection}
                 selected={selection ? selection.isSelected(r) : false}
+                pending={cells ? cells.pendingRow(r) : null}
+                editorCol={editorAt?.row === r ? editorAt.col : -1}
+                onEditorDone={onEditorDone}
               />
             ))}
           </tbody>
@@ -178,10 +292,14 @@ const GridRow = memo(function GridRow({
   columns,
   activeCol,
   onActivate,
-  onOpen,
+  onCellClick,
+  onCellDoubleClick,
   editing,
   selection,
   selected,
+  pending,
+  editorCol,
+  onEditorDone,
 }: {
   row: RowCell[];
   r: number;
@@ -189,13 +307,27 @@ const GridRow = memo(function GridRow({
   /** The focusable column of this row, or -1 when the row has no tab stop. */
   activeCol: number;
   onActivate: (row: number, col: number) => void;
-  onOpen: (row: number, col: number) => void;
+  /** `detail` is the click count of the event (2 for the second click of a double click). */
+  onCellClick: (row: number, col: number, detail: number) => void;
+  onCellDoubleClick: (row: number, col: number) => void;
   editing: GridEditing | null;
   selection: GridSelection | null;
   /** Whether this row is chosen (a prop, so that a memoised row re-renders when it changes). */
   selected: boolean;
+  /** The pending changes of this row (a prop, so that a memoised row re-renders when they change). */
+  pending: PendingRow | null;
+  /** The column being edited in place in this row, or -1. */
+  editorCol: number;
+  /** The in-place editor is done: `value` undefined when it was cancelled. */
+  onEditorDone: (
+    row: number,
+    col: number,
+    value: string | null | undefined,
+    refocus: boolean,
+  ) => void;
 }) {
   const block = editing ? editing.rowBlock(r) : null;
+  const cells = editing?.cells ?? null;
   return (
     <tr className={cn("border-t hover:bg-muted/40", selected && "bg-muted/60")}>
       {selection ? (
@@ -237,26 +369,59 @@ const GridRow = memo(function GridRow({
           </RowActionButton>
         </td>
       ) : null}
-      {row.map((cell, c) => {
+      {row.map((read, c) => {
         const column = columns[c]!;
+        const change = pending?.cells.find((p) => p.column === column.name) ?? null;
+        // A pending cell shows the value it will get; the rest show what was read.
+        const cell: RowCell = change ? { value: change.after, truncated: false } : read;
         const shown = describeCell(cell, column.masked);
         const openable = !column.masked && cell.value !== null;
+        // Why the cell cannot be edited in place, said as its description (and a tooltip) while editing is on.
+        const why = cells ? cells.cellBlock(r, c) : null;
+        if (editorCol === c && cells && why === null) {
+          return (
+            <td key={c} data-row={r} data-col={c} tabIndex={-1} className="px-1 py-1 align-top">
+              <CellEditor
+                column={column}
+                value={cell.value}
+                original={change ? change.before : read.value}
+                nullable={cells.nullable(column.name)}
+                onCommit={(value, refocus) => onEditorDone(r, c, value, refocus)}
+                onCancel={() => onEditorDone(r, c, undefined, true)}
+              />
+            </td>
+          );
+        }
+        const title = [
+          change ? "Changed, not saved yet." : null,
+          openable && hasMoreToShow(cell, column.masked) ? "Click to see the whole value" : null,
+          why,
+        ]
+          .filter(Boolean)
+          .join(" ");
         return (
           <td
             key={c}
             data-row={r}
             data-col={c}
+            data-pending={change ? "" : undefined}
             tabIndex={activeCol === c ? 0 : -1}
             onFocus={() => onActivate(r, c)}
-            onClick={() => onOpen(r, c)}
-            onDoubleClick={editing && block === null ? () => editing.onEdit(r, c) : undefined}
-            title={
-              openable && hasMoreToShow(cell, column.masked)
-                ? "Click to see the whole value"
-                : undefined
-            }
-            className={cn(CELL_BASE, openable && "cursor-pointer")}
+            onClick={(event) => onCellClick(r, c, event.detail)}
+            onDoubleClick={editing ? () => onCellDoubleClick(r, c) : undefined}
+            title={title || undefined}
+            className={cn(
+              CELL_BASE,
+              openable && "cursor-pointer",
+              change && "bg-amber-500/10 dark:bg-amber-400/10",
+            )}
           >
+            {change ? (
+              <PencilLine
+                aria-hidden="true"
+                className="mr-1 inline size-3 align-[-1px] text-amber-700 dark:text-amber-400"
+              />
+            ) : null}
             {shown.kind === "value" ? (
               <>
                 <span className={BLUR_IN_GRID}>{shown.text}</span>
@@ -278,6 +443,7 @@ const GridRow = memo(function GridRow({
                 )}
               </span>
             )}
+            {change ? <span className="sr-only"> (changed)</span> : null}
           </td>
         );
       })}

@@ -279,3 +279,18 @@ Found while building it:
 1. The write path's source rule (`writes/rules.test.ts`) refused the word `USING` anywhere, to keep `ALTER COLUMN ... TYPE ... USING <expression>` out (decision 132). The keyed `DELETE ... USING unnest(...)` of 13.2 needed the rule narrowed to exactly that one line of `keyed.ts`.
 2. The tick of a destructive change is enforced by the browser's dialog only (the server marks the preview `destructive`). So the typed count is checked by the **write service** instead: the apply request carries `confirmRows`, which must equal the count the preview found, compared before the preview is taken (a typing mistake does not use it up). `update_matching` and `delete_matching` are both destructive (always the tick), like `update_by_key`.
 3. A key value over 4,096 characters is refused as well (6.6), and the conditions are checked against the first 100 columns, as the page reader checks them.
+
+### 13.9 What E4 measured (the server side of section 5)
+
+Measured on 2026-11-26 on the same PostgreSQL 17.12, by the opt-in timing of `postgres.adapter.writes-cells.test.ts` (`DC_SPIKE=1`; it prints the times, only the counts are asserted), on a table of 500 rows and 51 text columns.
+
+| What                                                                 | Preview | Apply  |
+| -------------------------------------------------------------------- | ------- | ------ |
+| `edit_cells` of 500 rows of 50 cells, every value different (25,000) | 24.89 s | 0.31 s |
+| `edit_cells` of 500 rows of one cell                                 | 0.22 s  | 0.21 s |
+
+Found while building it:
+
+1. The preview checks each **distinct** value by its type with the form's own `checkValues` (a savepoint, a cast and a release: three round trips a value), so the largest change the limits allow takes 25 s to preview. An edit of a few hundred cells stays well under a second; a pasted block (the stretch goal of section 5) could reach the limit. If paste is built, either the check casts a column's values in one read of the preview's transaction, or the change caps its cells in all (for example 5,000). Neither is done here: the plan asks for no new statement.
+2. The planner cannot tell a value the grid cut short (its first 2,000 characters) from a value that changed: both are a seen value the row does not hold, so the row is **left out** (`skipped`) and never overwritten. Saying why, before the review, is the grid's job, as `cellEditBlock` does for the form.
+3. A key column whose name looks sensitive must be in `revealColumns` (as `getCell` asks), or the rows left out would tell whether a guessed key exists.

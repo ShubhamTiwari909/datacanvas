@@ -26,7 +26,7 @@ export function useGridNavigation({
   columns: number;
   /** Enter or Space on a cell. */
   onOpen: (row: number, col: number) => void;
-  /** A key this grid handles itself (F2 to edit): return true when it did. */
+  /** A key this grid handles itself (F2 to edit), asked before Enter and Space open the cell: return true when it did. */
   onKey?: (event: KeyboardEvent<HTMLTableSectionElement>, row: number, col: number) => boolean;
 }): GridNavigation {
   const tableRef = useRef<HTMLTableElement>(null);
@@ -69,11 +69,12 @@ export function useGridNavigation({
     if (move) {
       event.preventDefault();
       focusCell(move[0], move[1]);
+    } else if (onKey?.(event, row, col)) {
+      // Asked first, so a grid can give Enter a meaning of its own (Enter edits a cell of an editable table).
+      event.preventDefault();
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onOpen(row, col);
-    } else if (onKey?.(event, row, col)) {
-      event.preventDefault();
     }
   };
 

@@ -247,7 +247,7 @@ export function requireWritable(column: CatalogColumn): void {
 }
 
 /** The key, exactly the table's key columns (in key order), with their types. */
-function typedKey(
+export function typedKey(
   table: CatalogTable,
   keyColumns: readonly string[],
   key: readonly KeyValue[],
@@ -494,7 +494,7 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
 // ------------------------------------------------------------------- bulk ---
 
 /** A bulk change refuses a row named twice, by its key as the table knows it (the order of the columns does not matter). */
-function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
+export function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
   const seen = new Set(keys.map((k) => JSON.stringify(k.map((v) => [v.column, v.value]))));
   if (seen.size !== keys.length) throw invalidChange("A row is listed twice.");
 }
@@ -504,7 +504,7 @@ function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
  * do not. All the questions run in one savepoint: a key value that does not fit its type ends them with a fixed
  * message that names no value.
  */
-async function splitByCurrent(
+export async function splitByCurrent(
   db: Queryable,
   table: TableRef,
   rows: ReadonlyArray<{
@@ -573,7 +573,7 @@ export async function bulkWarnings(
   );
 }
 
-const leftOutWords = (skipped: number, total: number, deleting = false): string =>
+export const leftOutWords = (skipped: number, total: number, deleting = false): string =>
   skipped === 0
     ? ""
     : deleting

@@ -81,7 +81,8 @@ export function ChangeDialog({
   connectionId: string;
   request: ChangeRequest | null;
   onClose: () => void;
-  onApplied: (result: AppliedResult, change: Change) => void;
+  /** `preview` is what was applied (its `skipped` rows were left out). */
+  onApplied: (result: AppliedResult, change: Change, preview: ChangePreview) => void;
   /** Offered when the row changed since it was loaded (reload the page of rows). */
   onRowChanged?: () => void;
 }) {
@@ -162,7 +163,7 @@ export function ChangeDialog({
       return;
     }
     recordChange(connectionId, result.data.entry);
-    onApplied(result.data, request.change);
+    onApplied(result.data, request.change, current);
   }
 
   const canApply = canApplyPreview({
@@ -346,6 +347,7 @@ export function ChangeDialog({
               change?.kind === "delete_row" ||
               change?.kind === "update_rows" ||
               change?.kind === "delete_rows" ||
+              change?.kind === "edit_cells" ||
               matching ||
               importing ? (
                 <p className="text-xs text-muted-foreground">

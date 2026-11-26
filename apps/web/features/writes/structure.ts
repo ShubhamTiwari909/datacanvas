@@ -461,6 +461,7 @@ export const CHANGE_LABEL: Record<Change["kind"], string> = {
   // The words of the buttons in the Data section (section 6.1 of docs/write-side-v2-plan.md).
   update_matching: "Set a value on all matching rows",
   delete_matching: "Delete all matching rows",
+  edit_cells: "Edit cells",
   create_table: "Create table",
   add_column: "Add column",
   rename_column: "Rename column",

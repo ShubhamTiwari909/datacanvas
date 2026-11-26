@@ -29,8 +29,12 @@ export const MAX_COMMENT_CHARS = 2000;
 /** Unique constraints, foreign keys or index columns in one change. */
 export const MAX_CHANGE_PARTS = 32;
 
-/** Rows in one bulk change (`update_rows`, `delete_rows`): the rows are chosen one by one, by key. */
+/** Rows in one bulk change (`update_rows`, `delete_rows`, `edit_cells`): the rows are chosen one by one, by key. */
 export const MAX_BULK_ROWS = 500;
+/** Cells changed in one row of an `edit_cells` change (`docs/write-side-v2-plan.md`, section 5). */
+export const EDIT_CELLS_MAX_CELLS_PER_ROW = 50;
+/** Cells in one `edit_cells` change, in all: each distinct value costs a type check, so 25,000 cells took 25 s to preview. */
+export const EDIT_CELLS_MAX_CELLS = 2_500;
 
 /** Limits of an import (`insert_rows`): rows, columns, characters in one cell, and rows in one statement. */
 export const IMPORT_MAX_ROWS = 100_000;
@@ -191,6 +195,35 @@ export interface DeleteMatchingChange {
   revealColumns: string[];
 }
 
+/** One cell of an `edit_cells` row: the column, its new value and the value the person saw there (`null` is NULL). */
+export interface CellChange {
+  column: string;
+  value: string | null;
+  expected: string | null;
+}
+
+/** One row of an `edit_cells` change: its whole key, and the cells changed in it (each column at most once). */
+export interface EditCellsRow {
+  key: KeyValue[];
+  changes: CellChange[];
+}
+
+/**
+ * Edit cells of several rows (`docs/write-side-v2-plan.md`, section 5): at most `MAX_BULK_ROWS` rows, each named once
+ * by its whole key, with at most `EDIT_CELLS_MAX_CELLS_PER_ROW` cells each. Unlike `update_rows`, each row sets its
+ * OWN columns to its OWN values. Each row is one single-row update (the builder of `update_row`) that applies only if
+ * every changed cell still holds what the person saw; a row that no longer does is left out at preview (`skipped`),
+ * and at apply every row must be changed exactly once or nothing is. Key columns, hidden columns (a name that looks
+ * sensitive and is not in `revealColumns`), generated columns and `bytea` are refused; a key column whose name looks
+ * sensitive must be revealed too.
+ */
+export interface EditCellsChange {
+  kind: "edit_cells";
+  table: TableRef;
+  revealColumns: string[];
+  rows: EditCellsRow[];
+}
+
 export type RowChange =
   | UpdateRowChange
   | InsertRowChange
@@ -201,7 +234,8 @@ export type RowChange =
   | UpsertRowsChange
   | UpdateByKeyChange
   | UpdateMatchingChange
-  | DeleteMatchingChange;
+  | DeleteMatchingChange
+  | EditCellsChange;
 
 // ------------------------------------------------------- column definitions ---
 
@@ -430,6 +464,7 @@ export const ROW_CHANGE_KINDS = [
   "update_by_key",
   "update_matching",
   "delete_matching",
+  "edit_cells",
 ] as const;
 /** The changes of the rows a filter matches: their keys are found at preview, and the count is typed to apply. */
 export const MATCHING_CHANGE_KINDS = ["update_matching", "delete_matching"] as const;
@@ -502,6 +537,9 @@ export function changeColumns(change: Change): string[] {
     case "delete_matching":
       // The rows were found by these columns (names only: never a condition's value or operator).
       return [...new Set(change.filters.map((f) => f.column))];
+    case "edit_cells":
+      // Every column edited in any row, once (names only: never a key, a value or what was seen).
+      return [...new Set(change.rows.flatMap((r) => r.changes.map((c) => c.column)))];
     case "create_table":
       return change.columns.map((c) => c.name);
     case "add_column":

@@ -16,6 +16,7 @@ import type { WriteClient } from "../connection/write.js";
 import type { Queryable } from "../introspection/types.js";
 import { verifyGuard } from "./guard.js";
 import { planUpdateByKey, planUpsertRows } from "./keyed.js";
+import { MATCHING_ROW_GONE, planDeleteMatching, planUpdateMatching } from "./matching.js";
 import { planRowChange } from "./rows.js";
 import { planStructureChange } from "./structure.js";
 
@@ -25,6 +26,9 @@ export function planChange(db: Queryable, change: Change): Promise<PlannedChange
   // The imports by key have their own planners (`keyed.ts`), with their own statement shapes.
   if (change.kind === "upsert_rows") return planUpsertRows(db, change);
   if (change.kind === "update_by_key") return planUpdateByKey(db, change);
+  // A change of the rows a filter matches: the filter is read at preview, the keyed batches write (`matching.ts`).
+  if (change.kind === "update_matching") return planUpdateMatching(db, change);
+  if (change.kind === "delete_matching") return planDeleteMatching(db, change);
   if (isRowChange(change)) return planRowChange(db, change);
   // Only the kinds on the list: an unknown kind never reaches a builder.
   if (!(STRUCTURE_CHANGE_KINDS as readonly string[]).includes(change.kind)) {
@@ -64,8 +68,13 @@ export async function runPlan(
       // "A row changed" is about a row the statement had to find: an insert (an import batch) finds none. An update
       // by key that finds fewer rows than it carries found a row gone (or its key changed) since the preview.
       const inserting = /^\s*INSERT\b/i.test(statement.text);
+      const gone = count < statement.expectRows && !inserting;
+      // The rows of a filter are many: say which row went, in general words (never a key).
+      const matching =
+        plan.change.kind === "update_matching" || plan.change.kind === "delete_matching";
       throw new DatabaseError(
-        count < statement.expectRows && !inserting ? "row_changed" : "unexpected",
+        gone ? "row_changed" : "unexpected",
+        gone && matching ? { message: MATCHING_ROW_GONE } : {},
       );
     }
     if (statement.countsInserted) {

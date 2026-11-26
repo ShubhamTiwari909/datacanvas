@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { isWritableAdapter } from "../adapter.js";
-import type { Change } from "../changes.js";
+import {
+  DESTRUCTIVE_CHANGE_KINDS,
+  MATCHING_CHANGE_KINDS,
+  ROW_CHANGE_KINDS,
+  changeColumns,
+  type Change,
+} from "../changes.js";
 import type { DatabaseError } from "../errors.js";
 import { MockDatabaseAdapter } from "./mock-adapter.js";
 import { createEcommerceData } from "./ecommerce-fixture.js";
@@ -66,6 +72,42 @@ describe("the mock adapter's write side", () => {
       await expect(adapter.previewChange(change)).rejects.toMatchObject({
         code: "invalid_change",
       });
+    }
+  });
+
+  it("refuses a change of the rows a filter matches (the real adapter does it), and names its columns for the history", async () => {
+    const { adapter, emails } = await setup();
+    const before = await emails();
+    const filters = [{ column: "email", op: "contains" as const, value: "x.test" }];
+    const updating: Change = {
+      kind: "update_matching",
+      table: users,
+      filters,
+      revealColumns: [],
+      set: { column: "full_name", value: "n" },
+    };
+    const deleting: Change = { kind: "delete_matching", table: users, filters, revealColumns: [] };
+    const changes = [updating, deleting];
+    for (const change of changes) {
+      await expect(adapter.previewChange(change)).rejects.toMatchObject({
+        code: "invalid_change",
+        message: "The sample database changes one row at a time.",
+      });
+    }
+    expect(await emails()).toEqual(before);
+    expect(changeColumns(updating)).toEqual(["full_name"]);
+    expect(
+      changeColumns({
+        kind: "delete_matching",
+        table: users,
+        filters: [...filters, { column: "id", op: "gt", value: "1" }, ...filters],
+        revealColumns: [],
+      }),
+    ).toEqual(["email", "id"]);
+    for (const kind of ["update_matching", "delete_matching"] as const) {
+      expect(DESTRUCTIVE_CHANGE_KINDS).toContain(kind);
+      expect(MATCHING_CHANGE_KINDS).toContain(kind);
+      expect(ROW_CHANGE_KINDS).toContain(kind);
     }
   });
 

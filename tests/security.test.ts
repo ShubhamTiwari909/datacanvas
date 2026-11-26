@@ -1112,6 +1112,220 @@ describe("an import by key is batches of two fixed statements, its key re-derive
   });
 });
 
+describe("a change of the rows a filter matches: the filter is only read, and every write is a keyed batch", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const matching = stripComments(read("packages/postgres-adapter/src/writes/matching.ts"));
+  const reader = stripComments(
+    read("packages/postgres-adapter/src/introspection/matching-keys.ts"),
+  );
+  const keyed = stripComments(read("packages/postgres-adapter/src/writes/keyed.ts"));
+  const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+  const deleteBuilder = keyed.slice(
+    keyed.indexOf("export function buildDeleteByKeyBatch"),
+    keyed.indexOf("export function buildFindExisting"),
+  );
+
+  it("finds the planners, the reader and the keyed delete", () => {
+    expect(matching).toContain("export async function planUpdateMatching");
+    expect(matching).toContain("export async function planDeleteMatching");
+    expect(reader).toContain("export async function readMatchingKeys");
+    expect(deleteBuilder).toContain("export function buildDeleteByKeyBatch");
+  });
+
+  it("the planners cannot reach the filter builder: the filter goes, whole and once, to the read of the preview", () => {
+    // No statement of the page reader is built here, and nothing of its condition code is imported.
+    expect(matching).not.toMatch(/buildRowsQuery|filterCondition|ONE_SQL|NONE_SQL/);
+    const imports = [...matching.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
+    expect(imports.filter((i) => i!.includes("introspection")).sort()).toEqual([
+      "../introspection/matching-keys.js",
+      "../introspection/types.js",
+    ]);
+    // The conditions appear in exactly two places: the refusal of an empty filter, and the one call of the read.
+    expect((matching.match(/readMatchingKeys\(/g) ?? []).length).toBe(1);
+    const rest = matching
+      .replace(/if \(change\.filters\.length === 0\) throw invalidChange\(EMPTY_FILTER\);/g, "")
+      .replace("{ filters: change.filters, revealColumns: change.revealColumns }", "");
+    expect(rest).not.toMatch(/\bfilters\b/);
+    // No SQL text at all in the planners, and no query of their own: every statement comes from a keyed builder.
+    expect(matching).not.toMatch(/db\.query\(/);
+    const texts = (matching.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|USING|SET)\b/);
+    }
+    // Every statement is built from the keys the read returned, by the builders of the import by key.
+    expect(matching).toMatch(
+      /statements = held\.batches\.map\(\(rows\) =>\s*buildUpdateByKeyBatch\(change\.table, keyColumns, key, rows, \[same\]\),?\s*\)/,
+    );
+    expect(matching).toMatch(
+      /statements = held\.batches\.map\(\(rows\) =>\s*buildDeleteByKeyBatch\(change\.table, keyColumns, rows\),?\s*\)/,
+    );
+    expect((matching.match(/build\w+Batch\(/g) ?? []).length).toBe(2);
+    // The builders and the apply never see a condition: they take keys, a column and a value.
+    for (const [name, code] of [
+      ["keyed.ts", keyed],
+      ["index.ts", index],
+    ] as const) {
+      // (`.filter(` is the array method; a condition would be `filters`, a `RowFilter` or the page reader's builder.)
+      expect(code, name).not.toMatch(
+        /(?<!\.)\bfilters?\b|RowFilter|buildRowsQuery|matching-keys|introspection\/rows/,
+      );
+    }
+  });
+
+  it("the read is the page reader's own statement, for the key columns only, in the read-only transaction, and only reads", () => {
+    expect(reader).toMatch(/buildRowsQuery\(\{/);
+    expect(reader).toContain("shown: [],");
+    expect(reader).toContain("keyColumns,");
+    expect(reader).toContain("limit: limits.rows + 1");
+    expect(reader).toMatch(/checkRowsFilters\(options\.filters, columns\)/);
+    expect(reader).toMatch(
+      /masked: isSensitiveColumnName\(c\.name\) && !options\.reveal\.has\(c\.name\)/,
+    );
+    expect(reader).toMatch(/all\.slice\(0, ROWS_MAX_COLUMNS\)/);
+    expect(reader).toContain(
+      "if (options.filters.length === 0 || keyColumns.length === 0) throw refused()",
+    );
+    expect(reader).toMatch(/DECLARE dc_matching NO SCROLL CURSOR FOR \$\{text\}/);
+    expect(reader).toMatch(/FETCH \$\{IMPORT_BATCH_ROWS\} FROM dc_matching/);
+    const texts = (reader.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/);
+    }
+    // A failure is a fixed sentence: the database's message (which repeats a value) is never read.
+    expect(reader).not.toMatch(/\.message\b/);
+    // The limits are the core's: 100,000 rows, 8 million characters of key text, 4,096 characters a key value.
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain("export const MATCHING_MAX_ROWS = 100_000;");
+    expect(core).toContain("export const MATCHING_MAX_KEY_CHARS = 8_000_000;");
+    expect(core).toContain("export const MATCHING_MAX_KEY_VALUE_CHARS = 4_096;");
+    for (const limit of [
+      "MATCHING_MAX_ROWS",
+      "MATCHING_MAX_KEY_CHARS",
+      "MATCHING_MAX_KEY_VALUE_CHARS",
+    ]) {
+      expect(reader, limit).toContain(limit);
+    }
+    // Only the planners ask for it.
+    const callers = walk(path.join(root, "packages/postgres-adapter/src"))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+      .filter((f) => /readMatchingKeys\(/.test(readFileSync(f, "utf8")))
+      .map(rel)
+      .sort();
+    expect(callers).toEqual([
+      "packages/postgres-adapter/src/introspection/matching-keys.ts",
+      "packages/postgres-adapter/src/writes/matching.ts",
+    ]);
+  });
+
+  it("every write statement names the rows it must report, in one transaction under a plan guard, and is destructive", () => {
+    expect(deleteBuilder).toContain("quoteQualified(table.schema, table.name)");
+    expect(deleteBuilder).toContain("unnest(${arrays(");
+    expect(deleteBuilder).toContain("castType");
+    expect(deleteBuilder).toContain("expectRows: rows.length");
+    const text = deleteBuilder.slice(
+      deleteBuilder.indexOf("text:"),
+      deleteBuilder.indexOf("values:"),
+    );
+    expect(text).not.toMatch(/\brows\b|\br\[|\.value\b/);
+    // The update batch binds the one value once, as a parameter, never in the text.
+    const update = keyed.slice(
+      keyed.indexOf("export function buildUpdateByKeyBatch"),
+      keyed.indexOf("export function buildDeleteByKeyBatch"),
+    );
+    expect(update).toContain("CAST($${columns.length + j + 1} AS ${s.castType})");
+    expect(update).toContain("...same.map((s) => s.value)");
+    expect(update).toContain("expectRows: rows.length");
+    expect((matching.match(/expect: "any"/g) ?? []).length).toBe(2);
+    expect((matching.match(/destructive: true/g) ?? []).length).toBe(2);
+    expect((matching.match(/confirmRows: count/g) ?? []).length).toBe(2);
+    expect((matching.match(/guard: \{ relations: \[guardRelation\(/g) ?? []).length).toBe(2);
+    expect(index).toMatch(/statement\.expectRows !== undefined && count !== statement\.expectRows/);
+    // The column set is one the person may write, and never the key or a hidden column.
+    expect(matching).toContain("requireWritable(column)");
+    expect(matching).toContain("if (key.includes(column.name))");
+    expect(matching).toContain(
+      "if (isSensitiveColumnName(column.name) && !change.revealColumns.includes(column.name))",
+    );
+    expect(matching).toContain("await checkValues(db, [same]");
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    const destructive = core.slice(core.indexOf("export const DESTRUCTIVE_CHANGE_KINDS"));
+    expect(destructive.slice(0, destructive.indexOf("];"))).toMatch(
+      /"update_matching",\s*"delete_matching",/,
+    );
+  });
+
+  it("the schemas are strict, take the page reader's conditions (at least one), and hold no SQL", () => {
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const matchingFiltersSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(part).toMatch(/z\s*\.array\(rowFilterSchema\)\s*\.min\(1,/);
+    expect(part).toContain(".max(MAX_ROW_FILTERS)");
+    expect((part.match(/z\.strictObject\(/g) ?? []).length).toBe(2);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|query)\b/i);
+    // The empty filter is refused by the schema, by both planners and by the read.
+    expect(
+      (
+        matching.match(
+          /if \(change\.filters\.length === 0\) throw invalidChange\(EMPTY_FILTER\)/g,
+        ) ?? []
+      ).length,
+    ).toBe(2);
+  });
+
+  it("the count is typed, and checked by the write service before the preview is taken; one such plan per connection", () => {
+    const service = stripComments(read("apps/web/lib/server/write-service.ts"));
+    const peek = service.indexOf("this.previews.peek(id, previewId)");
+    const check = service.indexOf("checkTypedCount(waiting, confirmRows)");
+    const take = service.indexOf("this.previews.take(id, previewId)");
+    expect(peek).toBeGreaterThan(-1);
+    expect(check).toBeGreaterThan(peek);
+    expect(take).toBeGreaterThan(check);
+    expect(service).toContain(
+      "if (plan.confirmRows !== undefined && confirmRows !== plan.confirmRows)",
+    );
+    expect(service).toContain("confirmRows: plan.confirmRows ?? null");
+    expect(
+      stripComments(read("apps/web/app/api/connections/[id]/writes/apply/route.ts")),
+    ).toContain("parsed.data.confirmRows");
+    const schema = stripComments(read("packages/shared-types/src/writes.ts"));
+    expect(schema).toMatch(
+      /confirmRows: z\.number\(\)\.int\(\)\.min\(0\)\.max\(WRITE_MAX_MATCHING_ROWS\)\.optional\(\)/,
+    );
+    const store = stripComments(read("apps/web/lib/server/preview-store.ts"));
+    expect(store).toMatch(/MAX_MATCHING_PREVIEWS_PER_CONNECTION = 1/);
+    expect(store).toMatch(
+      /MATCHING_KINDS[^=]*= new Set\(\["update_matching", "delete_matching"\]\)/,
+    );
+    expect(store).toContain("if (MATCHING_KINDS.has(plan.change.kind))");
+    expect(store).toContain("MATCHING_KINDS.has(stored.plan.change.kind)");
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planUpdateMatching|planDeleteMatching|readMatchingKeys/.test(
+          readFileSync(f, "utf8"),
+        ),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    expect(index).toContain(
+      'if (change.kind === "update_matching") return planUpdateMatching(db, change);',
+    );
+    expect(index).toContain(
+      'if (change.kind === "delete_matching") return planDeleteMatching(db, change);',
+    );
+    // A foreign key that refuses the delete is a fixed sentence by its SQLSTATE.
+    const errors = stripComments(read("packages/postgres-adapter/src/connection/write-errors.ts"));
+    expect(errors).toMatch(/case "23503":\s*return fail\(\s*"foreign_key_violation",\s*`/);
+  });
+});
+
 describe("a sort and conditions never become SQL text", () => {
   const stripComments = (code: string) =>
     code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

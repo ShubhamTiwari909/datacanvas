@@ -14,7 +14,7 @@
  * Lists of `{ column, value }` are used instead of objects keyed by column
  * name, so a column called `__proto__` or `constructor` is just a name.
  */
-import type { ReferentialAction, TableRef } from "./models.js";
+import type { ReferentialAction, RowFilter, TableRef } from "./models.js";
 
 // ----------------------------------------------------------------- limits ---
 
@@ -39,6 +39,15 @@ export const IMPORT_MAX_CELL_CHARS = 10_000;
 export const IMPORT_BATCH_ROWS = 500;
 /** The largest file an import reads (the browser parses it; the server gets the rows). */
 export const IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Limits of a change of the rows a filter matches (`update_matching`, `delete_matching`; `docs/write-side-v2-plan.md`,
+ * 6.6 and 13.4): the rows, the characters of every key value the plan holds (counted as the preview reads them; a
+ * character outside Latin-1 takes two bytes, so up to about 16 MB), and the characters of one key value.
+ */
+export const MATCHING_MAX_ROWS = 100_000;
+export const MATCHING_MAX_KEY_CHARS = 8_000_000;
+export const MATCHING_MAX_KEY_VALUE_CHARS = 4_096;
 
 /** How long a preview can be applied, and how long a lock may be waited for. */
 export const PREVIEW_TTL_MS = 5 * 60 * 1000;
@@ -158,6 +167,30 @@ export interface UpdateByKeyChange {
   rows: Array<Array<string | null>>;
 }
 
+/**
+ * Set ONE value on every row a filter matches (`docs/write-side-v2-plan.md`, section 6). `filters` are the page
+ * reader's own conditions (`RowsOptions.filters`), at least one: an empty filter is refused, never "the whole
+ * table". `revealColumns` are the columns whose names look sensitive that the person revealed, as for a page of
+ * rows: a condition on a hidden column is refused, and so is setting one. The filter is used only by the READ of
+ * the preview, which finds the keys of the matching rows (at most `MATCHING_MAX_ROWS`) and holds them; apply
+ * updates exactly those keys in keyed batches, and never compares the values the rows hold (decision 3).
+ */
+export interface UpdateMatchingChange {
+  kind: "update_matching";
+  table: TableRef;
+  filters: RowFilter[];
+  revealColumns: string[];
+  set: ColumnValue;
+}
+
+/** Delete every row a filter matches: as `UpdateMatchingChange`, without the value. */
+export interface DeleteMatchingChange {
+  kind: "delete_matching";
+  table: TableRef;
+  filters: RowFilter[];
+  revealColumns: string[];
+}
+
 export type RowChange =
   | UpdateRowChange
   | InsertRowChange
@@ -166,7 +199,9 @@ export type RowChange =
   | DeleteRowsChange
   | InsertRowsChange
   | UpsertRowsChange
-  | UpdateByKeyChange;
+  | UpdateByKeyChange
+  | UpdateMatchingChange
+  | DeleteMatchingChange;
 
 // ------------------------------------------------------- column definitions ---
 
@@ -393,7 +428,11 @@ export const ROW_CHANGE_KINDS = [
   "insert_rows",
   "upsert_rows",
   "update_by_key",
+  "update_matching",
+  "delete_matching",
 ] as const;
+/** The changes of the rows a filter matches: their keys are found at preview, and the count is typed to apply. */
+export const MATCHING_CHANGE_KINDS = ["update_matching", "delete_matching"] as const;
 export const STRUCTURE_CHANGE_KINDS = [
   "create_table",
   "add_column",
@@ -418,6 +457,9 @@ export const DESTRUCTIVE_CHANGE_KINDS: readonly ChangeKind[] = [
   "delete_rows",
   // It overwrites existing rows (an upsert is destructive only when its preview finds rows it would overwrite).
   "update_by_key",
+  // Like an update by key, it overwrites rows without comparing what they hold: always the tick (and the typed count).
+  "update_matching",
+  "delete_matching",
   "drop_constraint",
   "drop_index",
   "drop_column",
@@ -455,6 +497,11 @@ export function changeColumns(change: Change): string[] {
     case "upsert_rows":
     case "update_by_key":
       return [...change.columns];
+    case "update_matching":
+      return [change.set.column];
+    case "delete_matching":
+      // The rows were found by these columns (names only: never a condition's value or operator).
+      return [...new Set(change.filters.map((f) => f.column))];
     case "create_table":
       return change.columns.map((c) => c.name);
     case "add_column":
@@ -618,6 +665,11 @@ export interface PlannedChange {
   skipped?: number[];
   /** For `upsert_rows` and `update_by_key`: what the preview counted (see `RowCounts`). */
   counts?: RowCounts;
+  /**
+   * For a change of the rows a filter matches: how many rows the preview found and the plan holds the keys of. The
+   * person types this number to apply, and the write service compares what was typed with it before the plan runs.
+   */
+  confirmRows?: number;
 }
 
 /** The statement texts as shown to the person (values are `$1`, `$2`, ...). */

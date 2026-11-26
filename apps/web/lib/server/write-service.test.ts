@@ -613,3 +613,155 @@ describe("WriteService: history and privacy", () => {
     );
   });
 });
+
+describe("WriteService: a change of the rows a filter matches", () => {
+  /** The filter and the value hold the marker: neither may leave the server. */
+  const matching = (kind: "update_matching" | "delete_matching"): Change =>
+    kind === "update_matching"
+      ? {
+          kind,
+          table: users,
+          filters: [{ column: "email", op: "contains", value: SECRET }],
+          revealColumns: [],
+          set: { column: "full_name", value: `${SECRET}-name` },
+        }
+      : {
+          kind,
+          table: users,
+          filters: [{ column: "email", op: "contains", value: SECRET }],
+          revealColumns: [],
+        };
+  /** What the real adapter plans: keyed batches holding the keys, and the count found. */
+  const planned = (change: Change, rows = 3): PlannedChange => ({
+    change,
+    statements: [
+      {
+        text: 'UPDATE "public"."users" AS dc_t SET "full_name" = CAST($2 AS text) FROM unnest($1::text[]) AS x(c0) WHERE dc_t."id" = CAST(x.c0 AS integer)',
+        values: [["1", "2", "3"].slice(0, rows), `${SECRET}-name`],
+        expectRows: rows,
+      },
+    ],
+    expect: "any",
+    category: "row",
+    effect: `Sets full_name on the ${rows} rows of public.users that match the filter now.`,
+    warnings: [{ code: "destructive", message: "3 rows will be overwritten." }],
+    destructive: true,
+    confirmRows: rows,
+  });
+  /** A mock adapter that plans a change of the rows a filter matches as the real one does, and applies it. */
+  function matchingSetup() {
+    const adapter = new MockDatabaseAdapter();
+    const preview = vi.spyOn(adapter, "previewChange");
+    preview.mockImplementation(async (change: Change) => planned(change));
+    const apply = vi
+      .spyOn(adapter, "applyChange")
+      .mockImplementation(async (plan: PlannedChange) => ({ rowCount: plan.confirmRows ?? 0 }));
+    const context = setup({ adapter });
+    context.service.unlock(context.id, "shop");
+    return { ...context, apply };
+  }
+
+  it("is refused by the sample database, which changes one row at a time (as the real adapter's bulk changes are)", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    for (const kind of ["update_matching", "delete_matching"] as const) {
+      expect(await refusal(() => service.preview(id, matching(kind)))).toMatchObject({
+        code: "invalid_change",
+      });
+    }
+  });
+
+  it("says the count found, never a key, a condition's value or the value set", async () => {
+    const { service, id } = matchingSetup();
+    const preview = await service.preview(id, matching("update_matching"));
+    expect(preview.confirmRows).toBe(3);
+    expect(preview.destructive).toBe(true);
+    expect(preview.counts).toBeNull();
+    expect(JSON.stringify(preview)).not.toContain(SECRET);
+    expect(JSON.stringify(preview)).not.toMatch(/"1","2","3"/);
+    // Any other change has no count to type.
+    const plain = setup();
+    plain.service.unlock(plain.id, "shop");
+    expect((await plain.service.preview(plain.id, updateEmail())).confirmRows).toBeNull();
+  });
+
+  it("runs only with the count typed: a missing or wrong count is refused before the preview is used, and nothing is recorded", async () => {
+    const { service, id, apply } = matchingSetup();
+    const { previewId } = await service.preview(id, matching("delete_matching"));
+    for (const typed of [undefined, 2, 4, 0]) {
+      const error = await refusal(() => service.apply(id, previewId, undefined, typed));
+      expect(error).toMatchObject({ code: "invalid_change", message: WRITE_MESSAGES.confirmRows });
+    }
+    expect(apply).not.toHaveBeenCalled();
+    expect(service.history(id)).toEqual([]);
+    // The preview is still there: the right count applies it, once.
+    const result = await service.apply(id, previewId, undefined, 3);
+    expect(result.rowCount).toBe(3);
+    expect(result.entry).toMatchObject({
+      kind: "delete_matching",
+      columns: ["email"],
+      statement: null,
+      outcome: "applied",
+    });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect((await refusal(() => service.apply(id, previewId, undefined, 3))).code).toBe(
+      "preview_expired",
+    );
+    expect(JSON.stringify(service.history(id))).not.toContain(SECRET);
+    expect(JSON.stringify(logged)).not.toContain(SECRET);
+  });
+
+  it("checks the switches and the busy connection before the count, and an expired preview is expired whatever was typed", async () => {
+    const { service, id, advance } = matchingSetup();
+    const { previewId } = await service.preview(id, matching("update_matching"));
+    advance(PREVIEW_TTL_MS + 1);
+    expect((await refusal(() => service.apply(id, previewId, undefined, 3))).code).toBe(
+      "preview_expired",
+    );
+    const again = await service.preview(id, matching("update_matching"));
+    service.lock(id);
+    expect((await refusal(() => service.apply(id, again.previewId, undefined, 3))).code).toBe(
+      "write_not_unlocked",
+    );
+  });
+
+  it("ignores a count given with any other change", async () => {
+    const { service, id } = setup();
+    service.unlock(id, "shop");
+    const { previewId } = await service.preview(id, updateEmail("other@x.test"));
+    expect((await service.apply(id, previewId, undefined, 99)).rowCount).toBe(1);
+  });
+
+  it("holds one such plan per connection: a new preview drops the one before, and a lock drops it", async () => {
+    const { service, id } = matchingSetup();
+    const first = await service.preview(id, matching("update_matching"));
+    const second = await service.preview(id, matching("delete_matching"));
+    expect((await refusal(() => service.apply(id, first.previewId, undefined, 3))).code).toBe(
+      "preview_expired",
+    );
+    service.lock(id);
+    service.unlock(id, "shop");
+    expect((await refusal(() => service.apply(id, second.previewId, undefined, 3))).code).toBe(
+      "preview_expired",
+    );
+    const third = await service.preview(id, matching("delete_matching"));
+    expect((await service.apply(id, third.previewId, undefined, 3)).rowCount).toBe(3);
+  });
+
+  it("records a failed apply by its code only", async () => {
+    const { service, id, apply } = matchingSetup();
+    apply.mockRejectedValueOnce(new DatabaseError("row_changed"));
+    const { previewId } = await service.preview(id, matching("update_matching"));
+    expect((await refusal(() => service.apply(id, previewId, undefined, 3))).code).toBe(
+      "row_changed",
+    );
+    const [entry] = service.history(id);
+    expect(entry).toMatchObject({
+      kind: "update_matching",
+      columns: ["full_name"],
+      outcome: "failed",
+      errorCode: "row_changed",
+    });
+    expect(JSON.stringify(entry)).not.toContain(SECRET);
+  });
+});

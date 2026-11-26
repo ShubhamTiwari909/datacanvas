@@ -72,6 +72,8 @@ export const WRITE_MESSAGES = {
   previewExpired: "This preview has expired or was already used. Preview the change again.",
   busy: "Another change is running on this connection. Wait for it to finish, then try again.",
   confirmName: "Type the table's name to confirm.",
+  confirmRows:
+    "Type the number of rows this change will touch, as the preview shows it, to confirm. Nothing was changed.",
   notWritable: "This database cannot be changed from DataCanvas.",
 } as const;
 
@@ -180,23 +182,35 @@ export class WriteService {
       skipped: plan.skipped ?? [],
       // An import by key: what the preview counted (new rows, rows overwritten, rows left alone). Counts only.
       counts: plan.counts ? { ...plan.counts } : null,
+      // A change of the rows a filter matches: how many rows it found (the number the person types). A count only.
+      confirmRows: plan.confirmRows ?? null,
     };
   }
 
   /**
    * Run a previewed change exactly as planned. The preview is used up whether
    * it succeeds or fails; the outcome goes into the history.
+   *
+   * A change of the rows a filter matches runs only when `confirmRows` is the
+   * number of rows its preview found (the count the person typed). That is
+   * checked before the preview is taken, so a typing mistake does not use it up
+   * and nothing is recorded; any other change ignores `confirmRows`.
    * @throws ServiceError `preview_expired`, `write_busy` and the switch errors;
+   *   DatabaseError `invalid_change` for a count that is missing or wrong;
    *   DatabaseError from the adapter (fixed messages only).
    */
   async apply(
     id: string,
     previewId: string,
     signal?: CancelSignal,
+    confirmRows?: number,
   ): Promise<{ rowCount: number; entry: HistoryEntry; split?: AppliedChange["split"] }> {
     this.requireUnlocked(id);
     // Checked BEFORE taking the preview, so a busy connection does not use it up.
     if (this.busy.has(id)) throw new ServiceError("write_busy", WRITE_MESSAGES.busy);
+    const waiting = this.previews.peek(id, previewId);
+    if (!waiting) throw new ServiceError("preview_expired", WRITE_MESSAGES.previewExpired);
+    checkTypedCount(waiting, confirmRows);
     const plan = this.previews.take(id, previewId);
     if (!plan) throw new ServiceError("preview_expired", WRITE_MESSAGES.previewExpired);
 
@@ -357,6 +371,16 @@ function checkConfirmation(change: Change): void {
     change.confirm !== change.table.name
   ) {
     throw new DatabaseError("invalid_change", { message: WRITE_MESSAGES.confirmName });
+  }
+}
+
+/**
+ * A change of the rows a filter matches needs its count typed (`docs/write-side-v2-plan.md`, 6.3): the number must
+ * be exactly the count its preview found. The refusal never repeats what was typed.
+ */
+function checkTypedCount(plan: PlannedChange, confirmRows: number | undefined): void {
+  if (plan.confirmRows !== undefined && confirmRows !== plan.confirmRows) {
+    throw new DatabaseError("invalid_change", { message: WRITE_MESSAGES.confirmRows });
   }
 }
 

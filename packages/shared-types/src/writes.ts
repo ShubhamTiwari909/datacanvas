@@ -10,6 +10,7 @@
  */
 import { z } from "zod";
 import { identifierSchema } from "./connections.js";
+import { MAX_ROW_FILTERS, rowFilterSchema } from "./row-filters.js";
 
 // Limits, mirrored from @datacanvas/database-core (a test keeps them equal).
 export const WRITE_MAX_IDENTIFIER_BYTES = 63;
@@ -31,6 +32,8 @@ export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
  * than this (a rule test pins it): Next keeps only the first 10 MB of a body unless told otherwise.
  */
 export const IMPORT_MAX_BODY_BYTES = 32 * 1024 * 1024;
+/** Rows in one change of the rows a filter matches (mirrored from the core): the most a typed count can be. */
+export const WRITE_MAX_MATCHING_ROWS = 100_000;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
 
@@ -251,6 +254,37 @@ export const updateByKeyChangeSchema = z
     "At least one column that is not the key must be mapped.",
   );
 
+// ---------------------------------------------- changes of the rows a filter matches ---
+
+/**
+ * The conditions of a change of the rows a filter matches (section 6 of the write-side plan): the page reader's own
+ * conditions (`rowFilterSchema`, strict, each operator from a fixed list, every value a bounded text), at least one.
+ * An empty filter would be "the whole table", which is never offered.
+ */
+const matchingFiltersSchema = z
+  .array(rowFilterSchema)
+  .min(1, "A change of the rows a filter matches needs at least one condition.")
+  .max(MAX_ROW_FILTERS);
+/** The columns whose names look sensitive that the person revealed, as a page of rows takes them. */
+const revealColumnsSchema = z.array(identifierSchema).max(100);
+
+/** Set one value on every row the filter matches (the count found at preview is typed to apply). */
+export const updateMatchingChangeSchema = z.strictObject({
+  kind: z.literal("update_matching"),
+  table: tableSchema,
+  filters: matchingFiltersSchema,
+  revealColumns: revealColumnsSchema,
+  set: columnValueSchema,
+});
+
+/** Delete every row the filter matches (the count found at preview is typed to apply). */
+export const deleteMatchingChangeSchema = z.strictObject({
+  kind: z.literal("delete_matching"),
+  table: tableSchema,
+  filters: matchingFiltersSchema,
+  revealColumns: revealColumnsSchema,
+});
+
 // ------------------------------------------------------- column definitions ---
 
 export const COLUMN_TYPE_NAME_LIST = [
@@ -458,6 +492,8 @@ export const changeSchema = z.discriminatedUnion("kind", [
   insertRowsChangeSchema,
   upsertRowsChangeSchema,
   updateByKeyChangeSchema,
+  updateMatchingChangeSchema,
+  deleteMatchingChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,
@@ -489,8 +525,15 @@ export type PreviewChangeRequest = z.infer<typeof previewChangeRequestSchema>;
 /** A preview id: unguessable, URL-safe. */
 export const previewIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/);
 
-/** `POST .../writes/apply`: only the id; the change itself stays on the server. */
-export const applyChangeRequestSchema = z.strictObject({ previewId: previewIdSchema });
+/**
+ * `POST .../writes/apply`: only the id; the change itself stays on the server. A change of the rows a filter
+ * matches also carries the count the person typed (`confirmRows`), which the server compares with the count its
+ * preview found before anything runs; any other change ignores it.
+ */
+export const applyChangeRequestSchema = z.strictObject({
+  previewId: previewIdSchema,
+  confirmRows: z.number().int().min(0).max(WRITE_MAX_MATCHING_ROWS).optional(),
+});
 export type ApplyChangeRequest = z.infer<typeof applyChangeRequestSchema>;
 
 /** `POST .../writes/edit-info`: which table. */
@@ -558,6 +601,11 @@ export const changePreviewSchema = z.object({
     .object({ insert: z.number().int(), update: z.number().int(), unchanged: z.number().int() })
     .nullable()
     .default(null),
+  /**
+   * For a change of the rows a filter matches (`update_matching`, `delete_matching`): how many rows the preview
+   * found. The person types this number to apply it. A count only, never a key. Null for other changes.
+   */
+  confirmRows: z.number().int().nullable().default(null),
 });
 export type ChangePreview = z.infer<typeof changePreviewSchema>;
 export const previewChangeResponseSchema = z.object({ preview: changePreviewSchema });

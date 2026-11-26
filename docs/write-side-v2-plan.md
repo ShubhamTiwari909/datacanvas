@@ -260,3 +260,22 @@ Run `pnpm run test:pg-matrix` (it runs the keyed-writes spike with the rest of t
 - PostgreSQL 18's `RETURNING old` and `new` might replace `xmax` there; not measured, and it is 18 only.
 - `55000` for a deferrable arbiter, `42P10`, `21000`, the trigger order and the privilege checks are long-standing (9.5 on) and expected the same.
 - The times and sizes are of one machine and one version; they are logged by the opt-in spikes, not asserted beyond loose bounds.
+
+### 13.8 What E3 measured (the server side of section 6)
+
+Measured on 2026-11-26 on the same PostgreSQL 17.12, by `postgres.adapter.writes-matching.test.ts` (it prints the times; only the counts are asserted), on a table of 100,001 rows with an integer key. The preview reads the keys through the page reader's statement as a cursor, 500 keys a fetch, so a refusal stops the read early.
+
+| What                                                                                           | Time            |
+| ---------------------------------------------------------------------------------------------- | --------------- |
+| Preview of `update_matching` that finds 100,000 keys (catalog checks and value check included) | 0.20 s          |
+| Refusal of a filter that matches 100,001 rows                                                  | 0.20 s          |
+| Apply: 100,000 rows updated in 200 keyed batches, one transaction                              | 0.46 s          |
+| Preview of `delete_matching` of 100,000 keys / its apply                                       | 0.25 s / 0.33 s |
+| Preview of 1,953 keys of 4,096 characters (7,999,488 characters, just under the cap)           | 0.04 s          |
+| Refusal of 1,954 such keys (over 8,000,000 characters)                                         | 0.04 s          |
+
+Found while building it:
+
+1. The write path's source rule (`writes/rules.test.ts`) refused the word `USING` anywhere, to keep `ALTER COLUMN ... TYPE ... USING <expression>` out (decision 132). The keyed `DELETE ... USING unnest(...)` of 13.2 needed the rule narrowed to exactly that one line of `keyed.ts`.
+2. The tick of a destructive change is enforced by the browser's dialog only (the server marks the preview `destructive`). So the typed count is checked by the **write service** instead: the apply request carries `confirmRows`, which must equal the count the preview found, compared before the preview is taken (a typing mistake does not use it up). `update_matching` and `delete_matching` are both destructive (always the tick), like `update_by_key`.
+3. A key value over 4,096 characters is refused as well (6.6), and the conditions are checked against the first 100 columns, as the page reader checks them.

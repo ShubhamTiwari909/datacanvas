@@ -10,7 +10,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Download, FileUp, ListChecks, Plus, Trash2, X } from "lucide-react";
-import type { KeyValue, RowPage, TableEditInfo, TableRef } from "@datacanvas/database-core";
+import type {
+  KeyValue,
+  RowFilter,
+  RowPage,
+  TableEditInfo,
+  TableRef,
+} from "@datacanvas/database-core";
 import { Button } from "@/components/ui/button";
 import type { GridEditing, GridSelection } from "@/features/data/data-grid";
 import { ImportDialog } from "@/features/import/import-dialog";
@@ -32,6 +38,15 @@ import {
 } from "./bulk-select";
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
 import { InsertRowDialog } from "./insert-row-dialog";
+import { MatchingSetDialog } from "./matching-dialog";
+import {
+  MATCHING_DELETE_LABEL,
+  MATCHING_DESCRIPTION,
+  MATCHING_SET_LABEL,
+  buildDeleteMatching,
+  isMatchingKind,
+  offersMatching,
+} from "./matching";
 import { RowEditorDialog, type RowSnapshot } from "./row-editor-dialog";
 import { buildDelete, deleteBeforeAfter, notEditableText, rowAddress } from "./row-edit";
 import { NOT_LOCAL_TEXT } from "./writes-control";
@@ -53,12 +68,18 @@ export function useRowEditing({
   connectionId,
   table,
   page,
+  filters = [],
+  revealColumns = [],
   reload,
   onExportChosen,
 }: {
   connectionId: string;
   table: TableRef;
   page: RowPage | null;
+  /** The filter on screen, exactly as the page was read with it: the rows "all matching rows" are. */
+  filters?: readonly RowFilter[];
+  /** The hidden columns the person revealed, as the page was read with them. */
+  revealColumns?: readonly string[];
   /** Read the current page again (after a change, or when the row changed meanwhile). */
   reload: () => void;
   /** Export the chosen rows (by their keys): a button beside the bulk changes. */
@@ -102,6 +123,7 @@ export function useRowEditing({
   }
   const selected = chosen.table === tableKey ? chosen.rows : EMPTY_SELECTION;
   const [setting, setSetting] = useState(false);
+  const [settingMatching, setSettingMatching] = useState(false);
   const [importing, setImporting] = useState(false);
   const clearSelection = () =>
     setChosen({
@@ -123,6 +145,7 @@ export function useRowEditing({
       setInserting(false);
       setRequest(null);
       setSetting(false);
+      setSettingMatching(false);
       setImporting(false);
       clearSelection();
     }
@@ -216,6 +239,38 @@ export function useRowEditing({
         <FileUp aria-hidden="true" />
         Import CSV
       </Button>
+      {offersMatching(filters, info) ? (
+        <span
+          role="group"
+          aria-label="Rows that match the filter"
+          className="flex items-center gap-2"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setSettingMatching(true)}
+          >
+            <ListChecks aria-hidden="true" />
+            {MATCHING_SET_LABEL}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setRequest({
+                change: buildDeleteMatching(table, filters, revealColumns),
+                title: `Delete all matching rows of ${table.schema}.${table.name}`,
+                description: MATCHING_DESCRIPTION,
+              })
+            }
+          >
+            <Trash2 aria-hidden="true" />
+            {MATCHING_DELETE_LABEL}
+          </Button>
+        </span>
+      ) : null}
       {chosenRows.length > 0 ? (
         <span role="group" aria-label="Chosen rows" className="flex items-center gap-2">
           <span role="status" className="text-sm">
@@ -307,6 +362,21 @@ export function useRowEditing({
               setRequest(next);
             }}
           />
+          {page ? (
+            <MatchingSetDialog
+              open={settingMatching && offersMatching(filters, info)}
+              onClose={() => setSettingMatching(false)}
+              table={table}
+              info={info}
+              columns={page.columns}
+              filters={filters}
+              revealColumns={revealColumns}
+              onPreview={(next) => {
+                setSettingMatching(false);
+                setRequest(next);
+              }}
+            />
+          ) : null}
           <InsertRowDialog
             connectionId={connectionId}
             table={table}
@@ -333,9 +403,9 @@ export function useRowEditing({
               ? "The row was added."
               : change.kind === "delete_row"
                 ? "The row was deleted."
-                : change.kind === "update_rows"
+                : change.kind === "update_rows" || change.kind === "update_matching"
                   ? `${many(result.rowCount)} changed.`
-                  : change.kind === "delete_rows"
+                  : change.kind === "delete_rows" || change.kind === "delete_matching"
                     ? `${many(result.rowCount)} deleted.`
                     : change.kind === "insert_rows"
                       ? `${many(result.rowCount)} added.`
@@ -344,7 +414,12 @@ export function useRowEditing({
                         : "The row was changed.",
           );
           // The rows that were changed or removed are not the rows that were chosen any more.
-          if (change.kind === "update_rows" || change.kind === "delete_rows") clearSelection();
+          if (
+            change.kind === "update_rows" ||
+            change.kind === "delete_rows" ||
+            isMatchingKind(change.kind)
+          )
+            clearSelection();
           reload();
         }}
         onRowChanged={() => {

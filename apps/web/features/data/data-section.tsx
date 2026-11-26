@@ -141,6 +141,8 @@ function Rows({
     connectionId,
     table: ref,
     page,
+    filters: paging.filters,
+    revealColumns: paging.reveal,
     reload: view.reload,
     onExportChosen: (keys) => {
       setExportKeys(keys);

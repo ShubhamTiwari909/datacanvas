@@ -651,6 +651,79 @@ describe("no value reaches a log or an unexpected error", () => {
   });
 });
 
+describe("a change of the rows a filter matches: the count is typed to apply", () => {
+  const deleteMatching = {
+    change: {
+      kind: "delete_matching",
+      table: users,
+      filters: [{ column: "email", op: "contains", value: SECRET }],
+      revealColumns: [],
+    },
+  };
+  /** The adapter plans it as the real one does: keyed batches, the count found. */
+  async function planned(id: string) {
+    const adapter = context.createdAdapters.at(-1)!;
+    vi.spyOn(adapter, "previewChange").mockImplementationOnce(async (change) => ({
+      change,
+      statements: [
+        {
+          text: 'DELETE FROM "public"."users" AS dc_t USING unnest($1::text[]) AS x(c0) WHERE dc_t."id" = CAST(x.c0 AS integer)',
+          values: [["1", "2", "3"]],
+          expectRows: 3,
+        },
+      ],
+      expect: "any",
+      category: "row",
+      effect: "Deletes the 3 rows of public.users that match the filter now.",
+      warnings: [],
+      destructive: true,
+      confirmRows: 3,
+    }));
+    const apply = vi
+      .spyOn(adapter, "applyChange")
+      .mockImplementation(async () => ({ rowCount: 3 }));
+    return { result: await preview(id, deleteMatching), apply };
+  }
+
+  it("answers the count with the preview, and nothing of the filter", async () => {
+    const id = await unlocked();
+    const { result } = await planned(id);
+    expect(result.status).toBe(200);
+    expect(result.body.preview.confirmRows).toBe(3);
+    expect(result.text).not.toContain(SECRET);
+  });
+
+  it("refuses an empty filter in the request itself", async () => {
+    const id = await unlocked();
+    const refused = await preview(id, {
+      change: { ...deleteMatching.change, filters: [] },
+    });
+    expect(refused.status).toBe(400);
+  });
+
+  it("applies only with the count typed, and a wrong count leaves the preview to be applied", async () => {
+    const id = await unlocked();
+    const { result, apply: applied } = await planned(id);
+    const previewId = result.body.preview.previewId;
+    for (const body of [{ previewId }, { previewId, confirmRows: 2 }]) {
+      const refused = await apply(id, body);
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.code).toBe("invalid_change");
+      expect(refused.body.error.message).toContain("Type the number of rows");
+    }
+    // A count that is not a whole number in range is refused by the schema.
+    for (const confirmRows of [-1, 1.5, "3", 100_001]) {
+      expect((await apply(id, { previewId, confirmRows })).status).toBe(400);
+    }
+    expect(applied).not.toHaveBeenCalled();
+    const done = await apply(id, { previewId, confirmRows: 3 });
+    expect(done.status).toBe(200);
+    expect(done.body.result).toMatchObject({ rowCount: 3, entry: { kind: "delete_matching" } });
+    expect(done.text).not.toContain(SECRET);
+    expect(JSON.stringify(logged)).not.toContain(SECRET);
+  });
+});
+
 describe("GET /connections/:id/role", () => {
   it("answers the role and the warnings for both modes, never cached", async () => {
     const id = await connect();

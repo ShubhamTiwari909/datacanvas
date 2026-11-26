@@ -269,7 +269,7 @@ function typedKey(
  * does not end the transaction. The database's message (which contains the
  * value) is dropped; the error names the column and its type only.
  */
-async function checkValues(
+export async function checkValues(
   db: Queryable,
   values: readonly TypedValue[],
   fullType: (column: string) => string,

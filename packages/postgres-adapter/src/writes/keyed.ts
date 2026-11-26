@@ -109,24 +109,37 @@ export function buildUpsertBatch(
   };
 }
 
+/** A column set to the SAME value on every row of a batch: the value is bound once, after the arrays. */
+export interface SameValue extends KeyedColumn {
+  value: string | null;
+}
+
 /**
  * One batch of an update by key: each row of the batch sets the columns that are not the key on the row its key
  * finds. The target and the rows have aliases, and every column of the target in the condition is qualified, so
  * a column called `c0` or `x` is just a name. It reports the rows of the table it touched: every key carried
  * finds one row, or the batch is short.
+ *
+ * `same` (a change of the rows a filter matches, section 6) are columns set to one value on every row: each is ONE
+ * bound parameter, `"c" = CAST($n AS <type>)`, never an array of the same value 500 times.
  */
 export function buildUpdateByKeyBatch(
   table: TableRef,
   columns: readonly KeyedColumn[],
   key: readonly string[],
   rows: ReadonlyArray<ReadonlyArray<string | null>>,
+  same: readonly SameValue[] = [],
 ): PlannedStatement {
   const at = (name: string): number => columns.findIndex((c) => c.column === name);
-  const set = columns
-    .map((c, i) => ({ c, i }))
-    .filter(({ c }) => !key.includes(c.column))
-    .map(({ c, i }) => `${quoteIdentifier(c.column)} = CAST(x.c${i} AS ${c.castType})`)
-    .join(", ");
+  const set = [
+    ...columns
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !key.includes(c.column))
+      .map(({ c, i }) => `${quoteIdentifier(c.column)} = CAST(x.c${i} AS ${c.castType})`),
+    ...same.map(
+      (s, j) => `${quoteIdentifier(s.column)} = CAST($${columns.length + j + 1} AS ${s.castType})`,
+    ),
+  ].join(", ");
   const where = key
     .map((k) => `dc_t.${quoteIdentifier(k)} = CAST(x.c${at(k)} AS ${columns[at(k)]!.castType})`)
     .join(" AND ");
@@ -134,7 +147,29 @@ export function buildUpdateByKeyBatch(
     text:
       `UPDATE ${quoteQualified(table.schema, table.name)} AS dc_t SET ${set} ` +
       `FROM unnest(${arrays(columns.length)}) AS x(${aliases(columns.length)}) WHERE ${where}`,
-    values: valuesOf(columns.length, rows),
+    values: [...valuesOf(columns.length, rows), ...same.map((s) => s.value)],
+    expectRows: rows.length,
+  };
+}
+
+/**
+ * One batch of a keyed delete (a change of the rows a filter matches, section 6 and 13.2): each key of the batch
+ * deletes the row it finds. As the update by key, the target and the keys have aliases and every column of the
+ * target is qualified. It reports the rows it deleted: every key carried finds one row, or the batch is short.
+ */
+export function buildDeleteByKeyBatch(
+  table: TableRef,
+  key: readonly KeyedColumn[],
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): PlannedStatement {
+  const where = key
+    .map((k, i) => `dc_t.${quoteIdentifier(k.column)} = CAST(x.c${i} AS ${k.castType})`)
+    .join(" AND ");
+  return {
+    text:
+      `DELETE FROM ${quoteQualified(table.schema, table.name)} AS dc_t ` +
+      `USING unnest(${arrays(key.length)}) AS x(${aliases(key.length)}) WHERE ${where}`,
+    values: valuesOf(key.length, rows),
     expectRows: rows.length,
   };
 }

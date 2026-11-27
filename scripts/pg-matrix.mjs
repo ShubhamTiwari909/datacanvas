@@ -81,10 +81,14 @@ async function runOne(version) {
       "show server_version",
     ]).trim();
     const result = spawnSync(
-      "npx",
+      "pnpm",
       [
+        "exec",
         "vitest",
         "run",
+        // All test workers share one local Docker server. Keep database setup
+        // and test queries from overwhelming it on machines with many CPUs.
+        "--maxWorkers=2",
         "packages/postgres-adapter",
         "apps/web/lib/server/connection-service.integration",
         "apps/web/features/paths",
@@ -105,14 +109,7 @@ async function runOne(version) {
       version,
       ok: result.status === 0,
       note: `server ${serverVersion}; ${summary}; ${Math.round((Date.now() - started) / 1000)} s`,
-      failures:
-        result.status === 0
-          ? ""
-          : output
-              .split("\n")
-              .filter((l) => /FAIL|AssertionError|Error:/.test(l))
-              .slice(0, 12)
-              .join("\n"),
+      failures: result.status === 0 ? "" : (result.error?.message ?? output.trim()),
     };
   } finally {
     try {

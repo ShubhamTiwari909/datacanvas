@@ -5,7 +5,7 @@
  *   pnpm run test:pg-matrix                 # versions 12 to 18
  *   pnpm run test:pg-matrix -- 14 17        # only these
  *
- * For each version: start `postgres:<version>-alpine` on a free loopback port
+ * For each version: start the same `postgres:<version>` image as CI on a free loopback port
  * (data lives only inside the container and disappears with it), wait until it
  * accepts connections, run the adapter's integration, odd-schema and
  * performance tests plus the service integration tests against it, then stop
@@ -55,7 +55,8 @@ async function runOne(version) {
     `POSTGRES_PASSWORD=${PASSWORD}`,
     "-p",
     `127.0.0.1:${port}:5432`,
-    `postgres:${version}-alpine`,
+    // The migration tests use glibc's C.utf8 collation, which Alpine lacks.
+    `postgres:${version}`,
   ]);
   try {
     let ready = false;

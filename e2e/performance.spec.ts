@@ -58,13 +58,20 @@ test("1000 tables: load the canvas, auto-layout, stay responsive", async ({
   console.info(`[perf] add ${TABLES} tables to the canvas: ${addMs} ms`);
   expect(addMs).toBeLessThan(15_000);
 
-  // Only the nodes in view are drawn: the page must not hold hundreds of DOM nodes.
-  // (Counted until the nodes have been measured: a node whose size is not known yet is drawn, so a count taken in that
-  // moment reads every node.)
+  // Adding all tables fits the canvas to show them together. Focus a table so
+  // there are offscreen nodes and wait for the viewport and culling to settle.
+  await page.getByRole("button", { name: "t0 (Table) on the canvas", exact: true }).click();
+  const nodes = page.locator(".react-flow__node");
   await expect
-    .poll(async () => page.locator(".react-flow__node").count(), { timeout: 15_000 })
-    .toBeLessThan(TABLES);
-  const drawn = await page.locator(".react-flow__node").count();
+    .poll(
+      async () => {
+        const drawn = await nodes.count();
+        return drawn > 0 && drawn < TABLES;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  const drawn = await nodes.count();
   console.info(`[perf] nodes drawn in the DOM: ${drawn} of ${TABLES}`);
 
   // Auto-layout the whole thing.

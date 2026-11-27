@@ -165,7 +165,7 @@ README (what you can do), `docs/getting-started.md` (the import modes, the rejec
 
 ## 13. What E0 found
 
-Measured on 2026-11-25 on **PostgreSQL 17.12** (the local Docker server of the tests, arm64), Node 22.14 and Next.js 16.4.6. The facts are pinned in three spike files in `packages/postgres-adapter/src/`: `postgres.adapter.keyed-writes-spike.test.ts` (sections 13.1 and 13.2; part of the usual suite whenever `DATACANVAS_TEST_PG_URL` is set, so `pnpm run test:pg-matrix` runs it), and the opt-in timings (`DC_SPIKE=1`, like the export spike of 1.8.0) in the same file, `postgres.adapter.listall-spike.test.ts` (13.3) and `postgres.adapter.held-keys-spike.test.ts` (13.4). **The run on PostgreSQL 12 to 16 and 18 is pending**: only `postgres:17` is available locally and no image was pulled (13.7 lists what may differ).
+Measured on 2026-11-25 on **PostgreSQL 17.12** (the local Docker server of the tests, arm64), Node 22.14 and Next.js 16.4.6. The facts are pinned in three spike files in `packages/postgres-adapter/src/`: `postgres.adapter.keyed-writes-spike.test.ts` (sections 13.1 and 13.2; part of the usual suite whenever `DATACANVAS_TEST_PG_URL` is set, so `pnpm run test:pg-matrix` runs it), and the opt-in timings (`DC_SPIKE=1`, like the export spike of 1.8.0) in the same file, `postgres.adapter.listall-spike.test.ts` (13.3) and `postgres.adapter.held-keys-spike.test.ts` (13.4). Section 13.7 records the follow-up checks across supported versions.
 
 ### 13.1 `ON CONFLICT` and the `xmax` count
 
@@ -251,17 +251,13 @@ Heap measured after a full collection, the keys built as the driver makes string
 7. 4.3: **1,000 failing rows do not fit the 15 s deadline** (20 to 29 s): a 60 s deadline for `listAll`, or a limit of 250.
 8. 6.6: the cap is 8 million **characters** (up to about 17 MB), held as arrays per batch.
 
-### 13.7 Pending: PostgreSQL 12 to 16 and 18
+### 13.7 Verification on PostgreSQL 12 to 18
 
-Run `pnpm run test:pg-matrix` (it runs the keyed-writes spike with the rest of the adapter's tests), and the opt-in timings with `DC_SPIKE=1` against at least the oldest and newest versions. What may differ between versions:
+PR #36's PostgreSQL matrix passed on versions 12 through 18. It includes the keyed-write assertions for arbiter and trigger behavior, duplicate keys, privileges, and `xmax`, including `0A000` for `RETURNING xmax` on a partitioned table. The `NULLS NOT DISTINCT` test runs on PostgreSQL 15 and later. The local matrix uses the same Docker images as CI.
 
-- `NULLS NOT DISTINCT` exists from 15 (its test skips itself below 15).
-- `RETURNING xmax` on a partitioned table (`0A000` expected from 12 on; to confirm on each).
-- The `xmax` readings of 13.1 (6): they follow from how a row lock is carried to the new row version, which PostgreSQL does not document.
-- The plan of a batch: the row estimate of `unnest` of a bound array comes from a planner support function (from 12).
-- PostgreSQL 18's `RETURNING old` and `new` might replace `xmax` there; not measured, and it is 18 only.
-- `55000` for a deferrable arbiter, `42P10`, `21000`, the trigger order and the privilege checks are long-standing (9.5 on) and expected the same.
-- The times and sizes are of one machine and one version; they are logged by the opt-in spikes, not asserted beyond loose bounds.
+The opt-in runs on PostgreSQL 12 and 18 both used an index for a single keyed update batch. Updating 100,000 rows by integer key took 1.25 s and 1.61 s respectively. The upsert took 4.33 s and 1.68 s. These were local Docker runs with other verification running on the same machine.
+
+With the benchmark deadline raised, `listAll` named all 1,000 evenly spaced check failures in about 97 s on PostgreSQL 12 and 92 s on PostgreSQL 18. The import dialog uses a 60 s deadline, so a run under comparable load can time out before listing every failure. Fixing errors in the source file or validating a smaller file reduces the work.
 
 ### 13.8 What E3 measured (the server side of section 6)
 
@@ -310,7 +306,7 @@ Found by `postgres.adapter.cell.test.ts` and the route tests (no timing was take
 ### 13.11 What the independent review of 1.12.0 found (fixed)
 
 1. **An import by key was an existence oracle on a hidden key.** `update_by_key` and `upsert_rows` previews said which rows of the file found a row, so a guessed value of a key whose name looks sensitive (`api_key`) could be tested. Both now refuse such a key at preview (`resolveKeyedImport`), with a fixed sentence naming the column and never a value; the import dialog does not offer a key with such a column and says how many it left out. Updating a sensitive column's value is as allowed as before; only the key that finds rows is refused. A unique violation on apply of a sensitive column that is written still names no value but says a unique key was hit; that is unchanged.
-2. **The cut-text editor rewrote line endings.** A text field returns CRLF and bare CR as LF, so the first keystroke changed every line ending of the value while `expected` kept the original. A value with a carriage return is now read-only in that editor, with a fixed reason, and a pending cell set to its own value with the line endings normalized is not a change.
+2. **Text editors rewrote line endings.** A text field returns CRLF and bare CR as LF, so the first keystroke changed every line ending while `expected` kept the original. A value with a carriage return is read-only in the grid, the whole-value dialog, and the row form. The editors explain why. Normalizing line endings alone cannot create a pending change.
 3. **A repeated key was missed under a nondeterministic collation.** The file's keys were grouped under the default collation, but the unique index compares under the column's own (`k0` and `K0` are one key under a case-insensitive ICU collation), so a repeated key in a second batch passed the preview and wrote one row less than counted. The catalog's collation of the key column (when it is not its type's default, quoted) is now applied in the grouping.
 4. **A filtered delete on a table that cascades onto itself failed at apply with "a row is gone".** One batch deletes all its keys in one statement, so the cascade finds nothing left and it runs (with a warning); more than one batch is refused at preview, because an earlier batch's cascade removes rows of a later one.
 5. **A table that has child tables (table inheritance) was accepted for keyed changes**, which also reach the children and fail with a generic error. `upsert_rows`, `update_by_key`, `update_matching`, `delete_matching` and `edit_cells` now refuse it with a fixed sentence; partitioned tables are not refused. The older `update_row`, `delete_row`, `update_rows` and `delete_rows` use no `ONLY` either and were not changed (they stay fail-closed on their own row counts).

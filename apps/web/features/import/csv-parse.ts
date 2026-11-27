@@ -12,6 +12,8 @@ import {
   IMPORT_MAX_CELL_CHARS,
   IMPORT_MAX_COLUMNS,
   IMPORT_MAX_ROWS,
+  MAX_BULK_ROWS,
+  MAX_CHANGE_VALUE_CHARS,
 } from "@datacanvas/database-core";
 
 export type Delimiter = "," | ";" | "\t" | "|";
@@ -125,7 +127,14 @@ export type Parsed =
  * a blank line between rows is an empty value (skipping it would lose a row without a word); the fields of a row are
  * as written.
  */
-export function parseCsv(text: string, delimiter: Delimiter): Parsed {
+export function parseCsv(
+  text: string,
+  delimiter: Delimiter,
+  source: "file" | "clipboard" = "file",
+): Parsed {
+  const clipboard = source === "clipboard";
+  const maxRows = clipboard ? MAX_BULK_ROWS : IMPORT_MAX_ROWS + 1;
+  const maxCellChars = clipboard ? MAX_CHANGE_VALUE_CHARS : IMPORT_MAX_CELL_CHARS;
   if (text.includes("\u0000")) {
     // The first row with a NUL, so the person can find it.
     // Lines are counted as the parser counts them: \n, \r\n and a lone \r each end one.
@@ -137,7 +146,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
     }
     return { ok: false, refusal: "nul", row };
   }
-  if (text.trim() === "") return { ok: false, refusal: "empty" };
+  if (clipboard ? text.length === 0 : text.trim() === "") return { ok: false, refusal: "empty" };
   const rows: string[][] = [];
   // The file's line each row starts on, parallel to `rows` (blank lines and line breaks inside quotes shift it).
   const lines: number[] = [];
@@ -159,7 +168,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
     rows.push(row);
     lines.push(startLine);
     // The header is one of the rows: the data may hold the most rows, plus the header.
-    if (rows.length > IMPORT_MAX_ROWS + 1) return { ok: false, refusal: "too_many_rows" };
+    if (rows.length > maxRows) return { ok: false, refusal: "too_many_rows" };
     row = [];
     return null;
   };
@@ -174,7 +183,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
     if (text[i] === "\n" || text[i] === "\r") {
       if (text[i] === "\r" && text[i + 1] === "\n") i += 1;
       i += 1;
-      if (width === 1 && i <= lastContent) {
+      if (clipboard || (width === 1 && i <= lastContent)) {
         startLine = rowNumber;
         row = [""];
         const refused = pushRow();
@@ -225,7 +234,7 @@ export function parseCsv(text: string, delimiter: Delimiter): Parsed {
         field = text.slice(i, j);
         i = j;
       }
-      if (field.length > IMPORT_MAX_CELL_CHARS) {
+      if (field.length > maxCellChars) {
         return { ok: false, refusal: "cell_too_long", row: rowNumber };
       }
       row.push(field);

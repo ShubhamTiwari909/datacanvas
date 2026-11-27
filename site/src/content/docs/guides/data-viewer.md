@@ -11,6 +11,8 @@ enter the password again after a restart).
 
 Anyone holding the session token can switch data viewing on, so treat the printed link like a password.
 
+Saved filter templates are specific to a saved connection and table. Unsaved connections keep them until disconnect or reload. Use **Move previous filters here** to assign older templates to the current saved connection.
+
 ## What you get
 
 - **One page of rows at a time, read-only.** 50 rows by default (25, 50, 100 or 200), **Previous** and

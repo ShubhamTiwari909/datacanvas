@@ -83,6 +83,23 @@ docker compose -f examples/docker-compose.yml down -v
 
 Each run creates its own uniquely named database and role, loads `examples/ecommerce.sql`, and removes both afterwards. **Never point the variable at a server that holds data you care about.** It works with any PostgreSQL 12 or newer reachable over TCP (for example one started with `initdb` and `pg_ctl` on a spare port), as long as the account may create databases and roles and the server uses password authentication.
 
+## CSV validation benchmark
+
+Point `DATACANVAS_TEST_PG_URL` at a disposable PostgreSQL server and build the packages. Run the same benchmark with PostgreSQL 12 and 18. It uses 100,000 rows per file and checks the exact rejected row numbers. An extended deadline lets it measure the full workload, including cases that exceed the import dialog's 60-second deadline.
+
+```bash
+pnpm run build:packages
+DC_SPIKE=1 pnpm exec vitest run --maxWorkers=1 --reporter=verbose packages/postgres-adapter/src/postgres.adapter.listall-spike.test.ts -t "release baseline"
+```
+
+The 1.13.0 runs on local Docker used the Debian images for PostgreSQL 12.22 and 18.7. The timings include the database round trips and vary with host load.
+
+| 100,000-row input                  | Round trips before → after | PostgreSQL 12 before → after | PostgreSQL 18 before → after |
+| ---------------------------------- | -------------------------- | ---------------------------- | ---------------------------- |
+| All rows valid                     | 19 → 20                    | 0.54 s → 0.62 s              | 0.32 s → 0.31 s              |
+| 1,000 evenly spaced CHECK failures | 42,084 → 24,416            | 20.57 s → 15.62 s            | 20.29 s → 12.73 s            |
+| 1,000 evenly spaced type failures  | 62,084 → 36,416            | 27.65 s → 19.44 s            | 28.59 s → 21.99 s            |
+
 ## Where DataCanvas stores data
 
 Saved connections (never passwords) and workspaces live in `~/.datacanvas/` (`connections.json` and `workspaces/<id>.json`). Set `DATACANVAS_HOME` to use another folder, for example while testing by hand so your real data is not touched:

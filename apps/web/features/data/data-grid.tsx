@@ -59,6 +59,8 @@ export interface GridCellEditing {
    * the value the change is checked against when it differs from the cell on screen: the whole value of a cut cell.
    */
   onSet: (row: number, col: number, value: string | null, before?: string | null) => void;
+  /** Stage clipboard text starting at the focused cell. */
+  onPaste: (row: number, col: number, text: string) => void;
   /** Take the last pending step back. */
   onUndo: () => void;
   /**
@@ -228,11 +230,25 @@ export function DataGrid({
         )}
         aria-busy={busy}
       >
-        <table ref={tableRef} role="grid" className="w-full border-collapse text-left text-sm">
+        <table
+          ref={tableRef}
+          role="grid"
+          className="w-full border-collapse text-left text-sm"
+          onPaste={(event) => {
+            if (!cells || busy || editorAt || !(event.target instanceof HTMLElement)) return;
+            const target = event.target.closest("td[data-row][data-col]");
+            if (!(target instanceof HTMLTableCellElement) || target !== event.target) return;
+            const text = event.clipboardData.getData("text/plain");
+            if (text === "") return;
+            stopClickTimer();
+            event.preventDefault();
+            cells.onPaste(Number(target.dataset.row), Number(target.dataset.col), text);
+          }}
+        >
           <caption className="sr-only">
             {caption}
             {cells
-              ? ". Press Enter or double-click on a cell to edit it, and Space to see its value."
+              ? ". Press Enter or double-click on a cell to edit it, Space to see its value, or paste spreadsheet cells here."
               : null}
           </caption>
           <thead className="sticky top-0 z-10 bg-muted">

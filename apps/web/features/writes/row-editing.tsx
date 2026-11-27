@@ -28,6 +28,7 @@ import {
   type TableEditInfo,
   type TableRef,
 } from "@datacanvas/database-core";
+import { IMPORT_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import { Button } from "@/components/ui/button";
 import { FIELD_ERROR } from "@/components/ui/field";
 import type { GridCellEditing, GridEditing, GridSelection } from "@/features/data/data-grid";
@@ -63,6 +64,7 @@ import {
   offersMatching,
 } from "./matching";
 import {
+  BODY_LIMIT_TEXT,
   EMPTY_PENDING,
   appliedCellsText,
   buildEditCells,
@@ -76,6 +78,7 @@ import {
   type PendingAction,
   type PendingState,
 } from "./pending-cells";
+import { planCellPaste } from "./paste-cells";
 import { RowEditorDialog, type RowSnapshot } from "./row-editor-dialog";
 import {
   buildDelete,
@@ -287,20 +290,21 @@ export function useRowEditing({
   const cells = useMemo<GridCellEditing | null>(() => {
     if (!page || !info?.editable) return null;
     const rowKey = (r: number) => selectable[r]?.key ?? null;
+    const cellBlock = (r: number, c: number) => {
+      const column = page.columns[c];
+      const cell = page.rows[r]?.[c];
+      if (!column || !cell) return "This cell cannot be edited here.";
+      const address = rowAddress(page.columns, page.rows[r] ?? [], info);
+      const rowBlock = address.ok ? null : address.reason;
+      const columnInfo = info.columns.find((col) => col.name === column.name);
+      const block = gridCellBlock(rowBlock, column, cell, columnInfo);
+      // A cut text cell is not edited in place, but its dialog can read and edit the whole value.
+      return block !== null && canEditCutText(rowBlock, column, cell, columnInfo)
+        ? CUT_TEXT_OPEN_TEXT
+        : block;
+    };
     return {
-      cellBlock: (r, c) => {
-        const column = page.columns[c];
-        const cell = page.rows[r]?.[c];
-        if (!column || !cell) return "This cell cannot be edited here.";
-        const address = rowAddress(page.columns, page.rows[r] ?? [], info);
-        const rowBlock = address.ok ? null : address.reason;
-        const columnInfo = info.columns.find((col) => col.name === column.name);
-        const block = gridCellBlock(rowBlock, column, cell, columnInfo);
-        // A cut text cell is not edited in place, but its dialog can read and edit the whole value.
-        return block !== null && canEditCutText(rowBlock, column, cell, columnInfo)
-          ? CUT_TEXT_OPEN_TEXT
-          : block;
-      },
+      cellBlock,
       cutText: (r, c) => {
         const column = page.columns[c];
         const cell = page.rows[r]?.[c];
@@ -342,13 +346,50 @@ export function useRowEditing({
           }),
         }));
       },
+      onPaste: (row, column, text) => {
+        const paste = planCellPaste(
+          text,
+          row,
+          column,
+          {
+            rows: page.rows.length,
+            columns: page.columns.length,
+          },
+          (r, c) => {
+            const block = cellBlock(r, c);
+            if (block !== null) return block;
+            const key = rowKey(r);
+            return key
+              ? { key, column: page.columns[c]!.name, before: page.rows[r]![c]!.value }
+              : "This row has no usable key.";
+          },
+        );
+        setPendingOf((current) => {
+          const state = pendingReducer(
+            current.state,
+            "reason" in paste
+              ? { type: "refuse", reason: paste.reason }
+              : { type: "paste", cells: paste.cells },
+          );
+          const change =
+            state.rows === current.state.rows ? null : buildEditCells(table, state, revealColumns);
+          return {
+            scope: current.scope,
+            state:
+              change &&
+              new TextEncoder().encode(JSON.stringify({ change })).length > IMPORT_MAX_BODY_BYTES
+                ? { ...current.state, refusal: BODY_LIMIT_TEXT }
+                : state,
+          };
+        });
+      },
       onUndo: () =>
         setPendingOf((current) => ({
           scope: current.scope,
           state: pendingReducer(current.state, { type: "undo" }),
         })),
     };
-  }, [page, info, selectable, pendingRows]);
+  }, [page, info, selectable, pendingRows, table, revealColumns]);
   const grid = useMemo<GridEditing | null>(
     () => (rowsGrid ? { ...rowsGrid, cells } : null),
     [rowsGrid, cells],

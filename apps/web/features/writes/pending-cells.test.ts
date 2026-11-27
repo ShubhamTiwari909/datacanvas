@@ -28,6 +28,7 @@ import {
   pendingTextSize,
   type PendingAction,
   type PendingState,
+  type SetPendingCell,
 } from "./pending-cells";
 
 const key = (id: number | string): KeyValue[] => [{ column: "id", value: String(id) }];
@@ -36,7 +37,7 @@ const set = (
   column: string,
   before: string | null,
   after: string | null,
-): PendingAction => ({ type: "set", key: key(id), column, before, after });
+): SetPendingCell => ({ type: "set", key: key(id), column, before, after });
 const run = (actions: PendingAction[], from: PendingState = EMPTY_PENDING): PendingState =>
   actions.reduce(pendingReducer, from);
 /** The pending cells as [id, column, before, after], in order. */
@@ -109,6 +110,34 @@ describe("pending cells", () => {
     }
     // Nothing left to undo.
     expect(pendingReducer(state, { type: "undo" })).toBe(state);
+  });
+
+  it("undoes a whole paste together and preserves earlier edits", () => {
+    const before = run([set(1, "name", "old", "draft")]);
+    const pasted = pendingReducer(before, {
+      type: "paste",
+      cells: [set(1, "name", "old", "pasted"), set(2, "note", null, "")],
+    });
+    expect(cells(pasted)).toEqual([
+      ["1", "name", "old", "pasted"],
+      ["2", "note", null, ""],
+    ]);
+    expect(pendingReducer(pasted, { type: "undo" })).toEqual(before);
+  });
+
+  it("keeps the earlier state when one pasted cell would exceed a limit", () => {
+    const before = run(
+      Array.from({ length: EDIT_CELLS_MAX_CELLS_PER_ROW }, (_, i) =>
+        set(1, `c${i}`, "", "changed"),
+      ),
+    );
+    const refused = pendingReducer(before, {
+      type: "paste",
+      cells: [set(2, "name", "old", "pasted"), set(1, "extra", null, "too many")],
+    });
+    expect(refused.rows).toBe(before.rows);
+    expect(refused.undo).toBe(before.undo);
+    expect(refused.refusal).toBe(ROW_CELLS_LIMIT_TEXT);
   });
 
   it("takes one cell back from the review, and ignores a cell that is not pending", () => {

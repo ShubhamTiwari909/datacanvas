@@ -50,6 +50,22 @@ jobs:
           name: playwright-traces
           path: test-results/
 
+  docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
   postgres-versions:
     # The PostgreSQL-facing tests (adapter, odd schema, performance, services)
     # against every supported server version, one job each.

@@ -124,6 +124,55 @@ test.describe("editing cells in the grid", () => {
     await expect(page.getByRole("button", { name: "Add row" })).toBeVisible();
   });
 
+  test("pastes a block as one undoable change and applies it through preview", async ({
+    page,
+    database,
+  }) => {
+    const paste = async (row: number, column: number, text: string) => {
+      const target = cell(page, row, column);
+      await target.focus();
+      await target.evaluate((element, clipboardText) => {
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/plain", clipboardText);
+        element.dispatchEvent(
+          new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }),
+        );
+      }, text);
+    };
+    await paste(0, NAME, "alpha\t11\r\nbeta\t12");
+    await expect(bar(page).getByRole("status")).toHaveText("4 cells in 2 rows changed");
+    await expect(cell(page, 1, NAME)).toHaveText("beta (changed)");
+    await bar(page).getByRole("button", { name: "Undo last" }).click();
+    await expect(bar(page)).toHaveCount(0);
+    await expect(cell(page, 1, NAME)).toHaveText("n2");
+
+    await paste(0, NOTE, "note\tblocked");
+    await expect(bar(page).getByRole("alert")).toContainText(/row 1, column 5/);
+    await expect(cell(page, 0, NOTE)).toHaveText("note1");
+
+    await paste(0, NAME, "alpha\t11\r\nbeta\t12");
+    const read = () =>
+      sql(database, "SELECT name, qty FROM public.ec_items WHERE id <= 2 ORDER BY id");
+    expect(await read()).toEqual([
+      { name: "n1", qty: 1 },
+      { name: "n2", qty: 2 },
+    ]);
+    await bar(page).getByRole("button", { name: "Review" }).click();
+    await page
+      .getByRole("dialog", { name: "Review the changed cells of public.ec_items" })
+      .getByRole("button", { name: "Preview" })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Edit 4 cells in 2 rows of public.ec_items" })
+      .getByRole("button", { name: "Apply" })
+      .click();
+    await expect(page.getByText("4 cells were changed.")).toBeVisible();
+    expect(await read()).toEqual([
+      { name: "alpha", qty: 11 },
+      { name: "beta", qty: 12 },
+    ]);
+  });
+
   test("edits two cells in two rows, then reviews, previews and applies them", async ({
     page,
     database,

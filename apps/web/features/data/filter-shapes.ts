@@ -37,8 +37,31 @@ export interface ShapeStorage {
   setItem(key: string, value: string): void;
 }
 
-const keyFor = (schema: string, table: string): string =>
-  `datacanvas:filter-shapes:v1:${schema}.${table}`;
+export interface FilterScope {
+  connectionId: string;
+  profileId: string | null;
+}
+
+const keyFor = (scope: FilterScope, schema: string, table: string): string =>
+  `datacanvas:filter-shapes:v2:${JSON.stringify([scope.profileId ?? scope.connectionId, schema, table])}`;
+
+const sessionShapes = new Map<string, Map<string, string>>();
+
+export function forgetSessionShapes(connectionId: string): void {
+  sessionShapes.delete(connectionId);
+}
+
+function storageFor(scope: FilterScope): ShapeStorage | null {
+  if (scope.profileId !== null) return browserStorage();
+  return {
+    getItem: (key) => sessionShapes.get(scope.connectionId)?.get(key) ?? null,
+    setItem: (key, value) => {
+      const shapes = sessionShapes.get(scope.connectionId) ?? new Map<string, string>();
+      shapes.set(key, value);
+      sessionShapes.set(scope.connectionId, shapes);
+    },
+  };
+}
 
 /** The shape of a set of filters: what stays when every value is taken away. */
 export function shapeFromFilters(filters: readonly RowFilter[]): ShapeCondition[] {
@@ -106,25 +129,27 @@ function browserStorage(): ShapeStorage | null {
 }
 
 export function loadShapes(
+  scope: FilterScope,
   schema: string,
   table: string,
-  storage: ShapeStorage | null = browserStorage(),
+  storage: ShapeStorage | null = storageFor(scope),
 ): FilterShape[] {
   try {
-    return parseShapes(storage?.getItem(keyFor(schema, table)) ?? null);
+    return parseShapes(storage?.getItem(keyFor(scope, schema, table)) ?? null);
   } catch {
     return [];
   }
 }
 
 function write(
+  scope: FilterScope,
   schema: string,
   table: string,
   shapes: FilterShape[],
   storage: ShapeStorage | null,
 ): boolean {
   try {
-    storage?.setItem(keyFor(schema, table), JSON.stringify(shapes));
+    storage?.setItem(keyFor(scope, schema, table), JSON.stringify(shapes));
     return storage !== null;
   } catch {
     return false;
@@ -133,27 +158,74 @@ function write(
 
 /** Save a shape under a name (replacing one of the same name). Returns the list now stored, or null when it could not be saved. */
 export function saveShape(
+  scope: FilterScope,
   schema: string,
   table: string,
   name: string,
   filters: readonly RowFilter[],
-  storage: ShapeStorage | null = browserStorage(),
+  storage: ShapeStorage | null = storageFor(scope),
 ): FilterShape[] | null {
   const trimmed = name.trim();
   if (trimmed === "" || trimmed.length > MAX_SHAPE_NAME_CHARS || filters.length === 0) return null;
-  const others = loadShapes(schema, table, storage).filter((s) => s.name !== trimmed);
+  const others = loadShapes(scope, schema, table, storage).filter((s) => s.name !== trimmed);
   if (others.length >= MAX_SHAPES_PER_TABLE) return null;
   const next = [...others, { name: trimmed, conditions: shapeFromFilters(filters) }];
-  return write(schema, table, next, storage) ? next : null;
+  return write(scope, schema, table, next, storage) ? next : null;
 }
 
 export function deleteShape(
+  scope: FilterScope,
   schema: string,
   table: string,
   name: string,
+  storage: ShapeStorage | null = storageFor(scope),
+): FilterShape[] {
+  const next = loadShapes(scope, schema, table, storage).filter((s) => s.name !== name);
+  write(scope, schema, table, next, storage);
+  return next;
+}
+
+const legacyKey = (schema: string, table: string) =>
+  `datacanvas:filter-shapes:v1:${schema}.${table}`;
+
+/** Older shapes have no connection identity. Only the user can choose where they belong. */
+export function legacyShapes(
+  schema: string,
+  table: string,
   storage: ShapeStorage | null = browserStorage(),
 ): FilterShape[] {
-  const next = loadShapes(schema, table, storage).filter((s) => s.name !== name);
-  write(schema, table, next, storage);
+  try {
+    return parseShapes(storage?.getItem(legacyKey(schema, table)) ?? null);
+  } catch {
+    return [];
+  }
+}
+
+export function moveLegacyShapes(
+  scope: FilterScope,
+  schema: string,
+  table: string,
+  storage: ShapeStorage | null = browserStorage(),
+): FilterShape[] | null {
+  if (!storage || scope.profileId === null) return null;
+  const current = loadShapes(scope, schema, table, storage);
+  const legacy = legacyShapes(schema, table, storage);
+  const names = new Set(current.map((shape) => shape.name));
+  const moved: FilterShape[] = [];
+  const remaining = legacy.filter((shape) => {
+    if (current.length + moved.length === MAX_SHAPES_PER_TABLE || names.has(shape.name))
+      return true;
+    moved.push(shape);
+    names.add(shape.name);
+    return false;
+  });
+  if (moved.length === 0) return null;
+  const next = [...current, ...moved];
+  if (!write(scope, schema, table, next, storage)) return null;
+  try {
+    storage.setItem(legacyKey(schema, table), JSON.stringify(remaining));
+  } catch {
+    // Keep the originals recoverable if the browser won't accept the second write.
+  }
   return next;
 }

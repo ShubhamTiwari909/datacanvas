@@ -9,6 +9,7 @@
  * The SERVER is the source of truth for connections (credentials live there);
  * this store only mirrors the password-free summaries.
  */
+import { forgetSessionShapes } from "@/features/data/filter-shapes";
 import type { ConnectionProfile, ConnectionSummary } from "@datacanvas/shared-types";
 import { create } from "zustand";
 import {
@@ -144,6 +145,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // So did the statements typed and the last result.
     useSqlStore.getState().forgetConnection(id);
     forgetCatalog(id);
+    forgetSessionShapes(id);
     set((state) => {
       const connections = state.connections.filter((c) => c.id !== id);
       const wasSelected = state.selectedConnectionId === id;

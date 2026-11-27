@@ -68,16 +68,26 @@ interface UndoStep {
 export interface PendingState {
   /** The rows in the order they were first edited. */
   rows: PendingRow[];
-  undo: UndoStep[];
+  undo: UndoStep[][];
   /** Why the last edit was not kept (a limit), or null. */
   refusal: string | null;
 }
 
 export const EMPTY_PENDING: PendingState = { rows: [], undo: [], refusal: null };
 
+export interface SetPendingCell {
+  type: "set";
+  key: KeyValue[];
+  column: string;
+  before: string | null;
+  after: string | null;
+}
+
 export type PendingAction =
   /** Set a cell to `after`; `before` is the value on screen (used only when the cell is not pending yet). */
-  | { type: "set"; key: KeyValue[]; column: string; before: string | null; after: string | null }
+  | SetPendingCell
+  | { type: "paste"; cells: SetPendingCell[] }
+  | { type: "refuse"; reason: string }
   /** Take one pending cell back (from the review). */
   | { type: "revert"; signature: string; column: string }
   | { type: "undo" }
@@ -153,6 +163,22 @@ function findCell(
 
 export function pendingReducer(state: PendingState, action: PendingAction): PendingState {
   switch (action.type) {
+    case "refuse":
+      return { ...state, refusal: action.reason };
+    case "paste": {
+      // Work on a temporary state. One refusal leaves earlier pending edits and their undo history intact.
+      let next: PendingState = { rows: state.rows, undo: [], refusal: null };
+      for (const cell of action.cells) {
+        next = pendingReducer(next, cell);
+        if (next.refusal !== null) return { ...state, refusal: next.refusal };
+      }
+      const steps = next.undo.flat();
+      return {
+        rows: next.rows,
+        undo: steps.length > 0 ? [...state.undo, steps] : state.undo,
+        refusal: null,
+      };
+    }
     case "set": {
       const signature = rowSignature(action.key);
       const { row, cell } = findCell(state.rows, signature, action.column);
@@ -187,13 +213,15 @@ export function pendingReducer(state: PendingState, action: PendingAction): Pend
         rows,
         undo: [
           ...state.undo,
-          {
-            signature,
-            key: copyKey(action.key),
-            column: action.column,
-            before: original,
-            previous,
-          },
+          [
+            {
+              signature,
+              key: copyKey(action.key),
+              column: action.column,
+              before: original,
+              previous,
+            },
+          ],
         ],
         refusal: null,
       };
@@ -205,22 +233,27 @@ export function pendingReducer(state: PendingState, action: PendingAction): Pend
         rows: place(state.rows, row.key, cell.column, cell.before, undefined),
         undo: [
           ...state.undo,
-          {
-            signature: row.signature,
-            key: copyKey(row.key),
-            column: cell.column,
-            before: cell.before,
-            previous: cell.after,
-          },
+          [
+            {
+              signature: row.signature,
+              key: copyKey(row.key),
+              column: cell.column,
+              before: cell.before,
+              previous: cell.after,
+            },
+          ],
         ],
         refusal: null,
       };
     }
     case "undo": {
-      const step = state.undo.at(-1);
-      if (!step) return state.refusal === null ? state : { ...state, refusal: null };
+      const steps = state.undo.at(-1);
+      if (!steps) return state.refusal === null ? state : { ...state, refusal: null };
       return {
-        rows: place(state.rows, step.key, step.column, step.before, step.previous),
+        rows: steps.reduceRight(
+          (rows, step) => place(rows, step.key, step.column, step.before, step.previous),
+          state.rows,
+        ),
         undo: state.undo.slice(0, -1),
         refusal: null,
       };
@@ -234,10 +267,13 @@ export function pendingReducer(state: PendingState, action: PendingAction): Pend
           ? []
           : [cells.length === row.cells.length ? row : { ...row, cells }];
       });
-      const undo = state.undo.filter((s) => action.keep(s.column));
+      const undo = state.undo.flatMap((steps) => {
+        const kept = steps.filter((step) => action.keep(step.column));
+        return kept.length === 0 ? [] : [kept.length === steps.length ? steps : kept];
+      });
       if (rows.length === state.rows.length && undo.length === state.undo.length) {
         const same = rows.every((r, i) => r === state.rows[i]);
-        if (same) return state;
+        if (same && undo.every((steps, i) => steps === state.undo[i])) return state;
       }
       return { rows, undo, refusal: null };
     }

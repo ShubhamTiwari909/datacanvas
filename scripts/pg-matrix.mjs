@@ -21,8 +21,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const versions = process.argv.slice(2).length
-  ? process.argv.slice(2)
+const requestedVersions = process.argv.slice(process.argv[2] === "--" ? 3 : 2);
+const versions = requestedVersions.length
+  ? requestedVersions
   : ["12", "13", "14", "15", "16", "17", "18"];
 const PASSWORD = "testpass";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

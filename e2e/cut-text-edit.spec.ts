@@ -291,9 +291,13 @@ test.describe("editing a cut text value", () => {
     const body = cell(page, SHORT_CRLF, BODY);
     await expect(body).toHaveAttribute("title", /Windows line endings/);
     await body.dblclick();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(wholeField(page)).toHaveCount(0);
-    await expect(page.getByRole("dialog").getByText(/Windows line endings/)).toBeVisible();
+    await expect(cellDialog(page)).toBeVisible();
+    await expect(cellDialog(page).getByRole("button", { name: "Edit this value" })).toHaveCount(0);
+    await closeCellDialog(page);
+
+    await page.getByRole("button", { name: `Edit row ${SHORT_CRLF + 1}`, exact: true }).click();
+    const rowForm = page.getByRole("dialog", { name: "Edit a row of public.ct_notes" });
+    await expect(rowForm.getByText(/Windows line endings/)).toBeVisible();
   });
 
   test("says a value over a million characters is not read here, and offers no edit", async ({

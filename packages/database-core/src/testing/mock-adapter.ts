@@ -284,7 +284,7 @@ export class MockDatabaseAdapter implements DatabaseAdapter, WritableAdapter, Sq
     return normalizeObjects(copy(this.data.objects));
   }
 
-  /** The sample data has no `json` column to read whole: a table that exists is `invalid_request`, one that does not is `not_found`. */
+  /** The sample data has no `json` or text column to read whole: a table that exists is `invalid_request`, one that does not is `not_found`. */
   async getCell(ref: TableRef, request: CellRequest): Promise<CellRead> {
     this.requireConnection();
     const table = this.data.tables.find((t) => t.schema === ref.schema && t.name === ref.name);

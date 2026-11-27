@@ -333,13 +333,23 @@ describe("one cell is read whole only behind the same data-access check", () => 
     );
   });
 
-  it("names the row by the table's whole key from the catalog, binds every value, reads only JSON, and never reads a hidden column", () => {
+  it("names the row by the table's whole key from the catalog, binds every value, reads JSON or text, and never reads a hidden column", () => {
     const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
     const start = code.indexOf("export async function readCell");
     expect(start).toBeGreaterThan(-1);
     const body = code.slice(start);
-    // Only a json or jsonb column.
-    expect(body).toMatch(/kinds\.get\(column\.name\) !== "json"/);
+    // Only a json/jsonb column, or a column whose own type is text, varchar or citext (not char(n), name, a domain).
+    expect(body).toMatch(
+      /kind !== "json" && !\(kind === "text" && \(await isPlainTextColumn\(db, ref, column\.name\)\)\)/,
+    );
+    const typeCheck = stripComments(code).slice(code.indexOf("const CELL_TEXT_TYPE_SQL"));
+    expect(typeCheck).toMatch(
+      /t\.oid IN \('pg_catalog\.text'::regtype, 'pg_catalog\.varchar'::regtype\)/,
+    );
+    expect(typeCheck).toMatch(/t\.typname = 'citext'/);
+    expect(typeCheck).toMatch(/e\.extname = 'citext'/);
+    // The value is measured in the database, and one that a change cannot carry is not editable.
+    expect(body).toMatch(/length <= MAX_CHANGE_VALUE_CHARS/);
     // A column that looks sensitive is read only when it was revealed (as a page does).
     expect(body).toMatch(
       /isSensitiveColumnName\(column\.name\) && !request\.revealColumns\.includes/,
@@ -360,6 +370,7 @@ describe("one cell is read whole only behind the same data-access check", () => 
       "apps/web/app/api/connections/[id]/rows/cell/route.ts",
       "apps/web/features/json/json-editor-dialog.tsx",
       "apps/web/features/json/json-code-editor.tsx",
+      "apps/web/features/writes/cut-text-dialog.tsx",
     ]) {
       expect(read(file), file).not.toMatch(/\bconsole\./);
     }

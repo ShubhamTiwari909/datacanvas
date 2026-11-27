@@ -1,6 +1,7 @@
 import {
   CELL_EDIT_MAX_CHARS,
   DatabaseError,
+  MAX_CHANGE_VALUE_CHARS,
   ROWS_CELL_CHARS,
   ROWS_MAX_COLUMNS,
   ROWS_MAX_OFFSET,
@@ -593,7 +594,44 @@ export async function readRows(
 // ---------------------------------------------------------------- one cell ---
 
 /**
- * One `json` or `jsonb` value of one row, whole, for the JSON editor. The statement is one fixed shape:
+ * Is this column's OWN type `text`, `varchar` or `citext` (the extension's, not a type that happens to be named so)?
+ * `findColumnKinds` says "text" for the whole string category and follows a domain down to its base type; a value
+ * may be read whole, and edited, only for these three. `char(n)` (blank padded), `name`, `"char"` and a domain
+ * (its constraints are not ours to judge) are refused, and so is everything else.
+ */
+const CELL_TEXT_TYPE_SQL = `
+  SELECT (
+    t.oid IN ('pg_catalog.text'::regtype, 'pg_catalog.varchar'::regtype)
+    OR (
+      t.typname = 'citext' AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_depend d
+        JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
+        WHERE d.classid = 'pg_catalog.pg_type'::regclass AND d.objid = t.oid
+          AND d.refclassid = 'pg_catalog.pg_extension'::regclass
+          AND d.deptype = 'e' AND e.extname = 'citext'
+      )
+    )
+  ) AS ok
+  FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+  WHERE n.nspname = $1 AND c.relname = $2 AND a.attname = $3 AND a.attnum > 0 AND NOT a.attisdropped
+`;
+
+async function isPlainTextColumn(db: Queryable, ref: TableRef, column: string): Promise<boolean> {
+  const { rows } = await db.query<{ ok: boolean }>(CELL_TEXT_TYPE_SQL, [
+    ref.schema,
+    ref.name,
+    column,
+  ]);
+  return rows[0]?.ok === true;
+}
+
+/**
+ * One `json`, `jsonb`, `text`, `varchar` or `citext` value of one row, whole, for the JSON editor and for editing
+ * a cut text value. The statement is one fixed shape:
  *
  *   SELECT char_length(CAST("c" AS text)) AS n,
  *          CASE WHEN char_length(CAST("c" AS text)) <= $1 THEN CAST("c" AS text) END AS v
@@ -617,7 +655,10 @@ export async function readCell(
   const column = columns.find((c) => c.name === request.column);
   if (!column) throw bad();
   const kinds = await findColumnKinds(db, ref);
-  if (kinds.get(column.name) !== "json") throw bad();
+  const kind = kinds.get(column.name);
+  if (kind !== "json" && !(kind === "text" && (await isPlainTextColumn(db, ref, column.name)))) {
+    throw bad();
+  }
   // A hidden column would be an oracle: it is read only when it was revealed, as a page of rows does.
   if (isSensitiveColumnName(column.name) && !request.revealColumns.includes(column.name)) {
     throw bad();
@@ -655,6 +696,11 @@ export async function readCell(
   }
   const row = result.rows[0];
   if (!row || result.rows.length > 1) throw new DatabaseError("not_found");
-  if (row.n === null) return { value: null, tooLarge: false };
-  return row.v === null ? { value: null, tooLarge: true } : { value: row.v, tooLarge: false };
+  if (row.n === null) return { value: null, tooLarge: false, length: null, editable: true };
+  const length = Number(row.n);
+  if (row.v === null) return { value: null, tooLarge: true, length, editable: false };
+  // Editable when a change can carry the whole value: the database's character count says so, and so does
+  // the string's own length (a character outside the BMP is two units, which is how a change is measured).
+  const editable = length <= MAX_CHANGE_VALUE_CHARS && row.v.length <= MAX_CHANGE_VALUE_CHARS;
+  return { value: row.v, tooLarge: false, length, editable };
 }

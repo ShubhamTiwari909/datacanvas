@@ -8,7 +8,9 @@ import {
 } from "@datacanvas/database-core";
 import { editCellsChangeSchema } from "@datacanvas/shared-types";
 import { rowSignature } from "./bulk-select";
+import { IMPORT_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import {
+  BODY_LIMIT_TEXT,
   CELLS_LIMIT_TEXT,
   EMPTY_PENDING,
   KEY_CELL_TEXT,
@@ -23,6 +25,7 @@ import {
   pendingBySignature,
   pendingReducer,
   pendingText,
+  pendingTextSize,
   type PendingAction,
   type PendingState,
 } from "./pending-cells";
@@ -274,5 +277,45 @@ describe("pending cells", () => {
     expect(cellsWritten(change, [0])).toBe(1);
     expect(appliedCellsText(1)).toBe("1 cell was changed.");
     expect(appliedCellsText(2500)).toBe("2,500 cells were changed.");
+  });
+});
+
+describe("the size of the text one change carries", () => {
+  const set = (id: number, before: string, after: string): PendingAction => ({
+    type: "set",
+    key: key(id),
+    column: "bio",
+    before,
+    after,
+  });
+
+  it("counts every new value and every value seen, and refuses a cell that would pass the body limit", () => {
+    // Two cells of 100,000 characters (new value plus the value seen: 200,000) are 4.2 MB per 21 cells.
+    let state: PendingState = EMPTY_PENDING;
+    const half = "x".repeat(100_000);
+    let refused = false;
+    for (let id = 1; id <= 200 && !refused; id++) {
+      const next = pendingReducer(state, set(id, half, `${half}y`.slice(1)));
+      refused = next.refusal === BODY_LIMIT_TEXT;
+      if (!refused) state = next;
+    }
+    // The change was refused by size before the cell limit of the change.
+    expect(IMPORT_MAX_BODY_BYTES).toBe(32 * 1024 * 1024);
+    expect(refused).toBe(true);
+    expect(pendingTextSize(state.rows)).toBeLessThanOrEqual(IMPORT_MAX_BODY_BYTES);
+    expect(pendingTextSize(state.rows)).toBeGreaterThan(IMPORT_MAX_BODY_BYTES - 200_000);
+    expect(BODY_LIMIT_TEXT).toContain("32 MB");
+  });
+
+  it("is zero for nothing, and counts NULL as nothing", () => {
+    expect(pendingTextSize([])).toBe(0);
+    const state = pendingReducer(EMPTY_PENDING, {
+      type: "set",
+      key: key(1),
+      column: "bio",
+      before: null,
+      after: "abc",
+    });
+    expect(pendingTextSize(state.rows)).toBe(3);
   });
 });

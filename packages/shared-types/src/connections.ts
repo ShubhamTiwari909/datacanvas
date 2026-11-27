@@ -216,8 +216,8 @@ export type ParsedRowsRequest = z.output<typeof rowsRequestSchema>;
 export const rowsResponseSchema = z.object({ page: rowPageSchema });
 
 /**
- * `POST /api/connections/:id/rows/cell`: ONE `json` or `jsonb` value of ONE row, read whole (up to 1 MB),
- * for the JSON editor. The row is named by its key (one entry per key column), never by a condition.
+ * `POST /api/connections/:id/rows/cell`: ONE `json`, `jsonb`, `text`, `varchar` or `citext` value of ONE row,
+ * read whole (up to 1 MB), for the JSON editor and for editing a cut text value. The row is named by its key (one entry per key column), never by a condition.
  * Strict, like the request for a page; a value of the key is a value and is never logged or echoed.
  */
 export const cellRequestSchema = z.strictObject({
@@ -407,7 +407,12 @@ export const EXPORT_MAX_BODY_BYTES = 4 * 1024 * 1024;
 export const EXPORT_MAX_KEY_CHARS = 1_000_000;
 
 export const cellResponseSchema = z.object({
-  cell: z.object({ value: z.string().nullable(), tooLarge: z.boolean() }),
+  cell: z.object({
+    value: z.string().nullable(),
+    tooLarge: z.boolean(),
+    length: z.number().int().nonnegative().nullable(),
+    editable: z.boolean(),
+  }),
 });
 
 /** `PUT /api/connections/:id/data-access`: switch viewing table data on or off for this connection. */

@@ -26,6 +26,7 @@ import {
   IMPORT_MAX_COLUMNS,
   IMPORT_MAX_ROWS,
   MAX_CHANGE_PARTS,
+  isSensitiveColumnName,
   quoteIdentifier,
   quoteQualified,
   type ChangeWarning,
@@ -54,6 +55,7 @@ import {
   omittedWords,
   referencedWarning,
   requireEditable,
+  requireNoChildren,
   requireWritable,
 } from "./rows.js";
 import { displayName, invalidChange, listWords } from "./sql.js";
@@ -62,6 +64,8 @@ import { displayName, invalidChange, listWords } from "./sql.js";
 export interface KeyedColumn {
   column: string;
   castType: string;
+  /** The column's own collation, quoted, when it is not its type's default (see `CatalogColumn.collation`). */
+  collation?: string;
 }
 
 // --------------------------------------------------------------- builders ---
@@ -202,13 +206,17 @@ export function buildFindExisting(
 
 /**
  * Rows of the file that have the same key, compared as the database compares them (`'1'` and `'01'` are one
- * integer): the positions of the first few groups, and nothing else. Over the whole file at once.
+ * integer, and two strings a nondeterministic collation of the column calls equal are one key: the column's own
+ * collation, from the catalog, is applied): the positions of the first few groups, and nothing else. Over the whole
+ * file at once.
  */
 export function buildFindRepeatedKeys(
   key: readonly KeyedColumn[],
   rows: ReadonlyArray<ReadonlyArray<string | null>>,
 ): PlannedStatement {
-  const groups = key.map((k, i) => `CAST(x.c${i} AS ${k.castType})`).join(", ");
+  const groups = key
+    .map((k, i) => `CAST(x.c${i} AS ${k.castType})${k.collation ? ` COLLATE ${k.collation}` : ""}`)
+    .join(", ");
   return {
     text:
       `SELECT (array_agg(x.n ORDER BY x.n))[1:5] AS positions ` +
@@ -251,6 +259,7 @@ async function resolveKeyedImport(
   writable: (name: string, inKey: boolean) => boolean,
 ): Promise<KeyedImport> {
   const { table } = await requireEditable(db, change.table);
+  await requireNoChildren(db, table);
   if (change.columns.length === 0 || change.rows.length === 0)
     throw invalidChange("Nothing to import.");
   if (change.columns.length > IMPORT_MAX_COLUMNS || change.rows.length > IMPORT_MAX_ROWS) {
@@ -269,10 +278,24 @@ async function resolveKeyedImport(
   ) {
     throw invalidChange("The key must name each of its columns once.");
   }
+  // A key that finds rows by a value must not be a way to ask whether a hidden value exists: the preview says which
+  // rows of the file find a row, and edit_cells and a page of rows refuse a hidden key column for the same reason.
+  const hiddenKey = change.key.filter((name) => isSensitiveColumnName(name));
+  if (hiddenKey.length > 0) {
+    throw invalidChange(
+      `${listWords(hiddenKey)} ${hiddenKey.length === 1 ? "is a column" : "are columns"} whose name looks sensitive, and ${hiddenKey.length === 1 ? "its values are" : "their values are"} hidden: such a key cannot be used to import by key.`,
+    );
+  }
   const columns = change.columns.map((name): KeyedColumn => {
     const column = findColumn(table, name);
     if (writable(name, change.key.includes(name))) requireWritable(column);
-    return { column: column.name, castType: column.castType };
+    return {
+      column: column.name,
+      castType: column.castType,
+      ...(column.collation
+        ? { collation: quoteQualified(column.collation.schema, column.collation.name) }
+        : {}),
+    };
   });
 
   // The key is re-derived from the catalog: exactly the columns of one of the table's own keys, and one it may use.

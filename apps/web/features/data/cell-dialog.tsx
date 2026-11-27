@@ -14,13 +14,16 @@ import {
   type RowFilter,
   type TableRef,
 } from "@datacanvas/database-core";
-import { Braces, ListFilter } from "lucide-react";
+import { Braces, ListFilter, PencilLine } from "lucide-react";
+import { cellRequestFor } from "@/features/json/cell-key";
+import { CutTextDialog } from "@/features/writes/cut-text-dialog";
 import { JsonEditorDialog } from "@/features/json/json-editor-dialog";
 import { getCell } from "./api";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { filterForCell } from "./filtering";
+import type { GridCellEditing } from "./data-grid";
 import { BLUR_CLASSES, useBlurStore } from "./blur-store";
 import {
   Dialog,
@@ -35,6 +38,9 @@ export interface OpenCell {
   cell: RowCell;
   /** The key of the cell's row, when it can be named (the Data section); lets a cut JSON value be read whole. */
   key?: KeyValue[] | null;
+  /** The cell's position on the page, so an edit can be kept for it (the Data section). */
+  row?: number;
+  col?: number;
 }
 
 /** Where a cell of the Data section comes from, so its JSON can be read whole. */
@@ -48,8 +54,11 @@ export function CellDialog({
   onClose,
   onFilter,
   source,
+  cells,
 }: {
   open: OpenCell | null;
+  /** Editing cells in the grid (writes unlocked): lets a cut text value be edited whole from here. */
+  cells?: GridCellEditing | null;
   onClose: () => void;
   /** The table the cell is from (the Data section; not the SQL result). */
   source?: CellSource;
@@ -59,9 +68,15 @@ export function CellDialog({
   const blurred = useBlurStore((s) => s.blurred);
   const [leaving, setLeaving] = useState<OpenCell | null>(null);
   const [jsonOpen, setJsonOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   // Remember what was open, so the closing animation still has something to show.
   if (open && open !== leaving) setLeaving(open);
   const shown = open ?? leaving;
+  // A cut text cell whose whole value can be edited from here (null: it cannot, or editing is not on).
+  const cut =
+    open && cells && open.row !== undefined && open.col !== undefined
+      ? cells.cutText(open.row, open.col)
+      : null;
   return (
     <Dialog open={open !== null} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent
@@ -84,14 +99,18 @@ export function CellDialog({
                 blurred && BLUR_CLASSES,
               )}
             >
-              {shown.cell.value}
+              {cut?.pending ? cut.pending.after : shown.cell.value}
             </pre>
             {blurred ? (
               <p role="note" className="text-sm text-muted-foreground">
                 Values are blurred. Switch off “Blur values” to read this one.
               </p>
             ) : null}
-            {shown.cell.truncated ? (
+            {cut?.pending ? (
+              <p role="note" className="text-sm text-muted-foreground">
+                This value was changed and is not saved yet. The new value is shown.
+              </p>
+            ) : shown.cell.truncated ? (
               <p role="note" className="text-sm text-muted-foreground">
                 This value is longer than {new Intl.NumberFormat().format(ROWS_CELL_CHARS)}{" "}
                 characters. Only the first {new Intl.NumberFormat().format(ROWS_CELL_CHARS)} are
@@ -99,6 +118,31 @@ export function CellDialog({
               </p>
             ) : null}
             <div className="flex justify-end gap-2">
+              {cut && source && shown.key && shown.row !== undefined && shown.col !== undefined ? (
+                <>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
+                    <PencilLine aria-hidden="true" />
+                    Edit this value
+                  </Button>
+                  <CutTextDialog
+                    open={editOpen}
+                    onClose={() => setEditOpen(false)}
+                    column={shown.column.name}
+                    pending={cut.pending}
+                    load={() =>
+                      getCell(
+                        source.connectionId,
+                        cellRequestFor(source.table, shown.column.name, shown.key!),
+                      )
+                    }
+                    onUse={(text, before) => {
+                      cells?.onSet(shown.row!, shown.col!, text, before);
+                      setEditOpen(false);
+                      onClose();
+                    }}
+                  />
+                </>
+              ) : null}
               <JsonButton
                 shown={shown}
                 source={source}
@@ -162,16 +206,7 @@ function JsonButton({
         text={cell.value}
         load={
           canLoad
-            ? () =>
-                getCell(source.connectionId, {
-                  schema: source.table.schema,
-                  table: source.table.name,
-                  column: column.name,
-                  key,
-                  // The key columns are named too: without them the server refuses the read as an invalid request. (A masked key
-                  // column is already left out of the key by wholeCellKey.)
-                  revealColumns: [...new Set([column.name, ...key.map((k) => k.column)])],
-                })
+            ? () => getCell(source.connectionId, cellRequestFor(source.table, column.name, key))
             : undefined
         }
         readOnly

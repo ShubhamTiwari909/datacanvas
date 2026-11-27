@@ -36,6 +36,11 @@ export interface CatalogColumn {
   generated: boolean;
   isBytea: boolean;
   isArray: boolean;
+  /**
+   * The column's own collation when it is not its type's default (the catalog's names, unquoted), else null. A
+   * nondeterministic collation can call two different strings equal, so a repeated key is looked for under it.
+   */
+  collation: { schema: string; name: string } | null;
 }
 
 export interface CatalogTable {
@@ -66,7 +71,14 @@ const COLUMNS_SQL = `
     SELECT a.attnum, a.attname::text AS name, a.atttypid,
       pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
       a.attnotnull AS not_null, a.atthasdef AS has_default,
-      a.attidentity::text AS identity, a.attgenerated::text AS generated
+      a.attidentity::text AS identity, a.attgenerated::text AS generated,
+      (SELECT cn.nspname::text FROM pg_catalog.pg_collation co
+         JOIN pg_catalog.pg_namespace cn ON cn.oid = co.collnamespace
+         JOIN pg_catalog.pg_type ct ON ct.oid = a.atttypid
+        WHERE co.oid = a.attcollation AND a.attcollation <> ct.typcollation) AS collation_schema,
+      (SELECT co.collname::text FROM pg_catalog.pg_collation co
+         JOIN pg_catalog.pg_type ct ON ct.oid = a.atttypid
+        WHERE co.oid = a.attcollation AND a.attcollation <> ct.typcollation) AS collation_name
     FROM pg_catalog.pg_attribute a
     WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped
   ), base(attnum, typid) AS (
@@ -77,6 +89,7 @@ const COLUMNS_SQL = `
     WHERE t.typtype = 'd'
   )
   SELECT c.attnum::int AS attnum, c.name, c.data_type, c.not_null, c.has_default,
+    c.collation_schema, c.collation_name,
     CASE bt.oid
       WHEN 'pg_catalog.bpchar'::regtype THEN 'bpchar'
       WHEN 'pg_catalog._bpchar'::regtype THEN 'bpchar[]'
@@ -109,6 +122,8 @@ interface ColumnRow {
   root_type: string;
   is_bytea: boolean;
   is_array: boolean;
+  collation_schema: string | null;
+  collation_name: string | null;
 }
 
 /** A table, view or other listed relation with its columns, or null when there is none. */
@@ -145,6 +160,10 @@ export async function loadTable(db: Queryable, ref: TableRef): Promise<CatalogTa
       generated: c.generated !== "",
       isBytea: c.is_bytea,
       isArray: c.is_array,
+      collation:
+        c.collation_schema !== null && c.collation_name !== null
+          ? { schema: c.collation_schema, name: c.collation_name }
+          : null,
     })),
   };
 }
@@ -245,6 +264,29 @@ export async function listCascadeChain(db: Queryable, oid: string): Promise<stri
     [oid],
   );
   return rows.map((r) => String(r.name));
+}
+
+/**
+ * Does deleting rows of this table delete other rows of the SAME table through ON DELETE CASCADE (a key of the table
+ * on itself, or a cycle of cascading keys through other tables)? A delete in one batch then removes rows a later
+ * batch was going to delete.
+ */
+export async function cascadesOntoItself(db: Queryable, oid: string): Promise<boolean> {
+  const { rows } = await db.query<{ cycle: boolean }>(
+    `WITH RECURSIVE reach(relid) AS (
+       SELECT con.conrelid FROM pg_catalog.pg_constraint con
+       WHERE con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = $1::oid
+         AND con.conparentid = 0
+       UNION
+       SELECT con.conrelid FROM reach
+       JOIN pg_catalog.pg_constraint con
+         ON con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = reach.relid
+        AND con.conparentid = 0
+     )
+     SELECT EXISTS (SELECT 1 FROM reach WHERE relid = $1::oid) AS cycle`,
+    [oid],
+  );
+  return rows[0]?.cycle === true;
 }
 
 // ------------------------------------------------- constraints and indexes ---

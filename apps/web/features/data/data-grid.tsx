@@ -54,10 +54,21 @@ export interface GridCellEditing {
   pendingRow: (row: number) => PendingRow | null;
   /** Whether a column may hold NULL. */
   nullable: (column: string) => boolean;
-  /** Keep a value as the pending change of a cell (the value on screen when it was the same removes it). */
-  onSet: (row: number, col: number, value: string | null) => void;
+  /**
+   * Keep a value as the pending change of a cell (the value on screen when it was the same removes it). `before` is
+   * the value the change is checked against when it differs from the cell on screen: the whole value of a cut cell.
+   */
+  onSet: (row: number, col: number, value: string | null, before?: string | null) => void;
   /** Take the last pending step back. */
   onUndo: () => void;
+  /**
+   * For a cut text cell: whether its whole value can be edited from its dialog (null: it cannot), and the change kept
+   * for it, if any. The dialog reads the whole value itself.
+   */
+  cutText: (
+    row: number,
+    col: number,
+  ) => { pending: { before: string | null; after: string | null } | null } | null;
 }
 
 /** A click that may be the first of a double click waits this long before it opens the value. */
@@ -122,7 +133,7 @@ export function DataGrid({
       const column = page.columns[col];
       const cell = page.rows[row]?.[col];
       if (!column || !cell || column.masked || cell.value === null) return;
-      setOpenCell({ column, cell, key: wholeCellKey(page, row) });
+      setOpenCell({ column, cell, key: wholeCellKey(page, row), row, col });
     },
     [page],
   );
@@ -277,6 +288,7 @@ export function DataGrid({
         onClose={() => setOpenCell(null)}
         onFilter={onFilterCell}
         source={source}
+        cells={cells}
       />
     </>
   );

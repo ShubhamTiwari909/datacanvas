@@ -124,4 +124,24 @@ describe("modeReducer and resolveMode", () => {
   it("names a key by its name and its columns", () => {
     expect(keyLabel(keys[2]!)).toBe("stock_pair_key (shop, bin)");
   });
+
+  it("does not offer a key with a column whose name looks sensitive, and says how many were left out", () => {
+    const upsert = modeReducer(MODE_DEFAULT, { type: "mode", mode: "upsert" });
+    const secret = [
+      { name: "stock_pkey", columns: ["sku"] },
+      { name: "stock_api_key_key", columns: ["api_key"] },
+    ];
+    const resolved = resolveMode(upsert, info(secret), ["sku", "api_key", "name"]);
+    expect(resolved.keys).toEqual([secret[0]]);
+    expect(resolved.hiddenKeys).toBe(1);
+    // Even when it is chosen by name, the hidden key is not used; and its column is still not offered for update.
+    const chosen = modeReducer(upsert, { type: "key", name: "stock_api_key_key" });
+    expect(resolveMode(chosen, info(secret), ["sku", "api_key", "name"]).key).toEqual(secret[0]);
+    expect(resolved.updatable).toEqual(["name"]);
+    // Only hidden keys: no key mode at all.
+    const only = resolveMode(upsert, info([secret[1]!]), ["api_key"]);
+    expect(only.offered).toBe(false);
+    expect(only.hiddenKeys).toBe(1);
+    expect(only.choice.mode).toBe("insert");
+  });
 });

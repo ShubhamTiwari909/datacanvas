@@ -1,6 +1,7 @@
 /**
- * Route tests for reading one JSON value whole (`POST /connections/:id/rows/cell`): the same opt-in as
- * a page of rows, a strict body, and no value in any error.
+ * Route tests for reading one JSON or text value whole (`POST /connections/:id/rows/cell`): the same opt-in as
+ * a page of rows, a strict body, an answer that says whether the whole value can be edited, and no value in
+ * any error.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setServerContextForTests } from "@/lib/server/context";
@@ -107,5 +108,85 @@ describe("POST /connections/:id/rows/cell", () => {
     const id = await connect({ dataAccess: true });
     const r = await readCell(json(`${BASE}/connections/x/rows/cell`, "POST", ask), params({ id }));
     expect(r.headers.get("cache-control")).toBe("no-store");
+  });
+
+  // -------- a cut text value, read whole to be edited (E5a) --------
+
+  it("answers with the value, its length and whether the whole value can be edited, never cached", async () => {
+    const id = await connect({ dataAccess: true });
+    const read = vi
+      .spyOn(context.createdAdapters.at(-1)!, "getCell")
+      .mockResolvedValue({ value: "the whole text", tooLarge: false, length: 14, editable: true });
+    const body = { ...ask, column: "bio" };
+    const r = await readCell(json(`${BASE}/connections/x/rows/cell`, "POST", body), params({ id }));
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(await r.json()).toEqual({
+      cell: { value: "the whole text", tooLarge: false, length: 14, editable: true },
+    });
+    expect(read).toHaveBeenCalledWith(
+      { schema: "public", name: "users" },
+      { column: "bio", key: [{ column: "id", value: "1" }], revealColumns: [] },
+    );
+  });
+
+  it("passes a value that is too long to edit through with its length and editable false", async () => {
+    const id = await connect({ dataAccess: true });
+    vi.spyOn(context.createdAdapters.at(-1)!, "getCell").mockResolvedValue({
+      value: "x".repeat(100_001),
+      tooLarge: false,
+      length: 100_001,
+      editable: false,
+    });
+    const result = await cell(id, { ...ask, column: "bio" });
+    expect(result.status).toBe(200);
+    expect(result.body.cell.editable).toBe(false);
+    expect(result.body.cell.length).toBe(100_001);
+    expect(result.body.cell.value).toHaveLength(100_001);
+  });
+
+  it("passes a value that is too large to read through without the text", async () => {
+    const id = await connect({ dataAccess: true });
+    vi.spyOn(context.createdAdapters.at(-1)!, "getCell").mockResolvedValue({
+      value: null,
+      tooLarge: true,
+      length: 1_000_001,
+      editable: false,
+    });
+    const result = await cell(id, { ...ask, column: "bio" });
+    expect(result.body.cell).toEqual({
+      value: null,
+      tooLarge: true,
+      length: 1_000_001,
+      editable: false,
+    });
+  });
+
+  it("is refused before the adapter is asked while data access is off, for a text column too", async () => {
+    const id = await connect();
+    const read = vi.spyOn(context.createdAdapters.at(-1)!, "getCell");
+    const result = await cell(id, { ...ask, column: "bio" });
+    expect(result.status).toBe(403);
+    expect(result.body.error.code).toBe("data_access_disabled");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("logs and echoes no value of a text cell", async () => {
+    const id = await connect({ dataAccess: true });
+    const secret = "hunter2-SECRET-TEXT";
+    vi.spyOn(context.createdAdapters.at(-1)!, "getCell").mockResolvedValue({
+      value: secret,
+      tooLarge: false,
+      length: secret.length,
+      editable: true,
+    });
+    await cell(id, { ...ask, column: "bio" });
+    expect(JSON.stringify(logged)).not.toContain(secret);
+    // An error from the adapter is answered with a fixed text.
+    vi.spyOn(context.createdAdapters.at(-1)!, "getCell").mockRejectedValue(
+      Object.assign(new Error(`bad ${secret}`), { name: "DatabaseError", code: "invalid_request" }),
+    );
+    const failed = await cell(id, { ...ask, column: "bio" });
+    expect(failed.text).not.toContain(secret);
+    expect(JSON.stringify(logged)).not.toContain(secret);
   });
 });

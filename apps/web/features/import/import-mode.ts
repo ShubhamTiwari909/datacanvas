@@ -7,7 +7,11 @@
  * primary key and unique constraints that are not partial, not deferrable, with every column NOT NULL). The columns
  * to update are kept as the ones the person UNTICKED, so a column mapped later is ticked by default.
  */
-import type { TableEditInfo, UniqueKeyInfo } from "@datacanvas/database-core";
+import {
+  isSensitiveColumnName,
+  type TableEditInfo,
+  type UniqueKeyInfo,
+} from "@datacanvas/database-core";
 import type { ImportChoice, ImportMode } from "./import-plan";
 
 export interface ModeState {
@@ -65,14 +69,24 @@ export function modeReducer(state: ModeState, action: ModeAction): ModeState {
   }
 }
 
-/** The keys an import may use, as the server lists them (the primary key first). */
+/** The keys the table has that an import may use, as the server lists them (the primary key first). */
 export const keysOf = (info: TableEditInfo): readonly UniqueKeyInfo[] => info.uniqueKeys ?? [];
+
+/**
+ * A key with a column whose name looks sensitive is never offered: the preview of an import by key says which rows of
+ * the file find a row, which would let a person test guesses against a hidden value. The server refuses it too.
+ */
+export const hasHiddenColumn = (key: UniqueKeyInfo): boolean =>
+  key.columns.some((c) => isSensitiveColumnName(c));
 
 /** What the choices come to for this table and mapping. */
 export interface ResolvedMode {
   /** Whether the key modes can be chosen (the table has a key an import may use). */
   offered: boolean;
+  /** The keys offered. */
   keys: readonly UniqueKeyInfo[];
+  /** How many keys of the table are not offered because a column of theirs has a sensitive-looking name. */
+  hiddenKeys: number;
   /** The key in use; null in insert mode. */
   key: UniqueKeyInfo | null;
   /** Upsert: the mapped columns that may be updated (outside every key the table offers), in the mapping's order. */
@@ -85,7 +99,9 @@ export function resolveMode(
   info: TableEditInfo,
   mapping: ReadonlyArray<string | null>,
 ): ResolvedMode {
-  const keys = keysOf(info);
+  const every = keysOf(info);
+  const keys = every.filter((k) => !hasHiddenColumn(k));
+  const hiddenKeys = every.length - keys.length;
   const offered = keys.length > 0;
   const mode: ImportMode = offered ? state.mode : "insert";
   const key =
@@ -94,7 +110,7 @@ export function resolveMode(
   // A column of any key is never updated: the server refuses it (another key would conflict, or a key would move).
   const updatable =
     mode === "upsert" && key !== null
-      ? mapped.filter((c) => !key.columns.includes(c) && !keys.some((k) => k.columns.includes(c)))
+      ? mapped.filter((c) => !key.columns.includes(c) && !every.some((k) => k.columns.includes(c)))
       : [];
   const updateColumns = state.leaveExisting
     ? []
@@ -102,6 +118,7 @@ export function resolveMode(
   return {
     offered,
     keys,
+    hiddenKeys,
     key,
     updatable,
     choice: { mode, key: key ? key.columns : null, updateColumns },

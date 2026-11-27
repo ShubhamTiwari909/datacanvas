@@ -227,6 +227,23 @@ export async function requireEditable(db: Queryable, ref: TableRef): Promise<Edi
   return { table, key: order.columns };
 }
 
+const HAS_CHILDREN_MESSAGE =
+  "This table has child tables that inherit from it (table inheritance), so a change by key would also reach their rows, which have no key of their own. Use the SQL tab for this change.";
+
+/**
+ * The changes made by key (an import by key, edit cells, a change of the rows a filter matches) run against the table
+ * and everything that inherits from it, and a child has no key of its own: refuse a table that has children. A
+ * partitioned table is not refused (its partitions carry the key).
+ */
+export async function requireNoChildren(db: Queryable, table: CatalogTable): Promise<void> {
+  if (table.relkind !== "r") return;
+  const { rows } = await db.query<{ has: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits WHERE inhparent = $1::oid) AS has",
+    [table.oid],
+  );
+  if (rows[0]?.has) throw new DatabaseError("not_editable", { message: HAS_CHILDREN_MESSAGE });
+}
+
 export function findColumn(table: CatalogTable, name: string): CatalogColumn {
   const column = table.columns.find((c) => c.name === name);
   if (!column) throw invalidChange(`The column ${name} does not exist (any more).`);

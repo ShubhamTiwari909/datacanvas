@@ -1,6 +1,6 @@
 import type { RowCell, RowColumn, RowPage } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
-import { wholeCellKey } from "./cell-key";
+import { cellRequestFor, wholeCellKey } from "./cell-key";
 
 const col = (name: string, masked = false): RowColumn => ({
   name,
@@ -38,5 +38,25 @@ describe("wholeCellKey", () => {
     expect(wholeCellKey(page({ rows: [[cell("1", true), cell("{}"), cell("x")]] }), 0)).toBeNull();
     expect(wholeCellKey(page({ columns: [col("a", true), col("doc"), col("b")] }), 0)).toBeNull();
     expect(wholeCellKey(page({ rows: [[cell(null), cell("{}"), cell("x")]] }), 0)).toBeNull();
+  });
+});
+
+describe("cellRequestFor", () => {
+  it("names the table, the column and the key, and reveals the column and the key columns once each", () => {
+    expect(
+      cellRequestFor({ schema: "s", name: "t" }, "doc", [
+        { column: "a", value: "1" },
+        { column: "doc", value: "x" },
+      ]),
+    ).toEqual({
+      schema: "s",
+      table: "t",
+      column: "doc",
+      key: [
+        { column: "a", value: "1" },
+        { column: "doc", value: "x" },
+      ],
+      revealColumns: ["doc", "a"],
+    });
   });
 });

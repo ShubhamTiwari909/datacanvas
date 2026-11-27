@@ -50,6 +50,7 @@ import {
   type Selection,
 } from "./bulk-select";
 import { ChangeDialog, type ChangeRequest } from "./change-dialog";
+import { CUT_TEXT_OPEN_TEXT, canEditCutText } from "./cut-text";
 import { EditCellsDialog } from "./edit-cells-dialog";
 import { InsertRowDialog } from "./insert-row-dialog";
 import { MatchingSetDialog } from "./matching-dialog";
@@ -292,19 +293,39 @@ export function useRowEditing({
         const cell = page.rows[r]?.[c];
         if (!column || !cell) return "This cell cannot be edited here.";
         const address = rowAddress(page.columns, page.rows[r] ?? [], info);
-        return gridCellBlock(
-          address.ok ? null : address.reason,
-          column,
-          cell,
-          info.columns.find((col) => col.name === column.name),
-        );
+        const rowBlock = address.ok ? null : address.reason;
+        const columnInfo = info.columns.find((col) => col.name === column.name);
+        const block = gridCellBlock(rowBlock, column, cell, columnInfo);
+        // A cut text cell is not edited in place, but its dialog can read and edit the whole value.
+        return block !== null && canEditCutText(rowBlock, column, cell, columnInfo)
+          ? CUT_TEXT_OPEN_TEXT
+          : block;
+      },
+      cutText: (r, c) => {
+        const column = page.columns[c];
+        const cell = page.rows[r]?.[c];
+        const key = rowKey(r);
+        if (!key || !column || !cell) return null;
+        const address = rowAddress(page.columns, page.rows[r] ?? [], info);
+        if (
+          !canEditCutText(
+            address.ok ? null : address.reason,
+            column,
+            cell,
+            info.columns.find((col) => col.name === column.name),
+          )
+        )
+          return null;
+        const change =
+          pendingRows.get(rowSignature(key))?.cells.find((p) => p.column === column.name) ?? null;
+        return { pending: change ? { before: change.before, after: change.after } : null };
       },
       pendingRow: (r) => {
         const key = rowKey(r);
         return key ? (pendingRows.get(rowSignature(key)) ?? null) : null;
       },
       nullable: (name) => info.columns.find((col) => col.name === name)?.nullable ?? false,
-      onSet: (r, c, value) => {
+      onSet: (r, c, value, before) => {
         const key = rowKey(r);
         const column = page.columns[c];
         const cell = page.rows[r]?.[c];
@@ -315,7 +336,8 @@ export function useRowEditing({
             type: "set",
             key,
             column: column.name,
-            before: cell.value,
+            // A cut cell holds only the start of its value: the dialog passes the whole value it read.
+            before: before !== undefined ? before : cell.value,
             after: value,
           }),
         }));

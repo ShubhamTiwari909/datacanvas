@@ -47,6 +47,7 @@ import {
   leftOutWords,
   referencedWarning,
   requireEditable,
+  requireNoChildren,
   requireWritable,
   splitByCurrent,
   typedKey,
@@ -62,6 +63,7 @@ export async function planEditCells(
   change: EditCellsChange,
 ): Promise<PlannedChange> {
   const { table, key } = await requireEditable(db, change.table);
+  await requireNoChildren(db, table);
   if (change.rows.length === 0) throw invalidChange("Nothing to change.");
   if (change.rows.length > MAX_BULK_ROWS) throw invalidChange("Too many rows for one change.");
   const hidden = (name: string): boolean =>

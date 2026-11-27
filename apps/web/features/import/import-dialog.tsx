@@ -747,8 +747,15 @@ function Body({
             </div>
             {!resolved.offered ? (
               <p id="import-mode-unavailable" className="text-xs text-muted-foreground">
-                Updating needs a primary key or unique constraint that an import can use (not
-                partial, not deferrable, every column NOT NULL), and this table has none.
+                {resolved.hiddenKeys > 0
+                  ? "Updating needs a primary key or unique constraint that an import can use, and every one this table has includes a column whose name looks sensitive (its values are hidden), which cannot be used to find rows."
+                  : "Updating needs a primary key or unique constraint that an import can use (not partial, not deferrable, every column NOT NULL), and this table has none."}
+              </p>
+            ) : resolved.hiddenKeys > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {resolved.hiddenKeys === 1
+                  ? "1 key of this table is not offered: it includes a column whose name looks sensitive (its values are hidden), which cannot be used to find rows."
+                  : `${resolved.hiddenKeys} keys of this table are not offered: they include a column whose name looks sensitive (its values are hidden), which cannot be used to find rows.`}
               </p>
             ) : null}
 

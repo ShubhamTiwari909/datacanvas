@@ -18,7 +18,9 @@ import {
   type RowColumn,
   type TableRef,
 } from "@datacanvas/database-core";
+import { IMPORT_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import { rowSignature } from "./bulk-select";
+import { isSameText } from "./line-endings";
 import { cellEditBlock } from "./row-edit";
 
 /** Why a key column is not edited in the grid (decision 7 of the plan): a key is changed in the row's form. */
@@ -87,6 +89,18 @@ export const ROWS_LIMIT_TEXT = `At most ${MAX_BULK_ROWS.toLocaleString("en-US")}
 export const ROW_CELLS_LIMIT_TEXT = `At most ${EDIT_CELLS_MAX_CELLS_PER_ROW} cells of one row can be edited in one change. Review and apply these first.`;
 export const CELLS_LIMIT_TEXT = `At most ${EDIT_CELLS_MAX_CELLS.toLocaleString("en-US")} cells can be edited in one change. Review and apply these first.`;
 
+export const BODY_LIMIT_TEXT =
+  "These edits carry more text than one change can send (32 MB, counting each new value and the value you saw). Review and apply these first.";
+
+/** The text one change would carry: every new value and every value seen, in UTF-16 characters (an estimate of its bytes). */
+export function pendingTextSize(rows: readonly PendingRow[]): number {
+  let size = 0;
+  for (const row of rows) {
+    for (const c of row.cells) size += (c.before?.length ?? 0) + (c.after?.length ?? 0);
+  }
+  return size;
+}
+
 const copyKey = (key: readonly KeyValue[]): KeyValue[] =>
   key.map((k) => ({ column: k.column, value: k.value }));
 
@@ -145,7 +159,9 @@ export function pendingReducer(state: PendingState, action: PendingAction): Pend
       const original = cell ? cell.before : action.before;
       const previous = cell ? cell.after : undefined;
       // Back to what was seen: the cell is not pending any more.
-      const wanted = action.after === original ? undefined : action.after;
+      // A value that differs only by line endings (a field cannot keep a CRLF it was given) is not a change either.
+      const wanted =
+        action.after === original || isSameText(original, action.after) ? undefined : action.after;
       if (wanted === previous) return state.refusal === null ? state : { ...state, refusal: null };
       if (cell === null) {
         const counts = countPending(state);
@@ -159,8 +175,16 @@ export function pendingReducer(state: PendingState, action: PendingAction): Pend
                 : null;
         if (refusal !== null) return { ...state, refusal };
       }
+      const rows = place(state.rows, action.key, action.column, original, wanted);
+      // Before preview: a change whose text would not fit the body limit is refused now, in words, not when sent.
+      if (
+        pendingTextSize(rows) > IMPORT_MAX_BODY_BYTES &&
+        pendingTextSize(rows) > pendingTextSize(state.rows)
+      ) {
+        return { ...state, refusal: BODY_LIMIT_TEXT };
+      }
       return {
-        rows: place(state.rows, action.key, action.column, original, wanted),
+        rows,
         undo: [
           ...state.undo,
           {

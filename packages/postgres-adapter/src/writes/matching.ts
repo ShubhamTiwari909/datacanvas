@@ -34,6 +34,7 @@ import {
 import type { Queryable } from "../introspection/types.js";
 import {
   TRIGGER_EVENT,
+  cascadesOntoItself,
   listCascadeChain,
   listIncomingForeignKeys,
   type CatalogTable,
@@ -46,6 +47,7 @@ import {
   findColumn,
   referencedWarning,
   requireEditable,
+  requireNoChildren,
   requireWritable,
 } from "./rows.js";
 import { displayName, invalidChange, listWords } from "./sql.js";
@@ -54,6 +56,9 @@ import { displayName, invalidChange, listWords } from "./sql.js";
 export const EMPTY_FILTER =
   "A change of the rows a filter matches needs at least one condition: the whole table is never changed this way.";
 /** A batch that is short at apply: a row the preview found is gone, or its key changed. Nothing was written. */
+/** A filtered delete on a table whose cascade reaches its own rows, in more than one batch. */
+export const SELF_REFERENCE_BATCHES =
+  "This table's rows cascade onto other rows of the same table, so more than 500 of them cannot be deleted by filter in one change. Narrow the filter or delete them in smaller groups.";
 export const MATCHING_ROW_GONE =
   "A row that matched the filter was deleted, or its key changed, since the preview, so nothing was changed. Preview again.";
 
@@ -113,6 +118,7 @@ export async function planUpdateMatching(
 ): Promise<PlannedChange> {
   if (change.filters.length === 0) throw invalidChange(EMPTY_FILTER);
   const { table, key } = await requireEditable(db, change.table);
+  await requireNoChildren(db, table);
   const column = findColumn(table, change.set.column);
   requireWritable(column);
   if (key.includes(column.name)) {
@@ -170,8 +176,14 @@ export async function planDeleteMatching(
 ): Promise<PlannedChange> {
   if (change.filters.length === 0) throw invalidChange(EMPTY_FILTER);
   const { table, key } = await requireEditable(db, change.table);
+  await requireNoChildren(db, table);
   const keyColumns = typedKey(table, key);
   const held = await holdKeys(db, change, key, limits);
+  // A delete that cascades onto rows of its own table: one batch deletes every row it carries in ONE statement (the
+  // cascade finds nothing left), but a cascade of an earlier batch would remove rows of a later one, and the later
+  // batch would come up short at apply. More than one batch is refused here, in words, instead of there.
+  const selfCascade = await cascadesOntoItself(db, table.oid);
+  if (selfCascade && held.batches.length > 1) throw invalidChange(SELF_REFERENCE_BATCHES);
   const statements = held.batches.map((rows) =>
     buildDeleteByKeyBatch(change.table, keyColumns, rows),
   );
@@ -194,6 +206,13 @@ export async function planDeleteMatching(
   if (referenced && chain.length > 0) referenced.message += ` ${further}`;
   else if (chain.length > 0) warnings.push({ code: "referenced", message: further });
   if (referenced) warnings.push(referenced);
+  if (selfCascade) {
+    warnings.push({
+      code: "referenced",
+      message:
+        "The rows of this table cascade onto other rows of this same table: deleting a row also deletes the rows that point at it, so more rows than the ones counted here can go.",
+    });
+  }
   warnings.push({
     code: "destructive",
     message:

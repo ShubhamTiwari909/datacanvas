@@ -26,7 +26,6 @@ import type { ApiResult } from "@/lib/api-client";
 import { useAsyncData } from "@/lib/use-async-data";
 import { cn } from "@/lib/utils";
 import {
-  CUT_TEXT_LINE_ENDINGS_TEXT,
   CUT_TEXT_TOO_LARGE_TEXT,
   cutTextTooLongText,
   hasCarriageReturn,
@@ -34,6 +33,7 @@ import {
   newTextProblem,
   wholeValueOf,
 } from "./cut-text";
+import { CARRIAGE_RETURN_TEXT } from "./line-endings";
 
 const number = new Intl.NumberFormat();
 
@@ -89,7 +89,7 @@ function Body(props: CutTextDialogProps) {
         <ReadOnly
           column={column}
           whole={{ text: pending.before ?? "" }}
-          reason={CUT_TEXT_LINE_ENDINGS_TEXT}
+          reason={CARRIAGE_RETURN_TEXT}
           onClose={onClose}
         />
       );
@@ -161,7 +161,7 @@ function Loader({
       <ReadOnly
         column={column}
         whole={{ text: whole.text ?? "" }}
-        reason={CUT_TEXT_LINE_ENDINGS_TEXT}
+        reason={CARRIAGE_RETURN_TEXT}
         onClose={onClose}
       />
     );

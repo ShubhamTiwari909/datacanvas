@@ -21,6 +21,7 @@ import type {
   UpdateRowChange,
 } from "@datacanvas/database-core";
 import { checkJson } from "@/features/json/json-text";
+import { CARRIAGE_RETURN_TEXT, hasCarriageReturn } from "./line-endings";
 
 // ------------------------------------------------------------- the words ---
 
@@ -159,6 +160,7 @@ export function cellEditBlock(
   const block = columnEditBlock(column, info);
   if (block) return block;
   if (cell.truncated) return "Only part of this value was read, so it cannot be edited here.";
+  if (hasCarriageReturn(cell.value)) return CARRIAGE_RETURN_TEXT;
   return null;
 }
 

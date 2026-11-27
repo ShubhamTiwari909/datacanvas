@@ -85,6 +85,7 @@ const LIMIT = 2; // exactly 100,000 characters
 const LONG = 3; // 100,001 characters
 const HUGE = 4; // 1,000,001 characters
 const CRLF = 5; // 2,100 characters with a Windows line ending inside
+const SHORT_CRLF = 6;
 
 const cellDialog = (page: Page, column = "body") =>
   page
@@ -113,7 +114,8 @@ test.describe("editing a cut text value", () => {
          (3, 'limit', repeat('a', 100000)),
          (4, 'long', repeat('b', 100001)),
          (5, 'huge', repeat('c', 1000001)),
-         (6, 'crlf', 'first' || chr(13) || chr(10) || 'second' || repeat('d', 2100));`,
+         (6, 'crlf', 'first' || chr(13) || chr(10) || 'second' || repeat('d', 2100)),
+         (7, 'short crlf', 'first' || chr(13) || chr(10) || 'second');`,
     );
     await page.goto(writableApp.link);
     await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
@@ -272,7 +274,7 @@ test.describe("editing a cut text value", () => {
     await cellDialog(page).getByRole("button", { name: "Edit this value" }).click();
     const dialog = page.getByRole("dialog", { name: /^Edit body$/ });
     await expect(dialog.getByRole("status")).toHaveText(
-      "This value has Windows line endings (or a bare carriage return), which this editor cannot keep exactly. Use the row form or SQL.",
+      "This value has Windows line endings (or a bare carriage return), which this editor cannot keep exactly.",
     );
     await expect(wholeField(page)).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Use this value" })).toHaveCount(0);
@@ -283,6 +285,15 @@ test.describe("editing a cut text value", () => {
         "SELECT position(chr(13) in body) AS at FROM public.ct_notes WHERE id = 6",
       ),
     ).toEqual([{ at: 6 }]);
+  });
+
+  test("keeps a short value with Windows line endings read-only", async ({ page }) => {
+    const body = cell(page, SHORT_CRLF, BODY);
+    await expect(body).toHaveAttribute("title", /Windows line endings/);
+    await body.dblclick();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(wholeField(page)).toHaveCount(0);
+    await expect(page.getByRole("dialog").getByText(/Windows line endings/)).toBeVisible();
   });
 
   test("says a value over a million characters is not read here, and offers no edit", async ({

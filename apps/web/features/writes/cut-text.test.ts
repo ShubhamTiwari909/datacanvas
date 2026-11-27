@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { CellRead, EditableColumn } from "@datacanvas/database-core";
 import { WRITE_MAX_CHANGE_VALUE_CHARS } from "@datacanvas/shared-types";
 import {
-  CUT_TEXT_LINE_ENDINGS_TEXT,
   CUT_TEXT_OPEN_TEXT,
   CUT_TEXT_TOO_LARGE_TEXT,
   canEditCutText,
@@ -157,9 +156,6 @@ describe("a value with carriage returns", () => {
     expect(hasCarriageReturn("a\nb")).toBe(false);
     expect(hasCarriageReturn("")).toBe(false);
     expect(hasCarriageReturn(null)).toBe(false);
-    expect(CUT_TEXT_LINE_ENDINGS_TEXT).toBe(
-      "This value has Windows line endings (or a bare carriage return), which this editor cannot keep exactly. Use the row form or SQL.",
-    );
   });
 
   it("is not changed by the normalization of its line endings alone", () => {

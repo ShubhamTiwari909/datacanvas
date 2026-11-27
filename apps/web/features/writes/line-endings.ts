@@ -1,4 +1,7 @@
-/** Line endings in a text a field gives back (no React): see `cut-text.ts`. */
+/** How the write editors handle line endings in browser text fields. */
+
+export const CARRIAGE_RETURN_TEXT =
+  "This value has Windows line endings (or a bare carriage return), which this editor cannot keep exactly.";
 
 /**
  * A text field gives its value back with every CRLF and bare CR turned into LF, so editing such a value would

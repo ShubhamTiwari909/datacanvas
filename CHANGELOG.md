@@ -40,7 +40,7 @@ The write side, second part: what 1.9.0 deliberately left out. Everything here n
 The write side of this release was read by an independent reviewer (a separate agent with fresh eyes, 2026-11-27; see `docs/threat-model.md`, section 14b). It found no way to turn a value, a filter, a key or a column name into SQL, no value in an error, a preview, the history or a skipped list, and no exposure of the new writes through the MCP server or the CLI. It reproduced five problems, none of them a way to write what was not asked for; all are fixed, each with a test that failed before the fix:
 
 - **A key whose name looks sensitive could be guessed through an import by key.** The preview of an update or an update-or-insert said whether a key existed. Such a key is now refused for these imports, and the dialog does not offer it.
-- **The editor of a cut text value changed Windows line endings.** A value with `\r` is now shown read-only, with the reason.
+- **Text editors changed Windows line endings.** Existing values with carriage returns are read-only in the grid, the whole-value dialog, and the row form.
 - **Keys equal only under a case-insensitive collation were not seen as repeated.** The check now uses the column's own collation.
 - **Deleting by filter in a table that cascades onto itself failed with a misleading message.** More than one batch is refused at preview with a clear sentence; one batch runs, with a warning.
 - **A table with child tables (inheritance) was accepted for changes by key and then failed.** It is now refused with a clear sentence.

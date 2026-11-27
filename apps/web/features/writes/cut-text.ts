@@ -65,7 +65,8 @@ export function canEditCutText(
 ): boolean {
   if (column.kind !== "text" || !cell.truncated || cell.value === null) return false;
   if (!info || !READABLE_TYPE.test(info.dataType)) return false;
-  return gridCellBlock(rowBlock, column, { value: cell.value, truncated: false }, info) === null;
+  // Check the row and column here. The dialog checks line endings on the complete value it loads.
+  return gridCellBlock(rowBlock, column, { value: null, truncated: false }, info) === null;
 }
 
 /** Whether a text a person typed can be kept as the new value, and why not. */
@@ -74,7 +75,3 @@ export function newTextProblem(text: string): string | null {
     ? `This is longer than ${number(WRITE_MAX_CHANGE_VALUE_CHARS)} characters, which is the most a change can carry.`
     : null;
 }
-
-/** Shown instead of an editor when the value has a carriage return: a text field cannot keep it. */
-export const CUT_TEXT_LINE_ENDINGS_TEXT =
-  "This value has Windows line endings (or a bare carriage return), which this editor cannot keep exactly. Use the row form or SQL.";

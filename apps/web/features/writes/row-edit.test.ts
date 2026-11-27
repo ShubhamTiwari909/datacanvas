@@ -94,6 +94,13 @@ describe("editability", () => {
     expect(cellEditBlock({ masked: false }, value(null), col("a"))).toBeNull();
   });
 
+  it("refuses values with CRLF or a bare CR so a text field cannot rewrite them", () => {
+    const column = { masked: false };
+    expect(cellEditBlock(column, value("a\r\nb"), col("a"))).toMatch(/carriage return/);
+    expect(cellEditBlock(column, value("a\rb"), col("a"))).toMatch(/carriage return/);
+    expect(cellEditBlock(column, value("a\nb"), col("a"))).toBeNull();
+  });
+
   it("finds a row by its key cells", () => {
     expect(rowAddress(columns, [value("7"), value("a@x.test")], info)).toEqual({
       ok: true,

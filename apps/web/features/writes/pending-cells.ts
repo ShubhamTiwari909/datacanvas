@@ -29,7 +29,7 @@ export const KEY_CELL_TEXT =
 
 /**
  * Why one cell cannot be edited in the grid, or null when it can: the row cannot be found by its key (`rowBlock`),
- * the column is part of the key, or the row form's own rules (hidden, filled by the database, `bytea`, cut).
+ * the column is part of the key, or the row form also blocks the cell.
  */
 export function gridCellBlock(
   rowBlock: string | null,

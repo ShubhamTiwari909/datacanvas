@@ -477,9 +477,9 @@ async function classify(
   if (code.startsWith("22")) {
     // The database does not say which column: try the row's cells one at a time, each alone.
     const row = request.rows[rowIndex]!;
+    await db.query("SAVEPOINT dc_probe");
     for (let i = 0; i < prepared.supplied.length; i++) {
       const column = prepared.supplied[i]!;
-      await db.query("SAVEPOINT dc_probe");
       let same = false;
       try {
         await db.query(
@@ -491,9 +491,12 @@ async function classify(
         same = sqlstate(probe) === code;
       }
       await db.query("ROLLBACK TO SAVEPOINT dc_probe");
-      await db.query("RELEASE SAVEPOINT dc_probe");
-      if (same) return { rule: "type", column: column.name, constraint: null };
+      if (same) {
+        await db.query("RELEASE SAVEPOINT dc_probe");
+        return { rule: "type", column: column.name, constraint: null };
+      }
     }
+    await db.query("RELEASE SAVEPOINT dc_probe");
     return { rule: "type", column: null, constraint: null };
   }
   return { rule: "rejected", column: null, constraint: field(error, "constraint") };
@@ -581,15 +584,12 @@ async function run(
         ...supplied.map((_, j) => slice.map((r) => r[j] ?? null)),
         slice.map((_, i) => from + i + 1),
       ];
-      await db.query("SAVEPOINT dc_batch");
       try {
         await db.query(insert, arrays);
-        await db.query("RELEASE SAVEPOINT dc_batch");
-        return true;
       } catch (error) {
         if (!isRowFailure(sqlstate(error))) throw error;
+        // ROLLBACK TO leaves the same savepoint available for the next attempt.
         await db.query("ROLLBACK TO SAVEPOINT dc_batch");
-        await db.query("RELEASE SAVEPOINT dc_batch");
         if (to - from === 1) {
           const failure = await classify(db, prepared, request, from, error);
           collector.add(failure.rule, failure.column, failure.constraint, from + 1);
@@ -600,8 +600,14 @@ async function run(
         await attempt(mid, to, whole);
         return false;
       }
+      // Advance past the successful insert so a later failure cannot roll it back.
+      // These two fixed commands share one database round trip.
+      await db.query("RELEASE SAVEPOINT dc_batch; SAVEPOINT dc_batch");
+      return true;
     };
+    await db.query("SAVEPOINT dc_batch");
     await attempt(0, request.rows.length);
+    await db.query("RELEASE SAVEPOINT dc_batch");
     if (stopped) notes.push("stopped_early");
   }
 

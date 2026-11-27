@@ -100,7 +100,15 @@ export function DataSection({
       </p>
     );
   } else {
-    body = <Rows connectionId={connectionId} schema={schema} table={table} info={info} />;
+    body = (
+      <Rows
+        connectionId={connectionId}
+        profileId={connection.profileId}
+        schema={schema}
+        table={table}
+        info={info}
+      />
+    );
   }
 
   return (
@@ -113,11 +121,13 @@ export function DataSection({
 
 function Rows({
   connectionId,
+  profileId,
   schema,
   table,
   info,
 }: {
   connectionId: string;
+  profileId: string | null;
   schema: string;
   table: string;
   info: TableInfo | undefined;
@@ -269,6 +279,7 @@ function Rows({
 
       {/* Always shown once there is a page, even after a failed read: a condition that was refused has to be removable. */}
       <FilterBar
+        scope={{ connectionId, profileId }}
         schema={schema}
         table={table}
         columns={page.columns}

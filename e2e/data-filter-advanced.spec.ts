@@ -240,10 +240,49 @@ test.describe("the newer filters", () => {
       0,
     );
     expect(
-      await page.evaluate(() =>
-        localStorage.getItem("datacanvas:filter-shapes:v1:public.af_things"),
+      await page.evaluate(
+        () =>
+          Object.entries(localStorage).find(([key]) =>
+            key.startsWith("datacanvas:filter-shapes:v2:"),
+          )?.[1],
       ),
     ).toBe("[]");
+  });
+
+  test("keeps a saved template off another connection to the same table", async ({
+    page,
+    database,
+  }) => {
+    await add(page, { column: "name", condition: "starts with", value: "a" });
+    await page
+      .getByRole("textbox", { name: "Save these filters as a shape" })
+      .fill("Original connection only");
+    await page.getByRole("button", { name: "Save shape" }).click();
+    const name = page.getByRole("button", { name: "Original connection only", exact: true });
+    await expect(name).toBeVisible();
+
+    await page.getByRole("button", { name: "Add a connection" }).click();
+    await page.getByLabel("Connection name").fill("Temporary filters shop");
+    await page.getByRole("tab", { name: /connection string/i }).click();
+    await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+    await page.getByRole("dialog").getByLabel("Allow viewing table data").check();
+    await page.getByLabel("Save this connection for next time").uncheck();
+    await page.getByRole("button", { name: /^Connect$/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Disconnect Temporary filters shop" }),
+    ).toBeVisible();
+    const openTable = () =>
+      page
+        .getByRole("button", { name: /^af_things\b/ })
+        .first()
+        .click();
+    await openTable();
+    await expect(grid(page)).toBeVisible();
+    await expect(name).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^Filters shop / }).click();
+    await openTable();
+    await expect(name).toBeVisible();
   });
 
   test("passes axe in light and dark with the panel and the saved shapes, and fits a phone", async ({

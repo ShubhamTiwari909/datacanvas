@@ -2,6 +2,13 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project intends to follow [Semantic Versioning](https://semver.org/) from 1.0.0.
 
+## [1.13.0]
+
+- **Paste spreadsheet cells** into an editable grid, starting at the focused cell. The block stays on the current page and counts as one undo step. Review and preview the changes before applying them.
+- **Saved filter templates belong to a connection.** Saved profiles keep their templates when they reconnect. Unsaved connections keep templates in memory. Use **Move previous filters here** to assign older, shared templates to a saved connection.
+- CSV validation uses fewer database round trips when locating failing rows. The repeatable benchmark checks the exact rejected row numbers on PostgreSQL 12 and 18.
+- The public guides cover the current import modes, rejects files, encodings, and bulk changes by filter. Pull-request CI builds the docs site.
+
 ## [1.12.0] - 2026-11-27
 
 The write side, second part: what 1.9.0 deliberately left out. Everything here needs the same three things as any change (`--enable-writes`, a database on your own machine, the unlock) and goes through the same preview and apply. **None of it is available to Claude (the MCP server) or to the command line.** Plan: `docs/write-side-v2-plan.md`; decisions 171 to 175.

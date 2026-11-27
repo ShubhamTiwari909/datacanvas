@@ -15,6 +15,7 @@ import { ROWS_MAX_FILTERS } from "@datacanvas/database-core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConditionInputs } from "./condition-inputs";
+import type { FilterScope } from "./filter-shapes";
 import { SavedShapes } from "./saved-shapes";
 import {
   FILTER_OP_LABELS,
@@ -34,6 +35,7 @@ const SELECT_CLASS =
   "h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
 
 export function FilterBar({
+  scope,
   schema,
   table,
   columns,
@@ -42,6 +44,7 @@ export function FilterBar({
   onRemove,
   onClear,
 }: {
+  scope: FilterScope;
   /** The table, for its saved filter shapes. */
   schema: string;
   table: string;
@@ -221,7 +224,8 @@ export function FilterBar({
         </form>
       ) : null}
       <SavedShapes
-        key={`${schema}.${table}`}
+        key={JSON.stringify([scope.connectionId, scope.profileId, schema, table])}
+        scope={scope}
         schema={schema}
         table={table}
         columns={columns}

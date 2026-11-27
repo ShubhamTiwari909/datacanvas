@@ -4,19 +4,20 @@
  * measurement. It runs the real validation code (`validateRows`, halving the batch with savepoints) with `listAll`,
  * which searches on to the last failing row up to `VALIDATE_LIST_ALL_MAX_FAILURES` (1,000) and says `stopped_early`
  * past it, on a file of 100,000 rows with 0 to 2,000 failing rows, and reports the wall time and the number of
- * statements sent.
+ * database round trips.
  *
  * Opt-in (DC_SPIKE=1): it validates 100,000 rows a dozen times and logs timings, so it stays out of the release suite.
  */
-import { VALIDATE_LIST_ALL_MAX_FAILURES } from "@datacanvas/database-core";
+import {
+  VALIDATE_LIST_ALL_MAX_FAILURES,
+  VALIDATE_LIST_ALL_TIMEOUT_MS,
+} from "@datacanvas/database-core";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDatabase, testDatabaseUrl, type TestDatabase } from "./testing/index.js";
 import { validateRows } from "./validation/validate-rows.js";
 
 const ROWS = 100_000;
-/** The adapter's default statement time, which is also the whole validation's deadline (`validateRows`). */
-const DEFAULT_DEADLINE_MS = 15_000;
 
 let db: TestDatabase;
 let pool: pg.Pool;
@@ -45,22 +46,22 @@ afterAll(async () => {
   await db?.dispose().catch(() => {});
 });
 
-/** A pool whose one connection counts the statements sent through it. */
-function counting(real: pg.Pool): { pool: pg.Pool; sent: () => number } {
-  let sent = 0;
+/** A pool whose one connection counts the round trips made through it. */
+function counting(real: pg.Pool): { pool: pg.Pool; roundTrips: () => number } {
+  let queries = 0;
   const wrapped = {
     async connect() {
       const client = await real.connect();
       return {
         query: (text: string, values?: unknown[]) => {
-          sent += 1;
+          queries += 1;
           return client.query(text, values);
         },
         release: (error?: Error) => client.release(error),
       };
     },
   };
-  return { pool: wrapped as unknown as pg.Pool, sent: () => sent };
+  return { pool: wrapped as unknown as pg.Pool, roundTrips: () => queries };
 }
 
 type Kind = "check" | "type";
@@ -108,14 +109,14 @@ interface Measured {
   label: string;
   failing: number;
   found: number;
-  statements: number;
+  roundTrips: number;
   seconds: number;
   stopped: boolean;
 }
 
 async function measure(label: string, failing: Set<number>, kind: Kind): Promise<Measured> {
   const rows = file(failing, kind);
-  const { pool: countingPool, sent } = counting(pool);
+  const { pool: countingPool, roundTrips } = counting(pool);
   const started = performance.now();
   // A deadline far past the default, so the cost is measured rather than cut at 15 seconds.
   const report = await validateRows(countingPool, 600_000, {
@@ -136,14 +137,23 @@ async function measure(label: string, failing: Set<number>, kind: Kind): Promise
   } else {
     expect(stopped).toBe(false);
     expect(report.passed).toBe(ROWS - failing.size);
-    expect(report.issues.reduce((n, issue) => n + issue.rows.length, 0)).toBe(failing.size);
+    expect(report.issues.flatMap((issue) => issue.rows).sort((a, b) => a - b)).toEqual(
+      [...failing].map((index) => index + 1).sort((a, b) => a - b),
+    );
   }
-  const result = { label, failing: failing.size, found, statements: sent(), seconds, stopped };
+  const result = {
+    label,
+    failing: failing.size,
+    found,
+    roundTrips: roundTrips(),
+    seconds,
+    stopped,
+  };
   console.log(
     `listAll spike: ${label.padEnd(16)} ${String(failing.size).padStart(5)} failing of ${ROWS}: ` +
-      `${String(found).padStart(5)} found, ${String(result.statements).padStart(6)} statements, ${seconds.toFixed(2)} s` +
+      `${String(found).padStart(5)} found, ${String(result.roundTrips).padStart(6)} round trips, ${seconds.toFixed(2)} s` +
       (stopped ? "  (stopped early, past the limit)" : "") +
-      (seconds * 1000 > DEFAULT_DEADLINE_MS ? "  (past the default 15 s deadline)" : ""),
+      (seconds * 1000 > VALIDATE_LIST_ALL_TIMEOUT_MS ? "  (past the import deadline)" : ""),
   );
   return result;
 }
@@ -151,6 +161,19 @@ async function measure(label: string, failing: Set<number>, kind: Kind): Promise
 describe.skipIf(!testDatabaseUrl() || !process.env.DC_SPIKE)(
   "finding every failing row of 100,000 by halving (spike E0)",
   () => {
+    it.each([
+      { label: "valid file", kind: "check", failures: 0 },
+      { label: "1,000 check failures", kind: "check", failures: 1000 },
+      { label: "1,000 type failures", kind: "type", failures: 1000 },
+    ] as const)(
+      "release baseline: $label",
+      async ({ label, kind, failures }) => {
+        const result = await measure(label, failures === 0 ? new Set() : evenly(failures), kind);
+        expect(result.found).toBe(failures);
+      },
+      600_000,
+    );
+
     it("measures 0, 100, 500, 1,000 and 2,000 failing rows", async () => {
       const results: Measured[] = [];
       results.push(await measure("none", new Set(), "check"));
@@ -163,9 +186,9 @@ describe.skipIf(!testDatabaseUrl() || !process.env.DC_SPIKE)(
       results.push(await measure("check, scattered", scattered(1000), "check"));
       results.push(await measure("check, clustered", clustered(1000), "check"));
       for (const r of results.filter((m) => !m.stopped)) expect(r.found).toBe(r.failing);
-      // Halving: about 2 x failures x log2(rows / failures) slices, a few statements each, never one per row.
+      // Halving: about 2 x failures x log2(rows / failures) slices, a few round trips each, never one per row.
       for (const r of results.filter((m) => m.failing > 0)) {
-        expect(r.statements).toBeLessThan(r.failing * 4 * 2 * Math.log2(ROWS) + 100);
+        expect(r.roundTrips).toBeLessThan(r.failing * 4 * 2 * Math.log2(ROWS) + 100);
       }
     }, 1_200_000);
   },

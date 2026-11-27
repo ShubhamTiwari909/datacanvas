@@ -3,7 +3,7 @@ title: Known limits
 description: What DataCanvas does not defend against, taken from the project's own security notes.
 ---
 
-These are the project's stated limits at 1.11.0. They are not a complete list of everything that could go
+These are the project's stated limits at 1.13.0. They are not a complete list of everything that could go
 wrong; they are what the maintainers have written down.
 
 ## The machine and the browser
@@ -77,9 +77,7 @@ wrong; they are what the maintainers have written down.
 - **Validation** writes only a temporary table, but takes up to 100,000 rows now and works on a connection
   that is not local and without the unlock. It is not free of side effects: **event triggers** fire when its
   temporary copy is made, and a CHECK function with outside effects is not stopped by the rollback.
-- An **import or bulk change** fires the table's row-level triggers once for each row and can fill a table
-  with up to 100,000 rows in one transaction. Rows added by an import are not undone by DataCanvas after the
-  transaction commits.
+- An **import or bulk change** can affect up to 100,000 rows in one transaction. Database triggers can run during apply. In an upsert, insert triggers can run for rows that are updated too. DataCanvas cannot undo a committed import.
 - Triggers on a table run when you change a row and can do anything their code does. The preview names them.
 
 ## Migrations and snapshots

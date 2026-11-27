@@ -23,18 +23,23 @@ import {
   MAX_SHAPE_NAME_CHARS,
   deleteShape,
   loadShapes,
+  legacyShapes,
+  moveLegacyShapes,
+  type FilterScope,
   needsInput,
   saveShape,
   type FilterShape,
 } from "./filter-shapes";
 
 export function SavedShapes({
+  scope,
   schema,
   table,
   columns,
   filters,
   onUse,
 }: {
+  scope: FilterScope;
   schema: string;
   table: string;
   columns: readonly RowColumn[];
@@ -44,14 +49,17 @@ export function SavedShapes({
 }) {
   const nameId = useId();
   // The Data section is drawn only in the browser, after its rows arrive, so storage can be read at once.
-  const [shapes, setShapes] = useState<FilterShape[]>(() => loadShapes(schema, table));
+  const [shapes, setShapes] = useState<FilterShape[]>(() => loadShapes(scope, schema, table));
+  const [canRecover, setCanRecover] = useState(
+    () => scope.profileId !== null && legacyShapes(schema, table).length > 0,
+  );
   const [name, setName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [using, setUsing] = useState<FilterShape | null>(null);
 
   function save(event: FormEvent) {
     event.preventDefault();
-    const saved = saveShape(schema, table, name, filters);
+    const saved = saveShape(scope, schema, table, name, filters);
     if (saved === null) {
       setNotice(
         "This could not be saved here (the name is empty, there are too many, or the browser refused).",
@@ -63,7 +71,7 @@ export function SavedShapes({
     setNotice(`Saved "${name.trim()}": the columns and conditions only, never the values.`);
   }
 
-  if (shapes.length === 0 && filters.length === 0) return null;
+  if (shapes.length === 0 && filters.length === 0 && !canRecover) return null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -85,9 +93,38 @@ export function SavedShapes({
             Save shape
           </Button>
           <span className="text-xs text-muted-foreground">
-            Only the columns and conditions are kept, never the values you typed.
+            {scope.profileId === null
+              ? "Columns and conditions are kept until you disconnect or reload."
+              : "Columns and conditions are saved for this connection."}
           </span>
         </form>
+      ) : null}
+      {canRecover ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const recovered = moveLegacyShapes(scope, schema, table);
+              if (recovered) setShapes(recovered);
+              const hasRemaining = legacyShapes(schema, table).length > 0;
+              setCanRecover(hasRemaining);
+              setNotice(
+                recovered
+                  ? hasRemaining
+                    ? "Previous filters moved. Filters with duplicate names or no room are still available to recover."
+                    : "Previous filters moved to this connection."
+                  : "These filters could not be moved. Check for duplicate names, room for more filters, or browser storage settings.",
+              );
+            }}
+          >
+            Move previous filters here
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Previous filters for this table were shared across connections.
+          </span>
+        </div>
       ) : null}
       {notice ? (
         <p role="status" className="text-xs text-muted-foreground">
@@ -119,7 +156,7 @@ export function SavedShapes({
                   size="icon-xs"
                   aria-label={`Delete the saved filters ${shape.name}`}
                   onClick={() => {
-                    setShapes(deleteShape(schema, table, shape.name));
+                    setShapes(deleteShape(scope, schema, table, shape.name));
                     if (using?.name === shape.name) setUsing(null);
                   }}
                 >

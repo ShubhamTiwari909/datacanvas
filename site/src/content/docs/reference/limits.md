@@ -111,6 +111,12 @@ the code allows 100 rows and the limits above, and this page follows the code.
 | Lock wait                       | 3 s                        |                                                    |
 | Preview lifetime                | 5 minutes                  | `PREVIEW_TTL_MS`                                   |
 | Previews per connection         | 20 (2 for imports)         | notes, `MAX_IMPORT_PREVIEWS_PER_CONNECTION`        |
+| Grid edit rows                  | 500                        | `MAX_BULK_ROWS`                                    |
+| Grid edit cells per row         | 50                         | `EDIT_CELLS_MAX_CELLS_PER_ROW`                     |
+| Grid edit cells in total        | 2,500                      | `EDIT_CELLS_MAX_CELLS`                             |
+| Matching rows per change        | 100,000                    | Write-side plan, section 6                         |
+| Listed failing import rows      | 1,000                      | `VALIDATE_LIST_ALL_MAX_FAILURES`                   |
+| Deadline to list failures       | 60 s                       | `VALIDATE_LIST_ALL_TIMEOUT_MS`                     |
 | Bulk rows                       | 500                        | `MAX_BULK_ROWS`                                    |
 | Import rows                     | 100,000                    | `IMPORT_MAX_ROWS`                                  |
 | Import columns                  | 50                         | `IMPORT_MAX_COLUMNS`                               |

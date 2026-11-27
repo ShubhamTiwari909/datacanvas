@@ -23,8 +23,7 @@ Requirements: Node.js `>=22.12.0` (`site/package.json` `engines`). The project p
 required a newer Node 22 patch than the repository's CI baseline; moving to the latest Astro is an upgrade
 decision, not a docs change. Check the current Astro and Starlight release notes before bumping.
 
-Deployment is not configured. `astro build` produces static files in `site/dist/` that any static host can
-serve; set Astro's `site` (and `base` if hosted under a path) in `astro.config.mjs` when you choose a host.
+Pull-request CI installs the docs dependencies with the separate lockfile and runs the build. The static files are in `site/dist/`.
 
 ## Layout
 
@@ -53,7 +52,7 @@ Adding a page: create a Markdown file under `src/content/docs/<section>/`, give 
 
 ## Keeping it accurate
 
-The pages describe **DataCanvas 1.11.0**. When behaviour changes:
+The pages describe **DataCanvas 1.13.0**. When behaviour changes:
 
 | If this changes…                                                                  | Update these pages                                                                                           |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -74,8 +73,6 @@ landing page, and to scan `CHANGELOG.md` entries newer than that.
 While generating this site, these differences were found between older notes and newer code. The site follows
 the code and changelog:
 
-- `docs/getting-started.md` section 4 describes filtering as "up to three conditions" with a short operator
-  list; since 1.8.0 it is up to ten, with groups and more operators.
 - `docs/architecture.md` says adding a whole schema is capped at 200 tables; the code constant
   `MAX_TABLES_ADDED_AT_ONCE` is 1,000.
 - `docs/threat-model.md` ("Not covered") and `docs/releasing.md` ("Still open") still list "a full

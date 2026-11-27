@@ -56,15 +56,18 @@ export async function getCell(
 /**
  * Would the database accept these values? Answered without writing a row; the report holds rules, names,
  * counts and row numbers, never a value. Refused with `data_access_disabled` while data access is off.
+ * With `listAll` (an insert only), `issues[].rows` names every failing row unless the report says
+ * `stopped_early`: more than 1,000 rows failed. Aborting `signal` answers `aborted`.
  */
 export async function validateRows(
   connectionId: string,
   request: ValidateRequestBody,
+  signal?: AbortSignal,
 ): Promise<ApiResult<ValidationReport>> {
   const result = await apiRequest(
     `/api/connections/${encodeURIComponent(connectionId)}/rows/validate`,
     validateResponseSchema,
-    { method: "POST", body: request, maxBodyBytes: VALIDATE_MAX_BODY_BYTES },
+    { method: "POST", body: request, maxBodyBytes: VALIDATE_MAX_BODY_BYTES, signal },
   );
   return result.ok ? { ok: true, data: result.data.report } : result;
 }

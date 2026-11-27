@@ -24,6 +24,22 @@ export const MAX_PREVIEWS_PER_CONNECTION = 20;
  */
 export const MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2;
 
+/** The changes that carry a whole file: an import, an update or insert, an update by key. They share the cap above. */
+export const IMPORT_KINDS: ReadonlySet<string> = new Set([
+  "insert_rows",
+  "upsert_rows",
+  "update_by_key",
+]);
+
+/**
+ * At most this many previews of a change of the rows a filter matches wait per connection: each holds the keys of up
+ * to 100,000 rows (up to about 16 MB), so a new one replaces the one before (`docs/write-side-v2-plan.md`, 6.6).
+ */
+export const MAX_MATCHING_PREVIEWS_PER_CONNECTION = 1;
+
+/** The changes of the rows a filter matches: they share the cap above. */
+export const MATCHING_KINDS: ReadonlySet<string> = new Set(["update_matching", "delete_matching"]);
+
 interface Stored {
   connectionId: string;
   plan: PlannedChange;
@@ -64,14 +80,26 @@ export class PreviewStore {
     for (const [id] of mine.slice(0, Math.max(0, mine.length - MAX_PREVIEWS_PER_CONNECTION + 1))) {
       this.previews.delete(id);
     }
-    if (plan.change.kind === "insert_rows") {
+    if (IMPORT_KINDS.has(plan.change.kind)) {
       const imports = [...this.previews].filter(
         ([, stored]) =>
-          stored.connectionId === connectionId && stored.plan.change.kind === "insert_rows",
+          stored.connectionId === connectionId && IMPORT_KINDS.has(stored.plan.change.kind),
       );
       for (const [id] of imports.slice(
         0,
         Math.max(0, imports.length - MAX_IMPORT_PREVIEWS_PER_CONNECTION + 1),
+      )) {
+        this.previews.delete(id);
+      }
+    }
+    if (MATCHING_KINDS.has(plan.change.kind)) {
+      const matching = [...this.previews].filter(
+        ([, stored]) =>
+          stored.connectionId === connectionId && MATCHING_KINDS.has(stored.plan.change.kind),
+      );
+      for (const [id] of matching.slice(
+        0,
+        Math.max(0, matching.length - MAX_MATCHING_PREVIEWS_PER_CONNECTION + 1),
       )) {
         this.previews.delete(id);
       }
@@ -81,6 +109,20 @@ export class PreviewStore {
     this.previews.set(id, { connectionId, plan, expiresAt });
     this.startTimer();
     return { id, expiresAt };
+  }
+
+  /**
+   * Look at a preview without taking it (to check what the person typed before it is used up). Null when it does
+   * not exist, has expired, or belongs to another connection; an expired one is dropped.
+   */
+  peek(connectionId: string, id: string): PlannedChange | null {
+    const stored = this.previews.get(id);
+    if (!stored || stored.connectionId !== connectionId) return null;
+    if (stored.expiresAt <= this.now()) {
+      this.previews.delete(id);
+      return null;
+    }
+    return stored.plan;
   }
 
   /**

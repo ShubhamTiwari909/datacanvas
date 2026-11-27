@@ -1,7 +1,11 @@
 /**
  * POST /api/connections/:id/rows/validate
  *
- * Body: `{ schema, table, mode: "insert" | "update", columns, rows, key? }`. Would the database accept
+ * Body: `{ schema, table, mode: "insert" | "update", columns, rows, key?, listAll?, upsertKey? }` (`listAll`:
+ * an insert only; every failing row up to 1,000, with a longer deadline. `upsertKey`: an insert only; the
+ * import is an upsert keyed by these columns, which must be exactly a primary key or unique constraint of the
+ * table and all among `columns`: a row matching an existing row by that key is an update, not a failure, and
+ * another unique key fails only on a row other than the one being updated). Would the database accept
  * these values? Answered WITHOUT writing a row: the values go into a temporary copy of the table (no
  * triggers, no foreign keys, no defaults, no indexes) in a transaction that is read-only before the first
  * value goes in and is always rolled back, and uniqueness and foreign keys are asked by read-only queries

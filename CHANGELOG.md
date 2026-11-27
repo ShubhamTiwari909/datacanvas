@@ -2,6 +2,53 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project intends to follow [Semantic Versioning](https://semver.org/) from 1.0.0.
 
+## [1.12.0] - 2026-11-27
+
+The write side, second part: what 1.9.0 deliberately left out. Everything here needs the same three things as any change (`--enable-writes`, a database on your own machine, the unlock) and goes through the same preview and apply. **None of it is available to Claude (the MCP server) or to the command line.** Plan: `docs/write-side-v2-plan.md`; decisions 171 to 175.
+
+**Upgrading:** nothing to do. The only change to what is already there is that `getCell` (the read behind the JSON editor) now also reads `text`, `varchar` and `citext` columns.
+
+### Added
+
+- **Import modes.** The import dialog asks what should happen to rows already in the table. **Add new rows only** is the import as before. **Update existing rows, add the others** (`upsert_rows`) finds a row by a key you choose from the table's own primary key and unique constraints (not partial, not deferrable, every column NOT NULL, every key column mapped), updates the columns you tick and adds the rest; **Leave existing rows as they are** adds only what is new. **Update existing rows only** (`update_by_key`) changes the rows a key finds and adds nothing: file rows that match no row are left out and counted. A file that repeats a key is refused. The preview counts how many rows exist; an overwrite needs the tick that a delete needs. Decision 171.
+- **Leave out the failing rows.** After a validation that finds failing rows (up to 1,000, with a 60 second limit of its own and a Cancel), the browser leaves them out, checks the rest again (up to five rounds) and imports what remains, still all or nothing. **Download rejects file** writes the left-out rows as a CSV made in your browser (UTF-8 with a byte order mark, the file's own header and delimiter, and a last column `datacanvas_reject_v1` that names the rule each row broke, never a value), with a reversible formula rule so importing it again restores the values after you accept the dialog's offer.
+- **Encodings menu**: a file that is not UTF-8 can be read as UTF-16 (needs its byte order mark) or Windows-1252 / Latin-1 (it accepts every byte, so the dialog warns when the text looks misread).
+- **Change every row a filter matches.** With a filter on screen (an empty filter is refused), the selection toolbar offers **Set a value on all matching rows** and **Delete all matching rows** (`update_matching`, `delete_matching`): up to 100,000 rows and 8 million characters of key text. The preview finds the keys with the filter, holds them (one such plan per connection) and shows only the count; you **type the count** and tick the destructive confirmation to apply. The write is the keyed batches of 500 in one transaction, each checked to touch exactly the rows it carries, and a short batch rolls everything back. The filter never becomes the condition of a statement that writes, and the values are not compared (the rows are changed even if they changed since the preview, and the preview says so). Decision 172.
+- **Edit cells in the grid.** Double-click a cell (or press Enter) of a table that can be edited, type a value, and review all the pending changes together before anything is written (`edit_cells`): up to 500 rows, 50 cells a row and 2,500 cells in all, one `UPDATE` per row that must change exactly one row. A row whose edited cells changed since you loaded it is left out and counted. It has no tick. Key, hidden, generated and `bytea` columns are not edited this way. Decision 173.
+- **Edit a text value the grid cut short.** The dialog of a `text`, `varchar` or `citext` cell reads the whole value from the database and offers **Edit this value** up to 100,000 characters; a value of up to 1,000,000 characters can be read and copied; a longer one is not read. Decision 174.
+- Documentation for it: README, the guide, SECURITY.md, the threat model (section 14), decisions 171 to 175 and the plan's measured numbers (PostgreSQL 17.12): an upsert of 100,000 rows in 0.92 s, a change of 100,000 keys by filter about 0.2 s to preview and 0.5 s to apply, finding 1,000 spread-out failing rows 20 to 29 s.
+
+### Changed
+
+- `getCell` reads `text`, `varchar` and `citext` columns whole, with their length and whether they can be edited. The JSON editor itself still opens only for `json` and `jsonb`.
+- The write source rule that refused the word `USING` is narrowed to the one keyed delete statement (decision 172).
+- Version 1.12.0.
+
+### Not built
+
+- A progress bar for an import (decision 175): it would change the shape of the route that carries every write, for a bar. An import shows a spinner and **Cancel and roll back** as before.
+- Paste from a spreadsheet into the grid.
+
+### Known limits
+
+- The tick of a destructive change is enforced by the browser's dialog, not by the server (the typed count of a change by filter is checked by the server).
+- Only PostgreSQL 17 has run the new tests so far; the run on 12 to 16 and 18 is still to do.
+- A preview of an edit of many different cells is slow (25,000 cells took 25 seconds, which is why a change is capped at 2,500 cells).
+
+### Security
+
+The write side of this release was read by an independent reviewer (a separate agent with fresh eyes, 2026-11-27; see `docs/threat-model.md`, section 14b). It found no way to turn a value, a filter, a key or a column name into SQL, no value in an error, a preview, the history or a skipped list, and no exposure of the new writes through the MCP server or the CLI. It reproduced five problems, none of them a way to write what was not asked for; all are fixed, each with a test that failed before the fix:
+
+- **A key whose name looks sensitive could be guessed through an import by key.** The preview of an update or an update-or-insert said whether a key existed. Such a key is now refused for these imports, and the dialog does not offer it.
+- **Text editors changed Windows line endings.** Existing values with carriage returns are read-only in the grid, the whole-value dialog, and the row form.
+- **Keys equal only under a case-insensitive collation were not seen as repeated.** The check now uses the column's own collation.
+- **Deleting by filter in a table that cascades onto itself failed with a misleading message.** More than one batch is refused at preview with a clear sentence; one batch runs, with a warning.
+- **A table with child tables (inheritance) was accepted for changes by key and then failed.** It is now refused with a clear sentence.
+
+Also: the browser now checks that the edits it holds fit in one request (32 MB) before the preview.
+
+Known and accepted: the typed count and the destructive tick of an import by key are enforced by the browser (the server checks the count of a change by filter); a unique violation on apply can reveal that a written sensitive column collided with another row (as an edit of one row does); validation of a very large file with `listAll` can hold the page reads of a connection for up to 60 seconds. Only PostgreSQL 17 has been run so far.
+
 ## [Unreleased]
 
 ### Changed

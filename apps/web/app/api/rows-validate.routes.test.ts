@@ -2,6 +2,7 @@
  * Route tests for validation (`POST /connections/:id/rows/validate`): the same opt-in as a page of rows,
  * a strict body, and no value in any error or log. (The checks themselves are in the adapter's tests.)
  */
+import { MockDatabaseAdapter } from "@datacanvas/database-core/testing";
 import { VALIDATE_MAX_BODY_BYTES } from "@datacanvas/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setServerContextForTests } from "@/lib/server/context";
@@ -91,11 +92,66 @@ describe("POST /connections/:id/rows/validate", () => {
     ["a value that is too long", { ...ask, rows: [["x".repeat(100_001)]] }],
     ["a key with an extra field", { ...ask, key: [{ column: "id", value: "1", op: "gt" }] }],
     ["more than 50 columns", { ...ask, columns: Array.from({ length: 51 }, (_, i) => `c${i}`) }],
+    [
+      "listAll on an update",
+      { ...ask, mode: "update", key: [{ column: "id", value: "1" }], listAll: true },
+    ],
+    [
+      "listAll: false on an update",
+      { ...ask, mode: "update", key: [{ column: "id", value: "1" }], listAll: false },
+    ],
+    ["a listAll that is not a boolean", { ...ask, listAll: "true" }],
+    ["a listAll that is a number", { ...ask, listAll: 1 }],
+    ["a listAll that is null", { ...ask, listAll: null }],
+    [
+      "upsertKey on an update",
+      { ...ask, mode: "update", key: [{ column: "id", value: "1" }], upsertKey: ["email"] },
+    ],
+    ["an empty upsertKey", { ...ask, upsertKey: [] }],
+    ["an upsertKey that is not a list", { ...ask, upsertKey: "email" }],
+    ["an upsertKey that is null", { ...ask, upsertKey: null }],
+    ["an upsertKey with a number", { ...ask, upsertKey: [1] }],
+    ["an upsertKey naming a column twice", { ...ask, upsertKey: ["email", "email"] }],
+    ["an upsertKey naming a column not given", { ...ask, upsertKey: ["id"] }],
+    ["an upsertKey with an empty name", { ...ask, columns: ["email"], upsertKey: [""] }],
+    [
+      "an upsertKey of more than 32 columns",
+      (() => {
+        const columns = Array.from({ length: 33 }, (_, i) => `c${i}`);
+        return { ...ask, columns, rows: [columns.map(() => "x")], upsertKey: columns };
+      })(),
+    ],
   ])("refuses %s with 400 validation_error", async (_name, body) => {
     const id = await connect({ dataAccess: true });
     const result = await check(id, body);
     expect(result.status).toBe(400);
     expect(result.body.error.code).toBe("validation_error");
+  });
+
+  it("takes listAll on an insert, and hands it to the adapter", async () => {
+    const id = await connect({ dataAccess: true });
+    const seen = vi.spyOn(MockDatabaseAdapter.prototype, "validateRows");
+    for (const listAll of [true, false]) {
+      const result = await check(id, { ...ask, listAll });
+      // Past the schema: the mock has nothing to check against, so the answer is its fixed error.
+      expect(result.body.error.code).toBe("not_supported");
+    }
+    await check(id, ask);
+    const requests = seen.mock.calls.map(([request]) => request);
+    expect(requests).toMatchObject([{ listAll: true }, { listAll: false }, { mode: "insert" }]);
+    expect(requests[2]).not.toHaveProperty("listAll");
+  });
+
+  it("takes upsertKey on an insert, and hands it to the adapter", async () => {
+    const id = await connect({ dataAccess: true });
+    const seen = vi.spyOn(MockDatabaseAdapter.prototype, "validateRows");
+    const result = await check(id, { ...ask, upsertKey: ["email"], listAll: true });
+    // Past the schema: the mock has nothing to check against, so the answer is its fixed error.
+    expect(result.body.error.code).toBe("not_supported");
+    await check(id, ask);
+    const requests = seen.mock.calls.map(([request]) => request);
+    expect(requests).toMatchObject([{ upsertKey: ["email"], listAll: true }, { mode: "insert" }]);
+    expect(requests[1]).not.toHaveProperty("upsertKey");
   });
 
   it("refuses a body that is too large with 413", async () => {

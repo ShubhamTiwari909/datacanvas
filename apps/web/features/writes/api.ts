@@ -102,10 +102,19 @@ export async function requestApply(
    * answer, so reload the table to see it.
    */
   signal?: AbortSignal,
-): Promise<ApiResult<{ rowCount: number; entry: HistoryEntry }>> {
+  /** For a change of the rows a filter matches: the count the person typed (the server compares it with the preview's). */
+  confirmRows?: number,
+): Promise<
+  ApiResult<{
+    rowCount: number;
+    entry: HistoryEntry;
+    split?: { inserted: number; updated: number; exact: boolean };
+  }>
+> {
   const result = await apiRequest(`${base(connectionId)}/writes/apply`, applyChangeResponseSchema, {
     method: "POST",
-    body: { previewId },
+    // `confirmRows` is left out of the JSON when undefined.
+    body: { previewId, confirmRows },
     ...(signal ? { signal } : {}),
   });
   return unwrap(result, (d) => d.result);

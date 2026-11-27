@@ -2,7 +2,9 @@
  * POST /api/connections/:id/writes/apply
  *
  * Body: `{ previewId }`, and nothing else: the change itself stays on the
- * server, so exactly what was previewed runs. The preview is used up (single
+ * server, so exactly what was previewed runs. A change of the rows a filter
+ * matches also needs `confirmRows`, the count the person typed, which must be
+ * the count its preview found (checked before the preview is used up). The preview is used up (single
  * use); one change runs at a time per connection (`write_busy` otherwise). It
  * runs in one read-write transaction with a 3 second lock timeout; a row
  * change must touch exactly one row or everything rolls back.
@@ -25,7 +27,12 @@ export function POST(request: Request, { params }: RouteParams<{ id: string }>):
     const { id } = await params;
     const parsed = await parseJsonBody(request, applyChangeRequestSchema);
     if (!parsed.ok) return parsed.response;
-    const result = await getServerContext().writes.apply(id, parsed.data.previewId, request.signal);
+    const result = await getServerContext().writes.apply(
+      id,
+      parsed.data.previewId,
+      request.signal,
+      parsed.data.confirmRows,
+    );
     return jsonResponse({ result });
   });
 }

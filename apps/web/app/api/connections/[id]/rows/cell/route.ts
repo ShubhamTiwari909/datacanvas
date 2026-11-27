@@ -1,9 +1,10 @@
 /**
  * POST /api/connections/:id/rows/cell
  *
- * Body: `{ schema, table, column, key: [{ column, value }], revealColumns? }`. ONE `json` or `jsonb`
- * value of ONE row, read whole (up to 1 MB), for the JSON editor; a page of rows cuts every cell
- * short. Refused (403 `data_access_disabled`) unless viewing table data was switched on for this
+ * Body: `{ schema, table, column, key: [{ column, value }], revealColumns? }`. ONE `json`, `jsonb`,
+ * `text`, `varchar` or `citext` value of ONE row, read whole (up to 1 MB), for the JSON editor and for editing a
+ * cut text value; a page of rows cuts every cell short. The answer says whether the whole value can be edited
+ * (at most 100,000 characters, measured in the database before it is sent). Refused (403 `data_access_disabled`) unless viewing table data was switched on for this
  * connection, exactly like the route for a page.
  *
  * Like that route: the body is JSON (names and key values never appear in a URL, the history or a

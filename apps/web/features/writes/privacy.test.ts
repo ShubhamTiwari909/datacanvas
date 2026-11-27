@@ -65,9 +65,9 @@ describe("the write UI keeps nothing", () => {
     for (const file of files) expect(code(file), path.relative(web, file)).not.toContain(api);
   });
 
-  it("applies a change by its preview id only, never by sending the change again", () => {
+  it("applies a change by its preview id only (and the count typed), never by sending the change again", () => {
     const api = code(path.join(here, "api.ts"));
     const apply = api.slice(api.indexOf("export async function requestApply"));
-    expect(apply.slice(0, apply.indexOf("\n}\n"))).toMatch(/body: \{ previewId \}/);
+    expect(apply.slice(0, apply.indexOf("\n}\n"))).toMatch(/body: \{ previewId, confirmRows \}/);
   });
 });

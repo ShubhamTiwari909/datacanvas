@@ -2,6 +2,7 @@ import { PREVIEW_TTL_MS, type PlannedChange } from "@datacanvas/database-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_IMPORT_PREVIEWS_PER_CONNECTION,
+  MAX_MATCHING_PREVIEWS_PER_CONNECTION,
   MAX_PREVIEWS_PER_CONNECTION,
   PreviewStore,
 } from "./preview-store";
@@ -81,6 +82,20 @@ describe("PreviewStore", () => {
     store.clear("c1");
     expect(store.take("c1", a)).toBeNull();
     expect(store.take("c2", b)).not.toBeNull();
+  });
+
+  it("lets a preview be looked at without using it up, for its own connection only, until it expires", () => {
+    const { store, advance } = setup();
+    const { id } = store.put("c1", plan());
+    expect(store.peek("c2", id)).toBeNull();
+    expect(store.peek("c1", id)?.effect).toBe("Changes one row.");
+    expect(store.peek("c1", id)?.effect).toBe("Changes one row.");
+    expect(store.take("c1", id)).not.toBeNull();
+    expect(store.peek("c1", id)).toBeNull();
+    const late = store.put("c1", plan()).id;
+    advance(PREVIEW_TTL_MS);
+    expect(store.peek("c1", late)).toBeNull();
+    expect(store.heldCount()).toBe(0);
   });
 });
 
@@ -228,5 +243,64 @@ describe("PreviewStore and imports", () => {
     // Another connection's imports are not counted against this one.
     store.put("c2", importPlan());
     expect(store.count("c2")).toBe(1);
+  });
+});
+
+describe("PreviewStore and changes of the rows a filter matches", () => {
+  const matchingPlan = (kind: "update_matching" | "delete_matching", rows = 3): PlannedChange => ({
+    change:
+      kind === "update_matching"
+        ? {
+            kind,
+            table: { schema: "public", name: "users" },
+            filters: [{ column: "email", op: "contains", value: "x" }],
+            revealColumns: [],
+            set: { column: "full_name", value: "y" },
+          }
+        : {
+            kind,
+            table: { schema: "public", name: "users" },
+            filters: [{ column: "email", op: "contains", value: "x" }],
+            revealColumns: [],
+          },
+    statements: [],
+    expect: "any",
+    category: "row",
+    effect: `Changes ${rows} rows.`,
+    warnings: [],
+    destructive: true,
+    confirmRows: rows,
+  });
+
+  it("keeps one per connection (each holds up to 100,000 keys): a new one replaces the one before, whatever its kind", () => {
+    expect(MAX_MATCHING_PREVIEWS_PER_CONNECTION).toBe(1);
+    const { store } = setup();
+    const other = store.put("c1", plan()).id;
+    const imported = store.put("c1", {
+      ...plan(),
+      change: {
+        kind: "insert_rows",
+        table: { schema: "public", name: "users" },
+        columns: ["a"],
+        rows: [["1"]],
+      },
+    }).id;
+    const first = store.put("c1", matchingPlan("update_matching", 5)).id;
+    const second = store.put("c1", matchingPlan("delete_matching", 7)).id;
+    expect(store.take("c1", first)).toBeNull();
+    // Another connection's plan is not counted against this one.
+    const elsewhere = store.put("c2", matchingPlan("update_matching")).id;
+    expect(store.take("c1", second)?.confirmRows).toBe(7);
+    expect(store.take("c2", elsewhere)).not.toBeNull();
+    // The other kinds of preview are left alone.
+    expect(store.take("c1", other)).not.toBeNull();
+    expect(store.take("c1", imported)).not.toBeNull();
+  });
+
+  it("is dropped with every other plan of the connection", () => {
+    const { store } = setup();
+    const id = store.put("c1", matchingPlan("delete_matching")).id;
+    store.clear("c1");
+    expect(store.peek("c1", id)).toBeNull();
   });
 });

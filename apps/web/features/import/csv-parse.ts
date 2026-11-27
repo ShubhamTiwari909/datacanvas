@@ -19,6 +19,7 @@ export const DELIMITERS: readonly Delimiter[] = [",", ";", "\t", "|"];
 
 export type CsvRefusal =
   | "not_utf8"
+  | "not_utf16"
   | "empty"
   | "nul"
   | "quote_open"
@@ -34,6 +35,8 @@ export function refusalText(refusal: CsvRefusal, row?: number): string {
   switch (refusal) {
     case "not_utf8":
       return "This file is not UTF-8 text. Save it as CSV UTF-8 and choose it again: another encoding would turn letters into the wrong characters, so it is not guessed.";
+    case "not_utf16":
+      return "This file is not UTF-16 text with a byte order mark. Choose another encoding, or save it as CSV UTF-8 and choose it again.";
     case "empty":
       return "The file is empty.";
     case "nul":

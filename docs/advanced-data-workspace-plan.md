@@ -270,10 +270,12 @@ The JSON editor of section 5 is built. Where the build differs from the plan:
 
 ## 19. What D5 found (2026-11-22)
 
+_What 1.9.0 left out here (the editing grid, the rejects file, other encodings, a change of the rows a filter matches) is in `docs/write-side-v2-plan.md`, built in 1.12.0._
+
 Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 159). Where it differs from the plan:
 
 - **No new statement.** A bulk change is one single-row statement per row, in one transaction; the plan's `affected = previewed` is the existing one-row check of each statement.
-- **`edit_cells` and the editing grid are not in 1.9.0.** The choosing of rows, "Set a value" and "Delete N rows" are. Spreadsheet-style editing and its review of differences would be a third operation and a second way to write; they come later.
+- **`edit_cells` and the editing grid are not in 1.9.0.** _(Built in 1.12.0: see `docs/write-side-v2-plan.md`, section 5, and decision 173; paste from a spreadsheet was not built.)_ The choosing of rows, "Set a value" and "Delete N rows" are. Spreadsheet-style editing and its review of differences would be a third operation and a second way to write; they come later.
 - **No Validate for a bulk change** (so item 6 of section 1 covers forms and imports only). Each value is checked when the change is previewed, and each row when it is applied, all or nothing.
 - **The conflicts come at preview.** The rows that changed since they were loaded are left out and counted there; a row that changes after is a rollback.
 - A key column is not offered in "Set a value" (the same key on several rows would be refused).
@@ -282,9 +284,9 @@ Bulk editing (section 7) is built as `update_rows` and `delete_rows` (decision 1
 
 CSV import (section 9) is built as `insert_rows` (decision 160). Where it differs from the plan:
 
-- **No "skip the failing rows" choice and no rejects file.** The validation lists at most 20 failing rows and counts 100, so it cannot name every row a file would lose. An import is all or nothing; the report names the first rows so the file can be fixed.
+- **No "skip the failing rows" choice and no rejects file.** _(Built in 1.12.0: see `docs/write-side-v2-plan.md`, section 4.3, and decision 171.)_ The validation lists at most 20 failing rows and counts 100, so it cannot name every row a file would lose. An import is all or nothing; the report names the first rows so the file can be fixed.
 - **Batched `INSERT`, not `COPY`.** Measured: 100,000 rows in about 0.73 s against about 0.2 s (3.6 times), under the line of five times.
 - **Validation was raised** to 100,000 rows and a 32 MB body for the whole file, so a file is checked whole before any row is written. The body is JSON, so a file of 20 MB that is full of characters JSON escapes (backslashes, tabs, line breaks inside quotes) can pass 32 MB and is then refused, in plain words, before it is sent.
-- **A spinner and "Cancel and roll back", not a progress bar.** The server answers once, at the end; closing the dialog stops the import between batches and rolls back.
+- **A spinner and "Cancel and roll back", not a progress bar.** _(Still true in 1.12.0: the progress stream of `docs/write-side-v2-plan.md` 4.5 was dropped.)_ The server answers once, at the end; closing the dialog stops the import between batches and rolls back.
 - **The notice counts use thousands separators** ("100,000 rows were added."); the 100,000-row end-to-end test found the bulk notices printed `100000`.
-- Limits: 100,000 rows, 50 columns, 10,000 characters a cell, 20 MB a file. UTF-8 only, with or without a byte order mark.
+- Limits: 100,000 rows, 50 columns, 10,000 characters a cell, 20 MB a file. UTF-8 only, with or without a byte order mark. _(1.12.0 adds UTF-16 and Windows-1252, update-or-insert and update-only modes, and a change of the rows a filter matches: `docs/write-side-v2-plan.md`, decisions 171 to 174.)_

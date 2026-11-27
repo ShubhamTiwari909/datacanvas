@@ -14,7 +14,7 @@
  * Lists of `{ column, value }` are used instead of objects keyed by column
  * name, so a column called `__proto__` or `constructor` is just a name.
  */
-import type { ReferentialAction, TableRef } from "./models.js";
+import type { ReferentialAction, RowFilter, TableRef } from "./models.js";
 
 // ----------------------------------------------------------------- limits ---
 
@@ -29,8 +29,12 @@ export const MAX_COMMENT_CHARS = 2000;
 /** Unique constraints, foreign keys or index columns in one change. */
 export const MAX_CHANGE_PARTS = 32;
 
-/** Rows in one bulk change (`update_rows`, `delete_rows`): the rows are chosen one by one, by key. */
+/** Rows in one bulk change (`update_rows`, `delete_rows`, `edit_cells`): the rows are chosen one by one, by key. */
 export const MAX_BULK_ROWS = 500;
+/** Cells changed in one row of an `edit_cells` change (`docs/write-side-v2-plan.md`, section 5). */
+export const EDIT_CELLS_MAX_CELLS_PER_ROW = 50;
+/** Cells in one `edit_cells` change, in all: each distinct value costs a type check, so 25,000 cells took 25 s to preview. */
+export const EDIT_CELLS_MAX_CELLS = 2_500;
 
 /** Limits of an import (`insert_rows`): rows, columns, characters in one cell, and rows in one statement. */
 export const IMPORT_MAX_ROWS = 100_000;
@@ -39,6 +43,15 @@ export const IMPORT_MAX_CELL_CHARS = 10_000;
 export const IMPORT_BATCH_ROWS = 500;
 /** The largest file an import reads (the browser parses it; the server gets the rows). */
 export const IMPORT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Limits of a change of the rows a filter matches (`update_matching`, `delete_matching`; `docs/write-side-v2-plan.md`,
+ * 6.6 and 13.4): the rows, the characters of every key value the plan holds (counted as the preview reads them; a
+ * character outside Latin-1 takes two bytes, so up to about 16 MB), and the characters of one key value.
+ */
+export const MATCHING_MAX_ROWS = 100_000;
+export const MATCHING_MAX_KEY_CHARS = 8_000_000;
+export const MATCHING_MAX_KEY_VALUE_CHARS = 4_096;
 
 /** How long a preview can be applied, and how long a lock may be waited for. */
 export const PREVIEW_TTL_MS = 5 * 60 * 1000;
@@ -128,13 +141,101 @@ export interface InsertRowsChange {
   rows: Array<Array<string | null>>;
 }
 
+/**
+ * Update or insert from an import (`docs/write-side-v2-plan.md`, 4.1 and 13.1): the `insert_rows` batch with
+ * `ON CONFLICT (key) DO UPDATE SET` the `updateColumns` (or `DO NOTHING` when that list is empty). `key` names the
+ * columns of one of the table's own primary-key or unique constraints; the server checks at preview that it is
+ * exactly one (not partial, not on expressions, not deferrable, every column NOT NULL) and that every key column
+ * is among `columns`. `updateColumns` are mapped columns outside every unique key of the table. Two rows of the
+ * file with the same key are refused at preview. The preview counts the rows that already exist.
+ */
+export interface UpsertRowsChange {
+  kind: "upsert_rows";
+  table: TableRef;
+  key: string[];
+  columns: string[];
+  rows: Array<Array<string | null>>;
+  updateColumns: string[];
+}
+
+/**
+ * Update only, by key, from an import (`docs/write-side-v2-plan.md`, 4.2 and 13.2): each row of the file sets the
+ * columns that are not the key on the row its key finds. `key` follows the rules of `UpsertRowsChange`. Rows that
+ * find no row are left out at preview (`skipped`); a repeated key is refused before planning.
+ */
+export interface UpdateByKeyChange {
+  kind: "update_by_key";
+  table: TableRef;
+  key: string[];
+  columns: string[];
+  rows: Array<Array<string | null>>;
+}
+
+/**
+ * Set ONE value on every row a filter matches (`docs/write-side-v2-plan.md`, section 6). `filters` are the page
+ * reader's own conditions (`RowsOptions.filters`), at least one: an empty filter is refused, never "the whole
+ * table". `revealColumns` are the columns whose names look sensitive that the person revealed, as for a page of
+ * rows: a condition on a hidden column is refused, and so is setting one. The filter is used only by the READ of
+ * the preview, which finds the keys of the matching rows (at most `MATCHING_MAX_ROWS`) and holds them; apply
+ * updates exactly those keys in keyed batches, and never compares the values the rows hold (decision 3).
+ */
+export interface UpdateMatchingChange {
+  kind: "update_matching";
+  table: TableRef;
+  filters: RowFilter[];
+  revealColumns: string[];
+  set: ColumnValue;
+}
+
+/** Delete every row a filter matches: as `UpdateMatchingChange`, without the value. */
+export interface DeleteMatchingChange {
+  kind: "delete_matching";
+  table: TableRef;
+  filters: RowFilter[];
+  revealColumns: string[];
+}
+
+/** One cell of an `edit_cells` row: the column, its new value and the value the person saw there (`null` is NULL). */
+export interface CellChange {
+  column: string;
+  value: string | null;
+  expected: string | null;
+}
+
+/** One row of an `edit_cells` change: its whole key, and the cells changed in it (each column at most once). */
+export interface EditCellsRow {
+  key: KeyValue[];
+  changes: CellChange[];
+}
+
+/**
+ * Edit cells of several rows (`docs/write-side-v2-plan.md`, section 5): at most `MAX_BULK_ROWS` rows, each named once
+ * by its whole key, with at most `EDIT_CELLS_MAX_CELLS_PER_ROW` cells each. Unlike `update_rows`, each row sets its
+ * OWN columns to its OWN values. Each row is one single-row update (the builder of `update_row`) that applies only if
+ * every changed cell still holds what the person saw; a row that no longer does is left out at preview (`skipped`),
+ * and at apply every row must be changed exactly once or nothing is. Key columns, hidden columns (a name that looks
+ * sensitive and is not in `revealColumns`), generated columns and `bytea` are refused; a key column whose name looks
+ * sensitive must be revealed too.
+ */
+export interface EditCellsChange {
+  kind: "edit_cells";
+  table: TableRef;
+  revealColumns: string[];
+  rows: EditCellsRow[];
+}
+
 export type RowChange =
   | UpdateRowChange
   | InsertRowChange
   | DeleteRowChange
   | UpdateRowsChange
   | DeleteRowsChange
-  | InsertRowsChange;
+  | InsertRowsChange
+  | UpsertRowsChange
+  | UpdateByKeyChange
+  | UpdateMatchingChange
+  | DeleteMatchingChange
+  | EditCellsChange;
 
 // ------------------------------------------------------- column definitions ---
 
@@ -359,7 +460,14 @@ export const ROW_CHANGE_KINDS = [
   "update_rows",
   "delete_rows",
   "insert_rows",
+  "upsert_rows",
+  "update_by_key",
+  "update_matching",
+  "delete_matching",
+  "edit_cells",
 ] as const;
+/** The changes of the rows a filter matches: their keys are found at preview, and the count is typed to apply. */
+export const MATCHING_CHANGE_KINDS = ["update_matching", "delete_matching"] as const;
 export const STRUCTURE_CHANGE_KINDS = [
   "create_table",
   "add_column",
@@ -382,6 +490,11 @@ export const STRUCTURE_CHANGE_KINDS = [
 export const DESTRUCTIVE_CHANGE_KINDS: readonly ChangeKind[] = [
   "delete_row",
   "delete_rows",
+  // It overwrites existing rows (an upsert is destructive only when its preview finds rows it would overwrite).
+  "update_by_key",
+  // Like an update by key, it overwrites rows without comparing what they hold: always the tick (and the typed count).
+  "update_matching",
+  "delete_matching",
   "drop_constraint",
   "drop_index",
   "drop_column",
@@ -416,7 +529,17 @@ export function changeColumns(change: Change): string[] {
     case "delete_rows":
       return (change.rows[0]?.key ?? []).map((k) => k.column);
     case "insert_rows":
+    case "upsert_rows":
+    case "update_by_key":
       return [...change.columns];
+    case "update_matching":
+      return [change.set.column];
+    case "delete_matching":
+      // The rows were found by these columns (names only: never a condition's value or operator).
+      return [...new Set(change.filters.map((f) => f.column))];
+    case "edit_cells":
+      // Every column edited in any row, once (names only: never a key, a value or what was seen).
+      return [...new Set(change.rows.flatMap((r) => r.changes.map((c) => c.column)))];
     case "create_table":
       return change.columns.map((c) => c.name);
     case "add_column":
@@ -502,6 +625,22 @@ export interface PlannedStatement {
   values: (string | null | Array<string | null>)[];
   /** When set, the statement must report exactly this many rows or the whole change is rolled back. */
   expectRows?: number;
+  /**
+   * An upsert batch that returns one boolean per row it wrote, `inserted` (`RETURNING (xmax = 0) AS inserted`):
+   * applying counts the inserted and updated rows from it. Nothing else comes back (never a value).
+   */
+  countsInserted?: boolean;
+}
+
+/**
+ * What the preview of an import by key found, before anything is written (counts only, never a key or a value):
+ * how many rows of the file are new (`insert`), how many find a row that will be overwritten (`update`), and how
+ * many find a row that is left as it is (`unchanged`: an upsert with no column to update).
+ */
+export interface RowCounts {
+  insert: number;
+  update: number;
+  unchanged: number;
 }
 
 /** The part of an `AbortSignal` that applying a change looks at between statements (no DOM types here). */
@@ -562,6 +701,13 @@ export interface PlannedChange {
    * or no longer exist. They are NOT in `statements`: the plan changes the other rows only.
    */
   skipped?: number[];
+  /** For `upsert_rows` and `update_by_key`: what the preview counted (see `RowCounts`). */
+  counts?: RowCounts;
+  /**
+   * For a change of the rows a filter matches: how many rows the preview found and the plan holds the keys of. The
+   * person types this number to apply, and the write service compares what was typed with it before the plan runs.
+   */
+  confirmRows?: number;
 }
 
 /** The statement texts as shown to the person (values are `$1`, `$2`, ...). */
@@ -589,6 +735,12 @@ export function statementText(plan: Pick<PlannedChange, "statements">): string {
 export interface AppliedChange {
   /** Rows reported by the statements (1 for a row change). */
   rowCount: number;
+  /**
+   * For `upsert_rows` and `update_by_key`: how the rows written split. `exact` is false when the database could not
+   * say row by row (an upsert into a partitioned table, or a role that may not read the table): the numbers are
+   * then the preview's estimate, and only their sum (`rowCount`) was checked.
+   */
+  split?: { inserted: number; updated: number; exact: boolean };
 }
 
 // ----------------------------------------------------- editing a table: info ---
@@ -635,6 +787,18 @@ export interface TableEditInfo {
   /** Row-level security may hide rows from the connected role. */
   rowSecurity: boolean;
   incomingForeignKeys: IncomingForeignKey[];
+  /**
+   * The keys an import by key may use (`upsert_rows`, `update_by_key`): the table's primary key and unique
+   * constraints that are not partial, not on expressions, not deferrable, with every column NOT NULL. Structure
+   * only. Optional so that older callers keep working; the PostgreSQL adapter always fills it.
+   */
+  uniqueKeys?: UniqueKeyInfo[];
+}
+
+/** A constraint an import by key may use: its name and its columns, in the constraint's order. */
+export interface UniqueKeyInfo {
+  name: string;
+  columns: string[];
 }
 
 // --------------------------------------------------------------- the role ---

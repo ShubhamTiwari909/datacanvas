@@ -34,8 +34,11 @@ describe("write path source rules", () => {
   it("covers the files of the write path", () => {
     expect(all.map((s) => s.file).sort()).toEqual([
       "catalog.ts",
+      "cells.ts",
       "guard.ts",
       "index.ts",
+      "keyed.ts",
+      "matching.ts",
       "rows.ts",
       "sql.ts",
       "structure.ts",
@@ -71,21 +74,33 @@ describe("write path source rules", () => {
     }
   });
 
-  it.each([
-    "CONCURRENTLY",
-    "USING",
-    "CHECK \\(",
-    "TRUNCATE",
-    "EXECUTE",
-    "COPY ",
-    "GRANT ",
-    "REVOKE ",
-  ])("never writes %s into a statement", (word) => {
+  it("USING exists only as the keyed delete's list of keys, never as an expression", () => {
+    // `DELETE ... USING unnest(<one bound array per key column>)` (a change of the rows a filter matches, plan 13.2)
+    // is the one place: never `ALTER COLUMN ... TYPE ... USING <expression>` (decision 132), never anything else.
     for (const { file, code } of all) {
-      // Sentences for people may say "check"; SQL keywords here are upper case.
-      expect([file, new RegExp(word).test(code)]).toEqual([file, false]);
+      const lines = code
+        .split("\n")
+        .filter((line) => /USING/.test(line))
+        .map((l) => l.trim());
+      if (file === "keyed.ts") {
+        expect(lines).toEqual([
+          "`USING unnest(${arrays(key.length)}) AS x(${aliases(key.length)}) WHERE ${where}`,",
+        ]);
+      } else {
+        expect([file, lines]).toEqual([file, []]);
+      }
     }
   });
+
+  it.each(["CONCURRENTLY", "CHECK \\(", "TRUNCATE", "EXECUTE", "COPY ", "GRANT ", "REVOKE "])(
+    "never writes %s into a statement",
+    (word) => {
+      for (const { file, code } of all) {
+        // Sentences for people may say "check"; SQL keywords here are upper case.
+        expect([file, new RegExp(word).test(code)]).toEqual([file, false]);
+      }
+    },
+  );
 
   it("never logs", () => {
     for (const { file, code } of all) {

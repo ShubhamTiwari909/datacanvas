@@ -10,6 +10,7 @@
  */
 import { z } from "zod";
 import { identifierSchema } from "./connections.js";
+import { MAX_ROW_FILTERS, rowFilterSchema } from "./row-filters.js";
 
 // Limits, mirrored from @datacanvas/database-core (a test keeps them equal).
 export const WRITE_MAX_IDENTIFIER_BYTES = 63;
@@ -17,8 +18,10 @@ export const WRITE_MAX_CHANGE_COLUMNS = 100;
 export const WRITE_MAX_CHANGE_VALUE_CHARS = 100_000;
 export const WRITE_MAX_COMMENT_CHARS = 2000;
 export const WRITE_MAX_CHANGE_PARTS = 32;
-/** Rows in one bulk change. */
+/** Rows in one bulk change (`update_rows`, `delete_rows`, `edit_cells`). */
 export const WRITE_MAX_BULK_ROWS = 500;
+/** Cells changed in one row of an `edit_cells` change. */
+export const WRITE_MAX_EDIT_CELLS_PER_ROW = 50;
 /** Limits of an import (mirrored from the core): rows, columns, characters in a cell. */
 export const WRITE_MAX_IMPORT_ROWS = 100_000;
 export const WRITE_MAX_IMPORT_COLUMNS = 50;
@@ -31,6 +34,8 @@ export const WRITE_MAX_IMPORT_CELL_CHARS = 10_000;
  * than this (a rule test pins it): Next keeps only the first 10 MB of a body unless told otherwise.
  */
 export const IMPORT_MAX_BODY_BYTES = 32 * 1024 * 1024;
+/** Rows in one change of the rows a filter matches (mirrored from the core): the most a typed count can be. */
+export const WRITE_MAX_MATCHING_ROWS = 100_000;
 export const WRITE_MAX_TYPE_LENGTH = 10_485_760;
 export const WRITE_MAX_NUMERIC_PRECISION = 1000;
 
@@ -192,6 +197,129 @@ export const insertRowsChangeSchema = z
     (c) => c.rows.every((r) => r.length === c.columns.length),
     "Every row needs one value for each column.",
   );
+
+/** The rows of an import by key: the same bounds as an import. */
+const keyedImportRowsSchema = z
+  .array(
+    z
+      .array(z.string().max(WRITE_MAX_IMPORT_CELL_CHARS).refine(wellFormed, WELL_FORMED).nullable())
+      .max(WRITE_MAX_IMPORT_COLUMNS),
+  )
+  .min(1)
+  .max(WRITE_MAX_IMPORT_ROWS);
+const keyColumnsSchema = z.array(identifierSchema).min(1).max(WRITE_MAX_CHANGE_PARTS);
+
+/** Update or insert by a key the table has (4.1 of the plan). An empty list of columns to update leaves rows alone. */
+export const upsertRowsChangeSchema = z
+  .strictObject({
+    kind: z.literal("upsert_rows"),
+    table: tableSchema,
+    key: keyColumnsSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: keyedImportRowsSchema,
+    updateColumns: z.array(identifierSchema).max(WRITE_MAX_IMPORT_COLUMNS),
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  )
+  .refine((c) => new Set(c.key).size === c.key.length, "A key column is listed twice.")
+  .refine((c) => c.key.every((k) => c.columns.includes(k)), "Every key column must be mapped.")
+  .refine(
+    (c) => new Set(c.updateColumns).size === c.updateColumns.length,
+    "A column to update is listed twice.",
+  )
+  .refine(
+    (c) => c.updateColumns.every((u) => c.columns.includes(u) && !c.key.includes(u)),
+    "A column to update must be mapped, and not be part of the key.",
+  );
+
+/** Update only, by a key the table has (4.2 of the plan): every column that is not the key is set. */
+export const updateByKeyChangeSchema = z
+  .strictObject({
+    kind: z.literal("update_by_key"),
+    table: tableSchema,
+    key: keyColumnsSchema,
+    columns: z.array(identifierSchema).min(1).max(WRITE_MAX_IMPORT_COLUMNS),
+    rows: keyedImportRowsSchema,
+  })
+  .refine((c) => new Set(c.columns).size === c.columns.length, "A column is listed twice.")
+  .refine(
+    (c) => c.rows.every((r) => r.length === c.columns.length),
+    "Every row needs one value for each column.",
+  )
+  .refine((c) => new Set(c.key).size === c.key.length, "A key column is listed twice.")
+  .refine((c) => c.key.every((k) => c.columns.includes(k)), "Every key column must be mapped.")
+  .refine(
+    (c) => c.columns.some((name) => !c.key.includes(name)),
+    "At least one column that is not the key must be mapped.",
+  );
+
+// ---------------------------------------------- changes of the rows a filter matches ---
+
+/**
+ * The conditions of a change of the rows a filter matches (section 6 of the write-side plan): the page reader's own
+ * conditions (`rowFilterSchema`, strict, each operator from a fixed list, every value a bounded text), at least one.
+ * An empty filter would be "the whole table", which is never offered.
+ */
+const matchingFiltersSchema = z
+  .array(rowFilterSchema)
+  .min(1, "A change of the rows a filter matches needs at least one condition.")
+  .max(MAX_ROW_FILTERS);
+/** The columns whose names look sensitive that the person revealed, as a page of rows takes them. */
+const revealColumnsSchema = z.array(identifierSchema).max(100);
+
+/** Set one value on every row the filter matches (the count found at preview is typed to apply). */
+export const updateMatchingChangeSchema = z.strictObject({
+  kind: z.literal("update_matching"),
+  table: tableSchema,
+  filters: matchingFiltersSchema,
+  revealColumns: revealColumnsSchema,
+  set: columnValueSchema,
+});
+
+/** Delete every row the filter matches (the count found at preview is typed to apply). */
+export const deleteMatchingChangeSchema = z.strictObject({
+  kind: z.literal("delete_matching"),
+  table: tableSchema,
+  filters: matchingFiltersSchema,
+  revealColumns: revealColumnsSchema,
+});
+
+// --------------------------------------------------------------- edit cells ---
+
+/** One cell of a row of `edit_cells`: the column, its new value and the value that was seen there. */
+const cellChangeSchema = z.strictObject({
+  column: identifierSchema,
+  value: valueSchema,
+  expected: valueSchema,
+});
+
+const editCellsRowSchema = z
+  .strictObject({
+    key: z.array(keyValueSchema).min(1).max(WRITE_MAX_CHANGE_PARTS),
+    changes: z.array(cellChangeSchema).min(1).max(WRITE_MAX_EDIT_CELLS_PER_ROW),
+  })
+  .refine((r) => uniqueColumns(r.key, (k) => k.column), "A key column is listed twice.")
+  .refine(
+    (r) => uniqueColumns(r.changes, (c) => c.column),
+    "A column is changed twice in one row.",
+  );
+
+/**
+ * Edit cells of several rows (section 5 of the write-side plan): each row its own columns and values, each cell with
+ * the value that was seen, each row named once by its whole key. `revealColumns` are the columns whose names look
+ * sensitive that the person revealed, as a page of rows takes them: a hidden column is never edited or compared.
+ */
+export const editCellsChangeSchema = z
+  .strictObject({
+    kind: z.literal("edit_cells"),
+    table: tableSchema,
+    revealColumns: revealColumnsSchema,
+    rows: z.array(editCellsRowSchema).min(1).max(WRITE_MAX_BULK_ROWS),
+  })
+  .refine((c) => distinctKeys(c.rows), "A row is listed twice.");
 
 // ------------------------------------------------------- column definitions ---
 
@@ -398,6 +526,11 @@ export const changeSchema = z.discriminatedUnion("kind", [
   updateRowsChangeSchema,
   deleteRowsChangeSchema,
   insertRowsChangeSchema,
+  upsertRowsChangeSchema,
+  updateByKeyChangeSchema,
+  updateMatchingChangeSchema,
+  deleteMatchingChangeSchema,
+  editCellsChangeSchema,
   createTableChangeSchema,
   addColumnChangeSchema,
   renameColumnChangeSchema,
@@ -429,8 +562,15 @@ export type PreviewChangeRequest = z.infer<typeof previewChangeRequestSchema>;
 /** A preview id: unguessable, URL-safe. */
 export const previewIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/);
 
-/** `POST .../writes/apply`: only the id; the change itself stays on the server. */
-export const applyChangeRequestSchema = z.strictObject({ previewId: previewIdSchema });
+/**
+ * `POST .../writes/apply`: only the id; the change itself stays on the server. A change of the rows a filter
+ * matches also carries the count the person typed (`confirmRows`), which the server compares with the count its
+ * preview found before anything runs; any other change ignores it.
+ */
+export const applyChangeRequestSchema = z.strictObject({
+  previewId: previewIdSchema,
+  confirmRows: z.number().int().min(0).max(WRITE_MAX_MATCHING_ROWS).optional(),
+});
 export type ApplyChangeRequest = z.infer<typeof applyChangeRequestSchema>;
 
 /** `POST .../writes/edit-info`: which table. */
@@ -490,6 +630,19 @@ export const changePreviewSchema = z.object({
    * saw, or are gone. They are left out of the change, which does the other rows only.
    */
   skipped: z.array(z.number().int()).default([]),
+  /**
+   * For an import by key (`upsert_rows`, `update_by_key`): how many rows of the file are new, how many find a row
+   * that will be overwritten, and how many find a row that is left as it is. Counts only. Null for other changes.
+   */
+  counts: z
+    .object({ insert: z.number().int(), update: z.number().int(), unchanged: z.number().int() })
+    .nullable()
+    .default(null),
+  /**
+   * For a change of the rows a filter matches (`update_matching`, `delete_matching`): how many rows the preview
+   * found. The person types this number to apply it. A count only, never a key. Null for other changes.
+   */
+  confirmRows: z.number().int().nullable().default(null),
 });
 export type ChangePreview = z.infer<typeof changePreviewSchema>;
 export const previewChangeResponseSchema = z.object({ preview: changePreviewSchema });
@@ -509,7 +662,15 @@ export const historyEntrySchema = z.object({
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
 
 export const applyChangeResponseSchema = z.object({
-  result: z.object({ rowCount: z.number(), entry: historyEntrySchema }),
+  result: z.object({
+    rowCount: z.number(),
+    entry: historyEntrySchema,
+    /**
+     * For an import by key: the rows inserted and updated. `exact` is false when the database could not say row by
+     * row (a partitioned table, or a role that may not read the table): the split is then the preview's estimate.
+     */
+    split: z.object({ inserted: z.number(), updated: z.number(), exact: z.boolean() }).optional(),
+  }),
 });
 /** The migration file of a session: the changes of structure as SQL (decision 138). */
 export const migrationFileSchema = z.object({
@@ -555,6 +716,8 @@ export const tableEditInfoSchema = z.object({
       onUpdate: referentialActionInputSchema,
     }),
   ),
+  /** The keys an import by key may use (structure only). */
+  uniqueKeys: z.array(z.object({ name: z.string(), columns: z.array(z.string()) })).optional(),
 });
 export const editInfoResponseSchema = z.object({ info: tableEditInfoSchema });
 

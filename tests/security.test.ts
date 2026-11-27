@@ -333,13 +333,23 @@ describe("one cell is read whole only behind the same data-access check", () => 
     );
   });
 
-  it("names the row by the table's whole key from the catalog, binds every value, reads only JSON, and never reads a hidden column", () => {
+  it("names the row by the table's whole key from the catalog, binds every value, reads JSON or text, and never reads a hidden column", () => {
     const code = stripComments(read("packages/postgres-adapter/src/introspection/rows.ts"));
     const start = code.indexOf("export async function readCell");
     expect(start).toBeGreaterThan(-1);
     const body = code.slice(start);
-    // Only a json or jsonb column.
-    expect(body).toMatch(/kinds\.get\(column\.name\) !== "json"/);
+    // Only a json/jsonb column, or a column whose own type is text, varchar or citext (not char(n), name, a domain).
+    expect(body).toMatch(
+      /kind !== "json" && !\(kind === "text" && \(await isPlainTextColumn\(db, ref, column\.name\)\)\)/,
+    );
+    const typeCheck = stripComments(code).slice(code.indexOf("const CELL_TEXT_TYPE_SQL"));
+    expect(typeCheck).toMatch(
+      /t\.oid IN \('pg_catalog\.text'::regtype, 'pg_catalog\.varchar'::regtype\)/,
+    );
+    expect(typeCheck).toMatch(/t\.typname = 'citext'/);
+    expect(typeCheck).toMatch(/e\.extname = 'citext'/);
+    // The value is measured in the database, and one that a change cannot carry is not editable.
+    expect(body).toMatch(/length <= MAX_CHANGE_VALUE_CHARS/);
     // A column that looks sensitive is read only when it was revealed (as a page does).
     expect(body).toMatch(
       /isSensitiveColumnName\(column\.name\) && !request\.revealColumns\.includes/,
@@ -360,6 +370,7 @@ describe("one cell is read whole only behind the same data-access check", () => 
       "apps/web/app/api/connections/[id]/rows/cell/route.ts",
       "apps/web/features/json/json-editor-dialog.tsx",
       "apps/web/features/json/json-code-editor.tsx",
+      "apps/web/features/writes/cut-text-dialog.tsx",
     ]) {
       expect(read(file), file).not.toMatch(/\bconsole\./);
     }
@@ -896,8 +907,16 @@ describe("an import is batches of one fixed statement with every value bound, an
     );
     expect(built).not.toMatch(/header\b/);
     expect(built).toContain("columns.push(column)");
+    // The dialog builds every mode's change through `buildChange`, which reads the rows with `buildImport` and adds
+    // only the key and the columns to update (names of the table, chosen by the person).
+    const change = plan.slice(
+      plan.indexOf("export function buildChange"),
+      plan.indexOf("export function validateRequestForImport"),
+    );
+    expect(change).toContain("buildImport(table, input)");
+    expect(change).not.toMatch(/header\b/);
     expect(stripComments(read("apps/web/features/import/import-dialog.tsx"))).toContain(
-      "buildImport(",
+      "buildChange(",
     );
   });
 
@@ -908,13 +927,18 @@ describe("an import is batches of one fixed statement with every value bound, an
     expect(rows).toContain("tableoid::text || ':' || ctid::text AS row_id");
     expect(rows).toContain('if (repeated) throw invalidChange("A row is listed twice.")');
     const schema = read("packages/shared-types/src/writes.ts");
-    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(4);
+    // A value, a key value, a cell of an import, a cell of an import by key, a literal default.
+    expect((schema.match(/\.refine\(wellFormed, WELL_FORMED\)/g) ?? []).length).toBe(5);
   });
 
-  it("the preview store keeps at most two imports per connection", () => {
+  it("the preview store keeps at most two imports per connection, an import by key counted as an import", () => {
     const store = stripComments(read("apps/web/lib/server/preview-store.ts"));
     expect(store).toMatch(/MAX_IMPORT_PREVIEWS_PER_CONNECTION = 2/);
-    expect(store).toContain('plan.change.kind === "insert_rows"');
+    expect(store).toMatch(
+      /IMPORT_KINDS[^=]*= new Set\(\[\s*"insert_rows",\s*"upsert_rows",\s*"update_by_key",?\s*\]\)/,
+    );
+    expect(store).toContain("if (IMPORT_KINDS.has(plan.change.kind))");
+    expect(store).toContain("IMPORT_KINDS.has(stored.plan.change.kind)");
   });
 
   it("is kept nowhere: not in the stores, the autosave or the saved layouts", () => {
@@ -928,6 +952,526 @@ describe("an import is batches of one fixed statement with every value bound, an
         /features\/import|insert_rows|csv-parse/,
       );
     }
+  });
+});
+
+describe("an import by key is batches of two fixed statements, its key re-derived from the catalog", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const keyed = stripComments(read("packages/postgres-adapter/src/writes/keyed.ts"));
+  const builders = keyed.slice(
+    keyed.indexOf("export function buildUpsertBatch"),
+    keyed.indexOf("interface KeyedImport"),
+  );
+  const planners = keyed.slice(keyed.indexOf("interface KeyedImport"));
+  const BUILDERS = [
+    "buildUpsertBatch",
+    "buildUpdateByKeyBatch",
+    "buildFindExisting",
+    "buildFindRepeatedKeys",
+  ];
+  const builder = (name: string) => {
+    const start = builders.indexOf(`export function ${name}`);
+    const next = builders.indexOf("export function", start + 1);
+    return builders.slice(start, next === -1 ? builders.length : next);
+  };
+
+  it("finds the builders and the planners", () => {
+    for (const name of BUILDERS) expect(builders, name).toContain(`export function ${name}`);
+    expect(planners).toContain("export async function planUpsertRows");
+    expect(planners).toContain("export async function planUpdateByKey");
+  });
+
+  it("has no text of SQL in the planners: every statement comes from a builder, but the savepoint of the checks", () => {
+    const texts = (planners.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|CONFLICT|RETURNING)\b/);
+    }
+    const queries = planners.match(/db\.query(<[^>]*>)?\([^)]*\)/g) ?? [];
+    expect(queries.length).toBeGreaterThan(0);
+    for (const call of queries) {
+      expect(call, call).toMatch(
+        /db\.query(<[^>]*>)?\((\w+\.text, \w+\.values|"(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) dc_keyed_check")\)/,
+      );
+    }
+  });
+
+  it("builds each statement from quoted catalog names, catalog types and one bound array per column, never a value", () => {
+    for (const name of BUILDERS) {
+      const code = builder(name);
+      expect(code, name).toContain("unnest(${arrays(");
+      expect(code, name).toContain("castType");
+      const text = code.slice(code.indexOf("text:"), code.indexOf("values:"));
+      expect(text, name).not.toMatch(/\brows\b|\br\[|\.value\b/);
+    }
+    expect(keyed).toContain("`$${i + 1}::text[]`");
+    const upsert = builder("buildUpsertBatch");
+    expect(upsert).toContain("quoteQualified(table.schema, table.name)");
+    expect(upsert).toContain("EXCLUDED.${quoteIdentifier(u)}");
+    expect(upsert).toContain("ON CONFLICT (${target})");
+    expect(upsert).toContain(" RETURNING (dc_t.xmax = 0) AS inserted");
+    expect(builder("buildUpdateByKeyBatch")).toContain("quoteQualified(table.schema, table.name)");
+    // The reads of the preview only read: they write nothing.
+    for (const name of ["buildFindExisting", "buildFindRepeatedKeys"]) {
+      const text = builder(name).slice(builder(name).indexOf("text:"));
+      expect(text, name).toMatch(/`SELECT /);
+      expect(text, name).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
+    }
+  });
+
+  it("every write statement names the rows it must report, and apply rolls back on any other count", () => {
+    expect(builder("buildUpsertBatch")).toContain("expectRows: plan.expectRows");
+    expect(builder("buildUpdateByKeyBatch")).toContain("expectRows: rows.length");
+    expect(planners).toContain("expectRows: doUpdate ? rows.length : rows.length - foundHere");
+    expect((planners.match(/expect: "any"/g) ?? []).length).toBe(2);
+    expect((planners.match(/guard: \{ relations: \[guardRelation\(/g) ?? []).length).toBe(2);
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(index).toMatch(/statement\.expectRows !== undefined && count !== statement\.expectRows/);
+    expect(index).toMatch(/signal\?\.aborted/);
+  });
+
+  it("re-derives the key from the catalog at preview: a primary key or unique constraint that may be used", () => {
+    expect(planners).toContain("await listUniqueKeys(db, table.oid)");
+    expect(planners).toContain("const chosen = same.find((k) => k.eligible)");
+    expect(planners).toContain("key: chosen.columns");
+    // The conflict target and the keyed condition are the chosen constraint's columns, never the request's names.
+    expect(planners).toMatch(
+      /buildUpsertBatch\(change\.table, plan\.columns, plan\.key, update, rows,/,
+    );
+    expect(planners).toMatch(
+      /buildUpdateByKeyBatch\(\s*change\.table,\s*plan\.columns,\s*plan\.key,/,
+    );
+    const catalog = stripComments(read("packages/postgres-adapter/src/writes/catalog.ts"));
+    const keys = catalog.slice(
+      catalog.indexOf("export async function listUniqueKeys"),
+      catalog.indexOf("export async function listUniqueColumns"),
+    );
+    for (const rule of [
+      "NOT con.condeferrable",
+      "ix.indpred IS NULL",
+      "ix.indexprs IS NULL",
+      "ix.indisvalid",
+      "NOT a.attnotnull",
+      "con.contype IN ('p', 'u')",
+    ]) {
+      expect(keys, rule).toContain(rule);
+    }
+    // The columns to update stay outside every unique key of the table.
+    expect(planners).toContain("await listUniqueColumns(db, table.oid)");
+    // `xmax` only where it works: an ordinary table the role may read.
+    expect(planners).toContain(
+      'doUpdate && table.relkind === "r" && (await canSelectTable(db, table.oid))',
+    );
+  });
+
+  it("refuses a repeated key over the whole file, and finds existing rows by a read in the preview's transaction", () => {
+    expect(planners).toContain("buildFindRepeatedKeys(key, plan.keyRows)");
+    expect(planners).toContain("buildFindExisting(ref, key, batch)");
+    expect(planners).toMatch(
+      /if \(kept\.length === 0\) \{\s*throw new DatabaseError\("row_changed"/,
+    );
+    // The refusals name rows by number and columns by name: no message reads a cell.
+    const messages = (planners.match(/`[^`]*`/g) ?? []).join("\n");
+    expect(messages).not.toMatch(/change\.rows\[|keyRows\[|\.key\[\d\]/);
+  });
+
+  it("the schemas are strict and bounded, with no field that holds SQL", () => {
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const keyedImportRowsSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect((part.match(/z\s*\.strictObject/g) ?? []).length).toBe(2);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|conflict)\b/i);
+    for (const limit of [
+      "WRITE_MAX_IMPORT_ROWS",
+      "WRITE_MAX_IMPORT_COLUMNS",
+      "WRITE_MAX_IMPORT_CELL_CHARS",
+      "WRITE_MAX_CHANGE_PARTS",
+    ]) {
+      expect(part, limit).toContain(limit);
+    }
+  });
+
+  it("a failure is a fixed sentence chosen by its SQLSTATE", () => {
+    const errors = stripComments(read("packages/postgres-adapter/src/connection/write-errors.ts"));
+    for (const code of ["55000", "42P10", "21000"]) {
+      expect(errors, code).toMatch(
+        new RegExp(`case "${code}":\\s*return fail\\(\\s*"invalid_change",\\s*"`),
+      );
+    }
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planUpsertRows|planUpdateByKey/.test(
+          readFileSync(f, "utf8"),
+        ),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+    expect(index).toContain(
+      'if (change.kind === "upsert_rows") return planUpsertRows(db, change);',
+    );
+    expect(index).toContain(
+      'if (change.kind === "update_by_key") return planUpdateByKey(db, change);',
+    );
+  });
+});
+
+describe("a change of the rows a filter matches: the filter is only read, and every write is a keyed batch", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const matching = stripComments(read("packages/postgres-adapter/src/writes/matching.ts"));
+  const reader = stripComments(
+    read("packages/postgres-adapter/src/introspection/matching-keys.ts"),
+  );
+  const keyed = stripComments(read("packages/postgres-adapter/src/writes/keyed.ts"));
+  const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+  const deleteBuilder = keyed.slice(
+    keyed.indexOf("export function buildDeleteByKeyBatch"),
+    keyed.indexOf("export function buildFindExisting"),
+  );
+
+  it("finds the planners, the reader and the keyed delete", () => {
+    expect(matching).toContain("export async function planUpdateMatching");
+    expect(matching).toContain("export async function planDeleteMatching");
+    expect(reader).toContain("export async function readMatchingKeys");
+    expect(deleteBuilder).toContain("export function buildDeleteByKeyBatch");
+  });
+
+  it("the planners cannot reach the filter builder: the filter goes, whole and once, to the read of the preview", () => {
+    // No statement of the page reader is built here, and nothing of its condition code is imported.
+    expect(matching).not.toMatch(/buildRowsQuery|filterCondition|ONE_SQL|NONE_SQL/);
+    const imports = [...matching.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
+    expect(imports.filter((i) => i!.includes("introspection")).sort()).toEqual([
+      "../introspection/matching-keys.js",
+      "../introspection/types.js",
+    ]);
+    // The conditions appear in exactly two places: the refusal of an empty filter, and the one call of the read.
+    expect((matching.match(/readMatchingKeys\(/g) ?? []).length).toBe(1);
+    const rest = matching
+      .replace(/if \(change\.filters\.length === 0\) throw invalidChange\(EMPTY_FILTER\);/g, "")
+      .replace("{ filters: change.filters, revealColumns: change.revealColumns }", "");
+    expect(rest).not.toMatch(/\bfilters\b/);
+    // No SQL text at all in the planners, and no query of their own: every statement comes from a keyed builder.
+    expect(matching).not.toMatch(/db\.query\(/);
+    const texts = (matching.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|USING|SET)\b/);
+    }
+    // Every statement is built from the keys the read returned, by the builders of the import by key.
+    expect(matching).toMatch(
+      /statements = held\.batches\.map\(\(rows\) =>\s*buildUpdateByKeyBatch\(change\.table, keyColumns, key, rows, \[same\]\),?\s*\)/,
+    );
+    expect(matching).toMatch(
+      /statements = held\.batches\.map\(\(rows\) =>\s*buildDeleteByKeyBatch\(change\.table, keyColumns, rows\),?\s*\)/,
+    );
+    expect((matching.match(/build\w+Batch\(/g) ?? []).length).toBe(2);
+    // The builders and the apply never see a condition: they take keys, a column and a value.
+    for (const [name, code] of [
+      ["keyed.ts", keyed],
+      ["index.ts", index],
+    ] as const) {
+      // (`.filter(` is the array method; a condition would be `filters`, a `RowFilter` or the page reader's builder.)
+      expect(code, name).not.toMatch(
+        /(?<!\.)\bfilters?\b|RowFilter|buildRowsQuery|matching-keys|introspection\/rows/,
+      );
+    }
+  });
+
+  it("the read is the page reader's own statement, for the key columns only, in the read-only transaction, and only reads", () => {
+    expect(reader).toMatch(/buildRowsQuery\(\{/);
+    expect(reader).toContain("shown: [],");
+    expect(reader).toContain("keyColumns,");
+    expect(reader).toContain("limit: limits.rows + 1");
+    expect(reader).toMatch(/checkRowsFilters\(options\.filters, columns\)/);
+    expect(reader).toMatch(
+      /masked: isSensitiveColumnName\(c\.name\) && !options\.reveal\.has\(c\.name\)/,
+    );
+    expect(reader).toMatch(/all\.slice\(0, ROWS_MAX_COLUMNS\)/);
+    expect(reader).toContain(
+      "if (options.filters.length === 0 || keyColumns.length === 0) throw refused()",
+    );
+    expect(reader).toMatch(/DECLARE dc_matching NO SCROLL CURSOR FOR \$\{text\}/);
+    expect(reader).toMatch(/FETCH \$\{IMPORT_BATCH_ROWS\} FROM dc_matching/);
+    const texts = (reader.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|CREATE|ALTER|COPY|GRANT)\b/);
+    }
+    // A failure is a fixed sentence: the database's message (which repeats a value) is never read.
+    expect(reader).not.toMatch(/\.message\b/);
+    // The limits are the core's: 100,000 rows, 8 million characters of key text, 4,096 characters a key value.
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain("export const MATCHING_MAX_ROWS = 100_000;");
+    expect(core).toContain("export const MATCHING_MAX_KEY_CHARS = 8_000_000;");
+    expect(core).toContain("export const MATCHING_MAX_KEY_VALUE_CHARS = 4_096;");
+    for (const limit of [
+      "MATCHING_MAX_ROWS",
+      "MATCHING_MAX_KEY_CHARS",
+      "MATCHING_MAX_KEY_VALUE_CHARS",
+    ]) {
+      expect(reader, limit).toContain(limit);
+    }
+    // Only the planners ask for it.
+    const callers = walk(path.join(root, "packages/postgres-adapter/src"))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+      .filter((f) => /readMatchingKeys\(/.test(readFileSync(f, "utf8")))
+      .map(rel)
+      .sort();
+    expect(callers).toEqual([
+      "packages/postgres-adapter/src/introspection/matching-keys.ts",
+      "packages/postgres-adapter/src/writes/matching.ts",
+    ]);
+  });
+
+  it("every write statement names the rows it must report, in one transaction under a plan guard, and is destructive", () => {
+    expect(deleteBuilder).toContain("quoteQualified(table.schema, table.name)");
+    expect(deleteBuilder).toContain("unnest(${arrays(");
+    expect(deleteBuilder).toContain("castType");
+    expect(deleteBuilder).toContain("expectRows: rows.length");
+    const text = deleteBuilder.slice(
+      deleteBuilder.indexOf("text:"),
+      deleteBuilder.indexOf("values:"),
+    );
+    expect(text).not.toMatch(/\brows\b|\br\[|\.value\b/);
+    // The update batch binds the one value once, as a parameter, never in the text.
+    const update = keyed.slice(
+      keyed.indexOf("export function buildUpdateByKeyBatch"),
+      keyed.indexOf("export function buildDeleteByKeyBatch"),
+    );
+    expect(update).toContain("CAST($${columns.length + j + 1} AS ${s.castType})");
+    expect(update).toContain("...same.map((s) => s.value)");
+    expect(update).toContain("expectRows: rows.length");
+    expect((matching.match(/expect: "any"/g) ?? []).length).toBe(2);
+    expect((matching.match(/destructive: true/g) ?? []).length).toBe(2);
+    expect((matching.match(/confirmRows: count/g) ?? []).length).toBe(2);
+    expect((matching.match(/guard: \{ relations: \[guardRelation\(/g) ?? []).length).toBe(2);
+    expect(index).toMatch(/statement\.expectRows !== undefined && count !== statement\.expectRows/);
+    // The column set is one the person may write, and never the key or a hidden column.
+    expect(matching).toContain("requireWritable(column)");
+    expect(matching).toContain("if (key.includes(column.name))");
+    expect(matching).toContain(
+      "if (isSensitiveColumnName(column.name) && !change.revealColumns.includes(column.name))",
+    );
+    expect(matching).toContain("await checkValues(db, [same]");
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    const destructive = core.slice(core.indexOf("export const DESTRUCTIVE_CHANGE_KINDS"));
+    expect(destructive.slice(0, destructive.indexOf("];"))).toMatch(
+      /"update_matching",\s*"delete_matching",/,
+    );
+  });
+
+  it("the schemas are strict, take the page reader's conditions (at least one), and hold no SQL", () => {
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const matchingFiltersSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(part).toMatch(/z\s*\.array\(rowFilterSchema\)\s*\.min\(1,/);
+    expect(part).toContain(".max(MAX_ROW_FILTERS)");
+    expect((part.match(/z\.strictObject\(/g) ?? []).length).toBe(2);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|query)\b/i);
+    // The empty filter is refused by the schema, by both planners and by the read.
+    expect(
+      (
+        matching.match(
+          /if \(change\.filters\.length === 0\) throw invalidChange\(EMPTY_FILTER\)/g,
+        ) ?? []
+      ).length,
+    ).toBe(2);
+  });
+
+  it("the count is typed, and checked by the write service before the preview is taken; one such plan per connection", () => {
+    const service = stripComments(read("apps/web/lib/server/write-service.ts"));
+    const peek = service.indexOf("this.previews.peek(id, previewId)");
+    const check = service.indexOf("checkTypedCount(waiting, confirmRows)");
+    const take = service.indexOf("this.previews.take(id, previewId)");
+    expect(peek).toBeGreaterThan(-1);
+    expect(check).toBeGreaterThan(peek);
+    expect(take).toBeGreaterThan(check);
+    expect(service).toContain(
+      "if (plan.confirmRows !== undefined && confirmRows !== plan.confirmRows)",
+    );
+    expect(service).toContain("confirmRows: plan.confirmRows ?? null");
+    expect(
+      stripComments(read("apps/web/app/api/connections/[id]/writes/apply/route.ts")),
+    ).toContain("parsed.data.confirmRows");
+    const schema = stripComments(read("packages/shared-types/src/writes.ts"));
+    expect(schema).toMatch(
+      /confirmRows: z\.number\(\)\.int\(\)\.min\(0\)\.max\(WRITE_MAX_MATCHING_ROWS\)\.optional\(\)/,
+    );
+    const store = stripComments(read("apps/web/lib/server/preview-store.ts"));
+    expect(store).toMatch(/MAX_MATCHING_PREVIEWS_PER_CONNECTION = 1/);
+    expect(store).toMatch(
+      /MATCHING_KINDS[^=]*= new Set\(\["update_matching", "delete_matching"\]\)/,
+    );
+    expect(store).toContain("if (MATCHING_KINDS.has(plan.change.kind))");
+    expect(store).toContain("MATCHING_KINDS.has(stored.plan.change.kind)");
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planUpdateMatching|planDeleteMatching|readMatchingKeys/.test(
+          readFileSync(f, "utf8"),
+        ),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    expect(index).toContain(
+      'if (change.kind === "update_matching") return planUpdateMatching(db, change);',
+    );
+    expect(index).toContain(
+      'if (change.kind === "delete_matching") return planDeleteMatching(db, change);',
+    );
+    // A foreign key that refuses the delete is a fixed sentence by its SQLSTATE.
+    const errors = stripComments(read("packages/postgres-adapter/src/connection/write-errors.ts"));
+    expect(errors).toMatch(/case "23503":\s*return fail\(\s*"foreign_key_violation",\s*`/);
+  });
+});
+
+describe("an edit of cells in several rows is single-row updates in one transaction, never a new statement", () => {
+  const read = (file: string) => readFileSync(path.join(root, file), "utf8");
+  const stripComments = (code: string) =>
+    code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const cells = stripComments(read("packages/postgres-adapter/src/writes/cells.ts"));
+  const index = stripComments(read("packages/postgres-adapter/src/writes/index.ts"));
+  const plan = cells.slice(cells.indexOf("export async function planEditCells"));
+
+  it("finds the planner, and it is the only code in its file", () => {
+    expect(plan).toContain("export async function planEditCells");
+    expect((cells.match(/\bfunction\b/g) ?? []).length).toBe(1);
+  });
+
+  it("builds every statement with the builder of one row, and asks about the rows only with the one fixed read", () => {
+    // No SQL text at all here, and no query of its own: the statements come from `buildUpdateRow`, the reads from
+    // `checkValues` and `splitByCurrent` (the read of a bulk change, `buildRowStillHolds`), as for `update_rows`.
+    expect(cells).not.toMatch(/db\.query\(/);
+    const texts = (cells.match(/`[^`]*`/g) ?? []).map((t) => t.replace(/\$\{[^}]*\}/g, ""));
+    for (const t of texts) {
+      expect(t, t).not.toMatch(/\b(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|SET|USING|RETURNING)\b/);
+    }
+    expect(cells).not.toMatch(/quoteIdentifier|quoteQualified|unnest|build\w+Batch/);
+    expect((cells.match(/\bbuild\w+\(/g) ?? []).sort()).toEqual(["buildUpdateRow("]);
+    expect(plan).toMatch(
+      /statements: kept\.map\(\(i\) => buildUpdateRow\(change\.table, keys\[i\]!, sets\[i\]!, seen\[i\]!\)\)/,
+    );
+    expect(plan).toMatch(/const \{ kept, skipped \} = await splitByCurrent\(/);
+    // Each row is compared with what was seen in exactly its own edited cells.
+    expect(plan).toContain("r.changes.map((c) => ({ column: c.column, value: c.expected }))");
+  });
+
+  it("every statement must change exactly one row, in one transaction under a plan guard, and none left is row_changed", () => {
+    expect((plan.match(/expect: "one_row"/g) ?? []).length).toBe(1);
+    expect(plan).not.toMatch(/expectRows|confirmRows|counts:/);
+    expect(
+      (
+        plan.match(
+          /guard: \{ relations: \[guardRelation\(table, \[\.\.\.key, \.\.\.names\], "row_exclusive"\)\] \}/g,
+        ) ?? []
+      ).length,
+    ).toBe(1);
+    expect(plan).toContain('if (kept.length === 0) throw new DatabaseError("row_changed")');
+    expect(plan).toMatch(/\n\s+skipped,\n/);
+    expect(index).toMatch(/if \(count === 0\) throw new DatabaseError\("row_changed"\)/);
+    expect(index).toMatch(/if \(count !== 1\) throw new DatabaseError\("unexpected"\)/);
+    // Like `update_rows` it compares each value it overwrites with what was seen: no tick, and not on the list.
+    expect(plan).toContain("destructive: false");
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    const destructive = core.slice(core.indexOf("export const DESTRUCTIVE_CHANGE_KINDS"));
+    expect(destructive.slice(0, destructive.indexOf("];"))).not.toContain('"edit_cells"');
+  });
+
+  it("refuses the columns the form refuses, a key column and a hidden one, before any value is checked or compared", () => {
+    for (const rule of [
+      "await requireEditable(db, change.table)",
+      "findColumn(table, name)",
+      "requireWritable(column)",
+      "if (key.includes(column.name))",
+      "isSensitiveColumnName(name) && !change.revealColumns.includes(name)",
+      "const hiddenKey = key.filter(hidden)",
+      "if (hidden(column.name))",
+    ]) {
+      expect(plan, rule).toContain(rule);
+    }
+    // Every column check and every refusal of the request comes before the first read of the database.
+    const firstRead = Math.min(
+      plan.indexOf("await checkValues("),
+      plan.indexOf("await splitByCurrent("),
+    );
+    for (const before of [
+      "const hiddenKey = key.filter(hidden)",
+      "const column = writable(cell.column)",
+      "distinctRows(keys)",
+    ]) {
+      expect(plan.indexOf(before), before).toBeGreaterThan(-1);
+      expect(plan.indexOf(before), before).toBeLessThan(firstRead);
+    }
+  });
+
+  it("refuses more rows or cells than the limits, a row named twice and a column twice in a row, in the schema and again in the planner", () => {
+    expect(plan).toMatch(/if \(change\.rows\.length > MAX_BULK_ROWS\) throw invalidChange/);
+    expect(plan).toContain("if (row.changes.length > EDIT_CELLS_MAX_CELLS_PER_ROW)");
+    expect(plan).toContain("text.length > MAX_CHANGE_VALUE_CHARS");
+    expect(plan).toContain("distinctRows(keys)");
+    expect(plan).toContain('throw invalidChange("A column is changed twice in one row.")');
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain("export const EDIT_CELLS_MAX_CELLS_PER_ROW = 50;");
+    const schema = read("packages/shared-types/src/writes.ts");
+    const start = schema.indexOf("const cellChangeSchema");
+    const part = schema.slice(start, schema.indexOf("// ----", start));
+    expect(start).toBeGreaterThan(-1);
+    expect((part.match(/z\s*\.strictObject\(/g) ?? []).length).toBe(3);
+    expect(part).not.toMatch(/\b(sql|where|expression|using|returning|query|filters?)\b/i);
+    for (const rule of [
+      ".max(WRITE_MAX_BULK_ROWS)",
+      ".max(WRITE_MAX_EDIT_CELLS_PER_ROW)",
+      ".max(WRITE_MAX_CHANGE_PARTS)",
+      "distinctKeys(c.rows)",
+      "revealColumns: revealColumnsSchema",
+      "value: valueSchema",
+      "expected: valueSchema",
+    ]) {
+      expect(part, rule).toContain(rule);
+    }
+    expect(schema).toContain("export const WRITE_MAX_EDIT_CELLS_PER_ROW = 50;");
+  });
+
+  it("keeps values out of what it says: the effect and the refusals name columns and counts, never a cell", () => {
+    const messages = (plan.match(/`[^`]*`/g) ?? []).join("\n");
+    expect(messages).not.toMatch(/\.value\b|\.expected\b|change\.rows\[|\.key\[/);
+    const core = stripComments(read("packages/database-core/src/changes.ts"));
+    expect(core).toContain(
+      "return [...new Set(change.rows.flatMap((r) => r.changes.map((c) => c.column)))];",
+    );
+  });
+
+  it("is reached only through the write service, as every other change is", () => {
+    const callers = walk(path.join(root, "apps/web"))
+      .filter(
+        (f) => /\.(ts|tsx|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes("node_modules"),
+      )
+      .filter((f) =>
+        /\.previewChange\(|\.applyChange\(|planEditCells/.test(readFileSync(f, "utf8")),
+      );
+    expect(callers.map(rel)).toEqual(["apps/web/lib/server/write-service.ts"]);
+    expect(index).toContain('if (change.kind === "edit_cells") return planEditCells(db, change);');
+    const planners = walk(path.join(root, "packages/postgres-adapter/src"))
+      .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
+      .filter((f) => /planEditCells\(/.test(readFileSync(f, "utf8")))
+      .map(rel)
+      .sort();
+    expect(planners).toEqual([
+      "packages/postgres-adapter/src/writes/cells.ts",
+      "packages/postgres-adapter/src/writes/index.ts",
+    ]);
   });
 });
 

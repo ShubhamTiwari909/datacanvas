@@ -36,6 +36,11 @@ export interface CatalogColumn {
   generated: boolean;
   isBytea: boolean;
   isArray: boolean;
+  /**
+   * The column's own collation when it is not its type's default (the catalog's names, unquoted), else null. A
+   * nondeterministic collation can call two different strings equal, so a repeated key is looked for under it.
+   */
+  collation: { schema: string; name: string } | null;
 }
 
 export interface CatalogTable {
@@ -66,7 +71,14 @@ const COLUMNS_SQL = `
     SELECT a.attnum, a.attname::text AS name, a.atttypid,
       pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
       a.attnotnull AS not_null, a.atthasdef AS has_default,
-      a.attidentity::text AS identity, a.attgenerated::text AS generated
+      a.attidentity::text AS identity, a.attgenerated::text AS generated,
+      (SELECT cn.nspname::text FROM pg_catalog.pg_collation co
+         JOIN pg_catalog.pg_namespace cn ON cn.oid = co.collnamespace
+         JOIN pg_catalog.pg_type ct ON ct.oid = a.atttypid
+        WHERE co.oid = a.attcollation AND a.attcollation <> ct.typcollation) AS collation_schema,
+      (SELECT co.collname::text FROM pg_catalog.pg_collation co
+         JOIN pg_catalog.pg_type ct ON ct.oid = a.atttypid
+        WHERE co.oid = a.attcollation AND a.attcollation <> ct.typcollation) AS collation_name
     FROM pg_catalog.pg_attribute a
     WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped
   ), base(attnum, typid) AS (
@@ -77,6 +89,7 @@ const COLUMNS_SQL = `
     WHERE t.typtype = 'd'
   )
   SELECT c.attnum::int AS attnum, c.name, c.data_type, c.not_null, c.has_default,
+    c.collation_schema, c.collation_name,
     CASE bt.oid
       WHEN 'pg_catalog.bpchar'::regtype THEN 'bpchar'
       WHEN 'pg_catalog._bpchar'::regtype THEN 'bpchar[]'
@@ -109,6 +122,8 @@ interface ColumnRow {
   root_type: string;
   is_bytea: boolean;
   is_array: boolean;
+  collation_schema: string | null;
+  collation_name: string | null;
 }
 
 /** A table, view or other listed relation with its columns, or null when there is none. */
@@ -145,6 +160,10 @@ export async function loadTable(db: Queryable, ref: TableRef): Promise<CatalogTa
       generated: c.generated !== "",
       isBytea: c.is_bytea,
       isArray: c.is_array,
+      collation:
+        c.collation_schema !== null && c.collation_name !== null
+          ? { schema: c.collation_schema, name: c.collation_name }
+          : null,
     })),
   };
 }
@@ -247,6 +266,29 @@ export async function listCascadeChain(db: Queryable, oid: string): Promise<stri
   return rows.map((r) => String(r.name));
 }
 
+/**
+ * Does deleting rows of this table delete other rows of the SAME table through ON DELETE CASCADE (a key of the table
+ * on itself, or a cycle of cascading keys through other tables)? A delete in one batch then removes rows a later
+ * batch was going to delete.
+ */
+export async function cascadesOntoItself(db: Queryable, oid: string): Promise<boolean> {
+  const { rows } = await db.query<{ cycle: boolean }>(
+    `WITH RECURSIVE reach(relid) AS (
+       SELECT con.conrelid FROM pg_catalog.pg_constraint con
+       WHERE con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = $1::oid
+         AND con.conparentid = 0
+       UNION
+       SELECT con.conrelid FROM reach
+       JOIN pg_catalog.pg_constraint con
+         ON con.contype = 'f' AND con.confdeltype = 'c' AND con.confrelid = reach.relid
+        AND con.conparentid = 0
+     )
+     SELECT EXISTS (SELECT 1 FROM reach WHERE relid = $1::oid) AS cycle`,
+    [oid],
+  );
+  return rows[0]?.cycle === true;
+}
+
 // ------------------------------------------------- constraints and indexes ---
 
 export interface CatalogConstraint {
@@ -347,6 +389,102 @@ export async function hasUniqueKeyOn(
     [tableOid, columns],
   );
   return rows.length > 0;
+}
+
+// --------------------------------------------------- keys of an import by key ---
+
+export interface CatalogUniqueKey {
+  name: string;
+  /** The constraint's columns, in its own order. */
+  columns: string[];
+  primary: boolean;
+  /**
+   * May an import by key use it (`docs/write-side-v2-plan.md`, 4.1 and 13.1)? A primary key or unique constraint
+   * whose index is valid, not partial and not on expressions, that is NOT deferrable (`ON CONFLICT` refuses a
+   * deferrable arbiter, 55000), not a period constraint (PostgreSQL 18), and whose every column is NOT NULL (NULL
+   * never conflicts and never matches).
+   */
+  eligible: boolean;
+}
+
+/** The table's primary key and unique constraints (never a row), the primary key first. */
+export async function listUniqueKeys(db: Queryable, oid: string): Promise<CatalogUniqueKey[]> {
+  const { rows } = await db.query<{
+    name: string;
+    type: string;
+    columns: string[];
+    eligible: boolean;
+  }>(
+    `SELECT con.conname::text AS name, con.contype::text AS type,
+       ARRAY(
+         SELECT a.attname::text
+         FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+         JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+         ORDER BY k.ord
+       ) AS columns,
+       COALESCE(
+         NOT con.condeferrable
+         AND NOT COALESCE((to_jsonb(con) ->> 'conperiod')::boolean, false)
+         AND ix.indisunique AND ix.indisvalid AND ix.indpred IS NULL AND ix.indexprs IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest(con.conkey) AS k(attnum)
+           JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+           WHERE NOT a.attnotnull
+         ),
+         false
+       ) AS eligible
+     FROM pg_catalog.pg_constraint con
+     LEFT JOIN pg_catalog.pg_index ix ON ix.indexrelid = con.conindid
+     WHERE con.conrelid = $1::oid AND con.contype IN ('p', 'u')
+     ORDER BY (con.contype = 'p') DESC, con.conname`,
+    [oid],
+  );
+  return rows.map((r) => ({
+    name: r.name,
+    columns: r.columns,
+    primary: r.type === "p",
+    eligible: r.eligible,
+  }));
+}
+
+/**
+ * The columns an upsert must not update: every column of the table's unique indexes (the primary key, every
+ * unique constraint, and unique indexes without a constraint, eligible or not), and every column a partial or
+ * expression unique index reads. A conflict on a unique index that is not the arbiter is an error, not an update
+ * (13.1, item 4), and updating a key can move a row under a foreign key.
+ */
+export async function listUniqueColumns(db: Queryable, oid: string): Promise<string[]> {
+  const { rows } = await db.query<{ name: string }>(
+    `SELECT DISTINCT a.attname::text AS name
+     FROM pg_catalog.pg_index ix
+     JOIN pg_catalog.pg_attribute a
+       ON a.attrelid = ix.indrelid AND a.attnum > 0 AND NOT a.attisdropped
+     WHERE ix.indrelid = $1::oid AND ix.indisunique
+       AND (
+         EXISTS (
+           SELECT 1 FROM generate_series(0, ix.indnkeyatts - 1) AS g(pos)
+           WHERE ix.indkey[g.pos] = a.attnum
+         )
+         OR ((ix.indexprs IS NOT NULL OR ix.indpred IS NOT NULL) AND EXISTS (
+           SELECT 1 FROM pg_catalog.pg_depend d
+           WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = ix.indexrelid
+             AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = ix.indrelid
+             AND d.refobjsubid = a.attnum
+         ))
+       )
+     ORDER BY 1`,
+    [oid],
+  );
+  return rows.map((r) => r.name);
+}
+
+/** May the connected role read the table (`SELECT` on it, which `RETURNING (xmax = 0)` needs: 13.1, item 7)? */
+export async function canSelectTable(db: Queryable, oid: string): Promise<boolean> {
+  const { rows } = await db.query<{ can: boolean }>(
+    `SELECT pg_catalog.has_table_privilege($1::oid, 'SELECT') AS can`,
+    [oid],
+  );
+  return rows[0]?.can === true;
 }
 
 // ------------------------------------------------------------- dependents ---

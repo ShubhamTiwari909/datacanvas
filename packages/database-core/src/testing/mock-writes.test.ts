@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { isWritableAdapter } from "../adapter.js";
-import type { Change } from "../changes.js";
+import {
+  DESTRUCTIVE_CHANGE_KINDS,
+  MATCHING_CHANGE_KINDS,
+  ROW_CHANGE_KINDS,
+  changeColumns,
+  type Change,
+} from "../changes.js";
 import type { DatabaseError } from "../errors.js";
 import { MockDatabaseAdapter } from "./mock-adapter.js";
 import { createEcommerceData } from "./ecommerce-fixture.js";
@@ -42,6 +48,102 @@ describe("the mock adapter's write side", () => {
     const orders = await adapter.describeForEdit({ schema: "public", name: "orders" });
     expect(orders.triggers).toEqual(["orders_touch"]);
     expect(orders.rowSecurity).toBe(true);
+  });
+
+  it("lists the keys an import by key may use, and refuses an import by key (the real adapter does it)", async () => {
+    const { adapter } = await setup();
+    const info = await adapter.describeForEdit(users);
+    expect(info.uniqueKeys).toEqual([
+      { name: "users_pkey", columns: ["id"] },
+      { name: "users_email_key", columns: ["email"] },
+    ]);
+    const rows = [["1", "a@x.test"]];
+    for (const change of [
+      {
+        kind: "upsert_rows",
+        table: users,
+        key: ["id"],
+        columns: ["id", "email"],
+        rows,
+        updateColumns: [],
+      },
+      { kind: "update_by_key", table: users, key: ["id"], columns: ["id", "email"], rows },
+    ] satisfies Change[]) {
+      await expect(adapter.previewChange(change)).rejects.toMatchObject({
+        code: "invalid_change",
+      });
+    }
+  });
+
+  it("refuses an edit of cells in several rows (the real adapter does it), names its columns once for the history, and needs no tick", async () => {
+    const { adapter, emails } = await setup();
+    const before = await emails();
+    const change: Change = {
+      kind: "edit_cells",
+      table: users,
+      revealColumns: [],
+      rows: [
+        {
+          key: [{ column: "id", value: "1" }],
+          changes: [
+            { column: "email", value: "secret-1@x.test", expected: "a@x.test" },
+            { column: "full_name", value: "secret-name", expected: null },
+          ],
+        },
+        {
+          key: [{ column: "id", value: "2" }],
+          changes: [{ column: "email", value: "secret-2@x.test", expected: "b@x.test" }],
+        },
+      ],
+    };
+    await expect(adapter.previewChange(change)).rejects.toMatchObject({
+      code: "invalid_change",
+      message: "The sample database changes one row at a time.",
+    });
+    expect(await emails()).toEqual(before);
+    // Names only, each once: never a key, a value or what was seen.
+    expect(changeColumns(change)).toEqual(["email", "full_name"]);
+    expect(JSON.stringify(changeColumns(change))).not.toMatch(/secret|x\.test/);
+    expect(ROW_CHANGE_KINDS).toContain("edit_cells");
+    // Like `update_rows`, each value it overwrites is compared with what was seen: not a destructive change.
+    expect(DESTRUCTIVE_CHANGE_KINDS).not.toContain("edit_cells");
+    expect(MATCHING_CHANGE_KINDS).not.toContain("edit_cells");
+  });
+
+  it("refuses a change of the rows a filter matches (the real adapter does it), and names its columns for the history", async () => {
+    const { adapter, emails } = await setup();
+    const before = await emails();
+    const filters = [{ column: "email", op: "contains" as const, value: "x.test" }];
+    const updating: Change = {
+      kind: "update_matching",
+      table: users,
+      filters,
+      revealColumns: [],
+      set: { column: "full_name", value: "n" },
+    };
+    const deleting: Change = { kind: "delete_matching", table: users, filters, revealColumns: [] };
+    const changes = [updating, deleting];
+    for (const change of changes) {
+      await expect(adapter.previewChange(change)).rejects.toMatchObject({
+        code: "invalid_change",
+        message: "The sample database changes one row at a time.",
+      });
+    }
+    expect(await emails()).toEqual(before);
+    expect(changeColumns(updating)).toEqual(["full_name"]);
+    expect(
+      changeColumns({
+        kind: "delete_matching",
+        table: users,
+        filters: [...filters, { column: "id", op: "gt", value: "1" }, ...filters],
+        revealColumns: [],
+      }),
+    ).toEqual(["email", "id"]);
+    for (const kind of ["update_matching", "delete_matching"] as const) {
+      expect(DESTRUCTIVE_CHANGE_KINDS).toContain(kind);
+      expect(MATCHING_CHANGE_KINDS).toContain(kind);
+      expect(ROW_CHANGE_KINDS).toContain(kind);
+    }
   });
 
   it("refuses a table that does not exist and a view", async () => {

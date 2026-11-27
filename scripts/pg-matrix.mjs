@@ -5,7 +5,7 @@
  *   pnpm run test:pg-matrix                 # versions 12 to 18
  *   pnpm run test:pg-matrix -- 14 17        # only these
  *
- * For each version: start `postgres:<version>-alpine` on a free loopback port
+ * For each version: start the same `postgres:<version>` image as CI on a free loopback port
  * (data lives only inside the container and disappears with it), wait until it
  * accepts connections, run the adapter's integration, odd-schema and
  * performance tests plus the service integration tests against it, then stop
@@ -21,8 +21,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const versions = process.argv.slice(2).length
-  ? process.argv.slice(2)
+const requestedVersions = process.argv.slice(process.argv[2] === "--" ? 3 : 2);
+const versions = requestedVersions.length
+  ? requestedVersions
   : ["12", "13", "14", "15", "16", "17", "18"];
 const PASSWORD = "testpass";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,7 +56,8 @@ async function runOne(version) {
     `POSTGRES_PASSWORD=${PASSWORD}`,
     "-p",
     `127.0.0.1:${port}:5432`,
-    `postgres:${version}-alpine`,
+    // The migration tests use glibc's C.utf8 collation, which Alpine lacks.
+    `postgres:${version}`,
   ]);
   try {
     let ready = false;
@@ -81,10 +83,14 @@ async function runOne(version) {
       "show server_version",
     ]).trim();
     const result = spawnSync(
-      "npx",
+      "pnpm",
       [
+        "exec",
         "vitest",
         "run",
+        // All test workers share one local Docker server. Keep database setup
+        // and test queries from overwhelming it on machines with many CPUs.
+        "--maxWorkers=2",
         "packages/postgres-adapter",
         "apps/web/lib/server/connection-service.integration",
         "apps/web/features/paths",
@@ -105,14 +111,7 @@ async function runOne(version) {
       version,
       ok: result.status === 0,
       note: `server ${serverVersion}; ${summary}; ${Math.round((Date.now() - started) / 1000)} s`,
-      failures:
-        result.status === 0
-          ? ""
-          : output
-              .split("\n")
-              .filter((l) => /FAIL|AssertionError|Error:/.test(l))
-              .slice(0, 12)
-              .join("\n"),
+      failures: result.status === 0 ? "" : (result.error?.message ?? output.trim()),
     };
   } finally {
     try {

@@ -48,6 +48,7 @@ import {
   listConstraints,
   listIncomingForeignKeys,
   listTriggers,
+  listUniqueKeys,
   loadTable,
   type CatalogColumn,
   type CatalogTable,
@@ -197,17 +198,24 @@ export async function describeForEdit(db: Queryable, ref: TableRef): Promise<Tab
       : [],
     rowSecurity,
     incomingForeignKeys: isTable ? await listIncomingForeignKeys(db, table.oid) : [],
+    // The keys an import by key may use: structure only, and only those `ON CONFLICT` and a keyed update can use.
+    uniqueKeys:
+      reason === null
+        ? (await listUniqueKeys(db, table.oid))
+            .filter((k) => k.eligible)
+            .map((k) => ({ name: k.name, columns: k.columns }))
+        : [],
   };
 }
 
 // --------------------------------------------------------------- planning ---
 
-interface EditableTable {
+export interface EditableTable {
   table: CatalogTable;
   key: string[];
 }
 
-async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTable> {
+export async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTable> {
   const table = await loadTable(db, ref);
   if (!table) throw new DatabaseError("not_found");
   const reason = notEditableReason(table);
@@ -219,14 +227,31 @@ async function requireEditable(db: Queryable, ref: TableRef): Promise<EditableTa
   return { table, key: order.columns };
 }
 
-function findColumn(table: CatalogTable, name: string): CatalogColumn {
+const HAS_CHILDREN_MESSAGE =
+  "This table has child tables that inherit from it (table inheritance), so a change by key would also reach their rows, which have no key of their own. Use the SQL tab for this change.";
+
+/**
+ * The changes made by key (an import by key, edit cells, a change of the rows a filter matches) run against the table
+ * and everything that inherits from it, and a child has no key of its own: refuse a table that has children. A
+ * partitioned table is not refused (its partitions carry the key).
+ */
+export async function requireNoChildren(db: Queryable, table: CatalogTable): Promise<void> {
+  if (table.relkind !== "r") return;
+  const { rows } = await db.query<{ has: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits WHERE inhparent = $1::oid) AS has",
+    [table.oid],
+  );
+  if (rows[0]?.has) throw new DatabaseError("not_editable", { message: HAS_CHILDREN_MESSAGE });
+}
+
+export function findColumn(table: CatalogTable, name: string): CatalogColumn {
   const column = table.columns.find((c) => c.name === name);
   if (!column) throw invalidChange(`The column ${name} does not exist (any more).`);
   return column;
 }
 
 /** The person gives a value for this column: refuse what the database fills or what cannot be typed. */
-function requireWritable(column: CatalogColumn): void {
+export function requireWritable(column: CatalogColumn): void {
   if (column.generated) {
     throw invalidChange(`${column.name} is a generated column: the database computes it.`);
   }
@@ -239,7 +264,7 @@ function requireWritable(column: CatalogColumn): void {
 }
 
 /** The key, exactly the table's key columns (in key order), with their types. */
-function typedKey(
+export function typedKey(
   table: CatalogTable,
   keyColumns: readonly string[],
   key: readonly KeyValue[],
@@ -261,7 +286,7 @@ function typedKey(
  * does not end the transaction. The database's message (which contains the
  * value) is dropped; the error names the column and its type only.
  */
-async function checkValues(
+export async function checkValues(
   db: Queryable,
   values: readonly TypedValue[],
   fullType: (column: string) => string,
@@ -312,7 +337,7 @@ async function checkValues(
   }
 }
 
-function referencedWarning(
+export function referencedWarning(
   fks: readonly IncomingForeignKey[],
   action: "delete" | "update",
   columns: readonly string[] | null,
@@ -398,7 +423,7 @@ async function planUpdate(db: Queryable, change: UpdateRowChange): Promise<Plann
  * default gets it, one filled by the database (identity or generated) is
  * computed, and one with neither gets NULL.
  */
-function omittedWords(table: CatalogTable, given: readonly TypedValue[]): string {
+export function omittedWords(table: CatalogTable, given: readonly TypedValue[]): string {
   const left = table.columns.filter((c) => !given.some((g) => g.column === c.name));
   const filled = left.filter((c) => c.generated || c.identity !== null).map((c) => c.name);
   const defaulted = left
@@ -486,7 +511,7 @@ async function planDelete(db: Queryable, change: DeleteRowChange): Promise<Plann
 // ------------------------------------------------------------------- bulk ---
 
 /** A bulk change refuses a row named twice, by its key as the table knows it (the order of the columns does not matter). */
-function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
+export function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
   const seen = new Set(keys.map((k) => JSON.stringify(k.map((v) => [v.column, v.value]))));
   if (seen.size !== keys.length) throw invalidChange("A row is listed twice.");
 }
@@ -496,7 +521,7 @@ function distinctRows(keys: readonly (readonly TypedValue[])[]): void {
  * do not. All the questions run in one savepoint: a key value that does not fit its type ends them with a fixed
  * message that names no value.
  */
-async function splitByCurrent(
+export async function splitByCurrent(
   db: Queryable,
   table: TableRef,
   rows: ReadonlyArray<{
@@ -545,7 +570,7 @@ async function splitByCurrent(
 }
 
 /** The warnings of a row change, for several rows: a trigger runs for each of them. */
-async function bulkWarnings(
+export async function bulkWarnings(
   db: Queryable,
   ref: TableRef,
   table: CatalogTable,
@@ -565,7 +590,7 @@ async function bulkWarnings(
   );
 }
 
-const leftOutWords = (skipped: number, total: number, deleting = false): string =>
+export const leftOutWords = (skipped: number, total: number, deleting = false): string =>
   skipped === 0
     ? ""
     : deleting

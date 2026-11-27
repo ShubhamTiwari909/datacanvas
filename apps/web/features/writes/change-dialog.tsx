@@ -3,7 +3,8 @@
  * the change and answers with the exact statement, its effect and its
  * warnings; the person reads them and applies. Apply sends only the preview's
  * id, so what runs is exactly what was shown. A destructive change needs a
- * tick before Apply is enabled.
+ * tick before Apply is enabled; a change of the rows a filter matches also needs
+ * the count its preview found typed, and the apply carries the count typed.
  *
  * The "before and after" table is built in the browser from what the person
  * saw and typed; no value comes back from the server.
@@ -12,10 +13,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import type { Change } from "@datacanvas/database-core";
+import type { AppliedChange, Change } from "@datacanvas/database-core";
 import type { ChangePreview, HistoryEntry } from "@datacanvas/shared-types";
 import { CopyButton } from "@/components/copy-button";
+import { countsText, isKeyedImport, skippedText } from "@/features/import/keyed-text";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -29,19 +33,35 @@ import type { ApiFailure } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { useWritesStore } from "@/stores/writes-store";
 import { requestApply, requestPreview } from "./api";
+import {
+  canApplyPreview,
+  isMatchingKind,
+  parseTypedCount,
+  rowsText,
+  typeCountLabel,
+} from "./matching";
 import { shownText, type BeforeAfterRow } from "./row-edit";
 
 export interface ChangeRequest {
   change: Change;
   /** The dialog's title, e.g. "Edit a row of public.users". */
   title: string;
+  /** A sentence said before the usual one under the title (how the rows are chosen, for a change of matching rows). */
+  description?: string;
   /** For row changes: what the person saw and what they asked for. */
   beforeAfter?: BeforeAfterRow[];
+  /**
+   * For an import: the file's line of each row sent, by its position (0-based), so the rows the preview leaves out
+   * (`skipped`) are named by their line in the file.
+   */
+  rowLines?: readonly number[];
 }
 
 export interface AppliedResult {
   rowCount: number;
   entry: HistoryEntry;
+  /** For an import by key: how the rows written split (see `AppliedChange`). */
+  split?: AppliedChange["split"];
 }
 
 type Step =
@@ -61,25 +81,31 @@ export function ChangeDialog({
   connectionId: string;
   request: ChangeRequest | null;
   onClose: () => void;
-  onApplied: (result: AppliedResult, change: Change) => void;
+  /** `preview` is what was applied (its `skipped` rows were left out). */
+  onApplied: (result: AppliedResult, change: Change, preview: ChangePreview) => void;
   /** Offered when the row changed since it was loaded (reload the page of rows). */
   onRowChanged?: () => void;
 }) {
   const [attempt, setAttempt] = useState(0);
-  // The step and the tick belong to one request and attempt; anything else is a new preview.
+  // The step, the tick and the count typed belong to one request and attempt; anything else is a new preview.
   const [stored, setStored] = useState<{
     request: ChangeRequest;
     attempt: number;
     step: Step;
     read: boolean;
+    typed: string;
   } | null>(null);
   const current =
     stored && stored.request === request && stored.attempt === attempt ? stored : null;
   const step: Step = current?.step ?? { kind: "previewing" };
   const read = current?.read ?? false;
+  const typed = current?.typed ?? "";
   const setStep = (next: Step) =>
-    setStored((s) => (request ? { request, attempt, step: next, read: s?.read ?? false } : s));
+    setStored((s) =>
+      request ? { request, attempt, step: next, read: s?.read ?? false, typed: s?.typed ?? "" } : s,
+    );
   const setRead = (next: boolean) => setStored((s) => (s ? { ...s, read: next } : s));
+  const setTyped = (next: string) => setStored((s) => (s ? { ...s, typed: next } : s));
   // Closing the dialog while the change is being applied cancels it: an import stops between its batches and
   // everything is rolled back; a single row is applied in one statement, too fast to stop.
   const applying = useRef<AbortController | null>(null);
@@ -102,6 +128,7 @@ export function ChangeDialog({
         request,
         attempt,
         read: false,
+        typed: "",
         step: result.ok
           ? { kind: "ready", preview: result.data }
           : { kind: "refused", error: result.error },
@@ -122,7 +149,10 @@ export function ChangeDialog({
     setStep({ kind: "applying", preview: current });
     const abort = new AbortController();
     applying.current = abort;
-    const result = await requestApply(connectionId, current.previewId, abort.signal);
+    // A change of the rows a filter matches carries the count the person typed; the server compares it again.
+    const confirmRows =
+      current.confirmRows === null ? undefined : (parseTypedCount(typed) ?? undefined);
+    const result = await requestApply(connectionId, current.previewId, abort.signal, confirmRows);
     if (applying.current === abort) applying.current = null;
     // Cancelled by closing the dialog: nothing was kept, and there is nothing to say to a closed dialog.
     if (!result.ok && result.error.code === "aborted") return;
@@ -133,10 +163,20 @@ export function ChangeDialog({
       return;
     }
     recordChange(connectionId, result.data.entry);
-    onApplied(result.data, request.change);
+    onApplied(result.data, request.change, current);
   }
 
-  const canApply = step.kind === "ready" && (!step.preview.destructive || read);
+  const canApply = canApplyPreview({
+    ready: step.kind === "ready",
+    destructive: preview?.destructive ?? false,
+    read,
+    confirmRows: preview?.confirmRows ?? null,
+    typed,
+  });
+  const change = request?.change ?? null;
+  const matching = change !== null && isMatchingKind(change.kind);
+  const keyed = change !== null && isKeyedImport(change);
+  const importing = change !== null && (change.kind === "insert_rows" || keyed);
 
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && close()}>
@@ -144,8 +184,8 @@ export function ChangeDialog({
         <DialogHeader>
           <DialogTitle>{request?.title ?? "Preview the change"}</DialogTitle>
           <DialogDescription>
-            Check the statement before applying it. Changes are committed immediately and cannot be
-            undone.
+            {request?.description ? `${request.description} ` : null}Check the statement before
+            applying it. Changes are committed immediately and cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
@@ -166,11 +206,48 @@ export function ChangeDialog({
           </div>
         ) : null}
 
+        {keyed ? (
+          // Always in the dialog for an import by key, so a screen reader announces the counts when they come.
+          <p
+            role="status"
+            aria-live="polite"
+            aria-label="What the preview counted"
+            className="text-sm font-medium empty:hidden"
+          >
+            {preview && change ? countsText(change, preview.counts) : null}
+          </p>
+        ) : null}
+
+        {matching ? (
+          // Always in the dialog for a change of matching rows, so a screen reader announces the count when it comes.
+          <p
+            role="status"
+            aria-live="polite"
+            aria-label="What the preview counted"
+            className="text-sm font-medium empty:hidden"
+          >
+            {preview?.confirmRows != null ? rowsText(preview.confirmRows) : null}
+          </p>
+        ) : null}
+
         {preview ? (
           <div className="flex flex-col gap-4">
             <p className="text-sm">{preview.effect}</p>
 
-            {preview.skipped.length > 0 ? (
+            {preview.skipped.length > 0 && change?.kind === "update_by_key" ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm"
+              >
+                <AlertTriangle
+                  className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+                  aria-hidden="true"
+                />
+                <p>{skippedText(preview.skipped, request?.rowLines)}</p>
+              </div>
+            ) : null}
+
+            {preview.skipped.length > 0 && change?.kind !== "update_by_key" ? (
               <div
                 role="status"
                 className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-sm"
@@ -265,12 +342,14 @@ export function ChangeDialog({
               >
                 {preview.statement}
               </pre>
-              {request?.change.kind === "update_row" ||
-              request?.change.kind === "insert_row" ||
-              request?.change.kind === "delete_row" ||
-              request?.change.kind === "update_rows" ||
-              request?.change.kind === "delete_rows" ||
-              request?.change.kind === "insert_rows" ? (
+              {change?.kind === "update_row" ||
+              change?.kind === "insert_row" ||
+              change?.kind === "delete_row" ||
+              change?.kind === "update_rows" ||
+              change?.kind === "delete_rows" ||
+              change?.kind === "edit_cells" ||
+              matching ||
+              importing ? (
                 <p className="text-xs text-muted-foreground">
                   Values are sent separately as $1, $2 and so on, never as part of the statement.
                 </p>
@@ -292,6 +371,23 @@ export function ChangeDialog({
                   </li>
                 ))}
               </ul>
+            ) : null}
+
+            {preview.confirmRows !== null && step.kind !== "failed" ? (
+              <FormField label={typeCountLabel(preview.confirmRows)}>
+                {(field) => (
+                  <Input
+                    {...field}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="max-w-48"
+                    value={typed}
+                    disabled={step.kind !== "ready"}
+                    onChange={(event) => setTyped(event.target.value)}
+                  />
+                )}
+              </FormField>
             ) : null}
 
             {preview.destructive && step.kind !== "failed" ? (
@@ -318,7 +414,8 @@ export function ChangeDialog({
                 <p className="text-sm text-muted-foreground">{step.error.message}</p>
               </div>
             </div>
-            {step.error.code === "row_changed" && onRowChanged ? (
+            {/* A change of matching rows holds the keys its preview found: a fresh preview finds them again. */}
+            {step.error.code === "row_changed" && onRowChanged && !matching ? (
               <Button type="button" size="sm" onClick={onRowChanged}>
                 Reload the rows
               </Button>
@@ -339,7 +436,7 @@ export function ChangeDialog({
           <Button type="button" variant="outline" onClick={close}>
             {step.kind === "failed" || step.kind === "refused"
               ? "Close"
-              : step.kind === "applying" && request?.change.kind === "insert_rows"
+              : step.kind === "applying" && importing
                 ? "Cancel and roll back"
                 : "Cancel"}
           </Button>

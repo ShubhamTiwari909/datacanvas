@@ -286,6 +286,155 @@ test.describe("import", () => {
     ]);
   });
 
+  test("reads a file refused as UTF-8 in the encoding chosen, warns of a likely wrong one, and imports it", async ({
+    page,
+    database,
+  }) => {
+    const dialog = dialogOf(page);
+    const latin1 = Buffer.from("Full Name,Email,Qty,Note\nZoë,z@x.test,1,café\n", "latin1");
+    await dialog.getByLabel("CSV file").setInputFiles(file(latin1));
+    await expect(dialog.getByRole("alert")).toContainText("not UTF-8 text");
+    const encoding = dialog.getByLabel("Read this file as");
+    // UTF-16 needs its byte order mark: refused, never guessed.
+    await encoding.selectOption("utf-16");
+    await expect(dialog.getByRole("alert")).toContainText("not UTF-16 text");
+    // The same bytes, read as Windows-1252: no re-pick, and the first rows show what was read.
+    await encoding.selectOption("windows-1252");
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    const firstRows = dialog.getByRole("table", { name: "The first rows of the import" });
+    await expect(firstRows).toContainText("Zoë");
+    await expect(firstRows).toContainText("café");
+    await expect(dialog.getByText(/usually mean a wrong encoding/)).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    await page
+      .getByRole("dialog", { name: /Import 1 row into/ })
+      .getByRole("button", { name: "Apply" })
+      .click();
+    await expect(page.getByText("1 row was added.")).toBeVisible();
+    expect(await sql(database, "SELECT full_name, note FROM public.imp_people")).toEqual([
+      { full_name: "Zoë", note: "café" },
+    ]);
+
+    // A byte Windows-1252 has no letter for: the text is suspect, and the dialog says so.
+    await page.getByRole("button", { name: "Import CSV" }).click();
+    const again = dialogOf(page);
+    await again
+      .getByLabel("CSV file")
+      .setInputFiles(
+        file(Buffer.concat([Buffer.from("Full Name\nA"), Buffer.from([0x81]), Buffer.from("\n")])),
+      );
+    await again.getByLabel("Read this file as").selectOption("windows-1252");
+    await expect(again.getByText(/usually mean a wrong encoding/)).toBeVisible();
+    await axeInDialog(page, "the import, read as Windows-1252");
+  });
+
+  test("leaves out the failing rows, saves them as a rejects file, imports the rest, and reads the rejects back", async ({
+    page,
+    database,
+  }) => {
+    test.setTimeout(120_000);
+    await sql(
+      database,
+      "INSERT INTO public.imp_people (full_name, email) VALUES ('Old', 'old@x.test')",
+    );
+    const dialog = dialogOf(page);
+    const text =
+      "Full Name,Email,Qty\n" +
+      "Ann,ann@x.test,1\n" + // line 2
+      "=Bo,bo@x.test,-4\n" + // line 3: breaks the check (and a value a spreadsheet would run)
+      "Cy,cy@x.test,3\n" + // line 4
+      ",dee@x.test,2\n" + // line 5: no name
+      "Ed,old@x.test,5\n" + // line 6: the email of a row already in the table
+      "Fay,fay@x.test,6\n"; // line 7
+    await dialog.getByLabel("CSV file").setInputFiles(file(text));
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    const report = dialog.getByRole("status", { name: "Check of the values" });
+    await expect(report).toContainText("Problems found");
+
+    await dialog.getByRole("button", { name: "Leave out the failing rows" }).click();
+    const leaving = dialog.getByRole("status", { name: "Leaving out the failing rows" });
+    await expect(leaving).toHaveText("3 rows will not be imported; 3 rows will be imported.");
+    // The old answer is about the whole file: it is gone.
+    await expect(report).not.toContainText("Problems found");
+    // No value of the file is said.
+    await expect(leaving).not.toContainText("Bo");
+    await axeInDialog(page, "the import, failing rows left out");
+
+    const waiting = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Download rejects file" }).click();
+    const download = await waiting;
+    expect(download.suggestedFilename()).toBe("people-rejects.csv");
+    const rejects = readFileSync((await download.path())!);
+    const rejectsText = rejects.toString("utf8");
+    expect(rejectsText.startsWith("﻿Full Name,Email,Qty,datacanvas_reject_v1\r\n")).toBe(true);
+    const lines = rejectsText.slice(1).trimEnd().split("\r\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toMatch(/^'=Bo,bo@x\.test,-4,check qty_not_negative$/);
+    expect(lines[2]).toMatch(/^,dee@x\.test,2,NOT NULL of full_name$/);
+    expect(lines[3]).toMatch(/^Ed,old@x\.test,5,unique key$/);
+
+    // Row numbers stay the file's lines once rows are left out: Fay is the third row sent, line 7 of the file.
+    await sql(
+      database,
+      "INSERT INTO public.imp_people (full_name, email) VALUES ('Fay too', 'fay@x.test')",
+    );
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await expect(report).toContainText("Row 7");
+    await sql(database, "DELETE FROM public.imp_people WHERE full_name = 'Fay too'");
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await expect(report).toContainText("No problems found in 3 rows");
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    await page
+      .getByRole("dialog", { name: /Import 3 rows into/ })
+      .getByRole("button", { name: "Apply" })
+      .click();
+    await expect(page.getByText("3 rows were added.")).toBeVisible();
+    expect(await sql(database, "SELECT full_name FROM public.imp_people ORDER BY id")).toEqual([
+      { full_name: "Old" },
+      { full_name: "Ann" },
+      { full_name: "Cy" },
+      { full_name: "Fay" },
+    ]);
+
+    // The rejects file, chosen again: offered (never silently) its values back without the reserved column.
+    await page.getByRole("button", { name: "Import CSV" }).click();
+    const again = dialogOf(page);
+    await again.getByLabel("CSV file").setInputFiles(file(rejects, "people-rejects.csv"));
+    await expect(again.getByRole("status").first()).toContainText("3 rows, 4 columns");
+    const offer = again.getByRole("group", { name: /looks like a DataCanvas rejects file/ });
+    await axeInDialog(page, "the import, a rejects file offered");
+    await offer.getByRole("button", { name: "Yes" }).click();
+    await expect(offer).toHaveCount(0);
+    await expect(again.getByRole("status").first()).toContainText("3 rows, 3 columns");
+    await expect(
+      again.getByRole("table", { name: "The first rows of the import" }).getByText("=Bo", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  });
+
+  test("leaving out says when too many rows fail, and changes nothing", async ({ page }) => {
+    test.setTimeout(180_000);
+    const dialog = dialogOf(page);
+    const body = Array.from({ length: 1_200 }, (_, i) => `Person ${i},p${i}@x.test,-1`).join("\n");
+    await dialog.getByLabel("CSV file").setInputFiles(file(`Full Name,Email,Qty\n${body}\n`));
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await expect(dialog.getByRole("status", { name: "Check of the values" })).toContainText(
+      "Problems found",
+      { timeout: 60_000 },
+    );
+    await dialog.getByRole("button", { name: "Leave out the failing rows" }).click();
+    await expect(dialog.getByRole("status", { name: "Leaving out the failing rows" })).toHaveText(
+      "More than 1,000 rows fail: fix the file instead.",
+      { timeout: 120_000 },
+    );
+    await expect(dialog.getByRole("button", { name: "Download rejects file" })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    await expect(page.getByRole("dialog", { name: /Import 1,200 rows into/ })).toBeVisible();
+  });
+
   test("passes axe in light, in dark and on a phone", async ({ page }) => {
     const dialog = dialogOf(page);
     await dialog
@@ -311,5 +460,249 @@ test.describe("import", () => {
     await page.setViewportSize({ width: 390, height: 800 });
     await expect(dialogOf(page)).toBeVisible();
     await axeInDialog(page, "the import (phone)");
+  });
+});
+
+/**
+ * What happens to rows already in the table (`docs/write-side-v2-plan.md`, 4.1 and 4.2): add new rows only, update
+ * the rows the key finds and add the others, or update only the rows the key finds. The counts come from the
+ * preview, the tick is asked for when rows are overwritten, and the result says how the rows split.
+ */
+test.describe("import by key", () => {
+  async function openImport(page: Page, link: string, database: TestDb, table: string) {
+    await page.goto(link);
+    await page.getByRole("button", { name: "Connect PostgreSQL" }).click();
+    await page.getByLabel("Connection name").fill("Imp shop");
+    await page.getByRole("tab", { name: /connection string/i }).click();
+    await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
+    await page.getByLabel("Allow viewing table data").check();
+    await page.getByRole("button", { name: /^Connect$/ }).click();
+    await expect(page.getByRole("button", { name: "Disconnect Imp shop" })).toBeVisible();
+    await page.getByRole("switch", { name: "Allow changes to Imp shop" }).click();
+    const unlock = page.getByRole("dialog");
+    await unlock.getByRole("textbox", { name: "Database name" }).fill(database.name);
+    await unlock.getByRole("button", { name: "Allow changes" }).click();
+    await expect(page.getByText("Writes on")).toBeVisible();
+    await page.getByRole("tab", { name: "Table details" }).click();
+    await page
+      .getByRole("button", { name: new RegExp(`^${table}\\b`) })
+      .first()
+      .click();
+    await page.getByRole("button", { name: "Import CSV" }).click();
+    await expect(dialogOf(page)).toBeVisible();
+  }
+
+  const stock = (database: TestDb) =>
+    sql(database, "SELECT sku, name, qty, note FROM public.imp_stock ORDER BY sku");
+  const modes = (page: Page) =>
+    dialogOf(page).getByRole("group", { name: "What should happen to rows already in the table?" });
+
+  test.beforeEach(async ({ database }) => {
+    await sql(
+      database,
+      `CREATE TABLE public.imp_stock (
+         sku text PRIMARY KEY,
+         name text NOT NULL,
+         qty integer,
+         note text);
+       INSERT INTO public.imp_stock VALUES ('A1', 'Apple', 1, 'old'), ('B2', 'Bread', 2, 'old');`,
+    );
+  });
+
+  test("updates the rows the key finds and adds the others, with the counts, the tick and the split", async ({
+    page,
+    writableApp,
+    database,
+  }) => {
+    await openImport(page, writableApp.link, database, "imp_stock");
+    const dialog = dialogOf(page);
+    await dialog
+      .getByLabel("CSV file")
+      .setInputFiles(file("SKU,Name,Qty,Note\nA1,Apple,10,new\nC3,Cake,3,fresh\n", "stock.csv"));
+    await expect(modes(page).getByRole("radio", { name: "Add new rows only" })).toBeChecked();
+    await modes(page).getByRole("radio", { name: "Update existing rows, add the others" }).check();
+    await expect(dialog.getByLabel("Key that finds each row")).toHaveValue("imp_stock_pkey");
+    await expect(dialog.getByLabel("Key that finds each row")).toContainText(
+      "imp_stock_pkey (sku)",
+    );
+    const update = dialog.getByRole("group", { name: "Columns to update" });
+    // Every mapped column outside the key is ticked; the key is not offered.
+    await expect(update.getByRole("checkbox", { name: "name" })).toBeChecked();
+    await expect(update.getByRole("checkbox", { name: "qty" })).toBeChecked();
+    await expect(update.getByRole("checkbox", { name: "sku" })).toHaveCount(0);
+    await update.getByRole("checkbox", { name: "note" }).uncheck();
+    await axeInDialog(page, "the import, update or insert");
+
+    // The row the key finds is an update, not a repeated key.
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await expect(dialog.getByRole("status", { name: "Check of the values" })).toContainText(
+      "No problems found in 2 rows",
+    );
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    const preview = page.getByRole("dialog", { name: "Update or add 2 rows in public.imp_stock" });
+    await expect(preview.getByRole("status", { name: "What the preview counted" })).toHaveText(
+      "1 row will be added and 1 row overwritten.",
+    );
+    await expect(preview.getByLabel("The statement that will run")).toContainText("ON CONFLICT");
+    const apply = preview.getByRole("button", { name: "Apply" });
+    await expect(apply).toBeDisabled();
+    await preview.getByLabel("I have read this. It cannot be undone.").check();
+    await apply.click();
+    await expect(page.getByText("1 row was added and 1 updated.")).toBeVisible();
+    expect(await stock(database)).toEqual([
+      { sku: "A1", name: "Apple", qty: 10, note: "old" },
+      { sku: "B2", name: "Bread", qty: 2, note: "old" },
+      { sku: "C3", name: "Cake", qty: 3, note: "fresh" },
+    ]);
+  });
+
+  test("leaves out the failing rows of an update or insert, checking the rest by its key", async ({
+    page,
+    writableApp,
+    database,
+  }) => {
+    await openImport(page, writableApp.link, database, "imp_stock");
+    const dialog = dialogOf(page);
+    await dialog
+      .getByLabel("CSV file")
+      .setInputFiles(file("SKU,Name,Qty\nA1,Apple,5\nX9,Bad,many\nE5,Egg,7\n", "stock.csv"));
+    await modes(page).getByRole("radio", { name: "Update existing rows, add the others" }).check();
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await expect(dialog.getByRole("status", { name: "Check of the values" })).toContainText(
+      "Problems found",
+    );
+    await dialog.getByRole("button", { name: "Leave out the failing rows" }).click();
+    // A1 is in the table: by its key it is an update, so only the row whose value does not fit is left out.
+    await expect(dialog.getByRole("status", { name: "Leaving out the failing rows" })).toHaveText(
+      "1 row will not be imported; 2 rows will be imported.",
+    );
+    // Another mode drops the rows left out.
+    await modes(page).getByRole("radio", { name: "Add new rows only" }).check();
+    await expect(dialog.getByRole("status", { name: "Leaving out the failing rows" })).toHaveText(
+      "",
+    );
+    await modes(page).getByRole("radio", { name: "Update existing rows, add the others" }).check();
+    await dialog.getByRole("button", { name: "Validate the file" }).click();
+    await dialog.getByRole("button", { name: "Leave out the failing rows" }).click();
+    await expect(dialog.getByRole("status", { name: "Leaving out the failing rows" })).toHaveText(
+      "1 row will not be imported; 2 rows will be imported.",
+    );
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    const preview = page.getByRole("dialog", { name: "Update or add 2 rows in public.imp_stock" });
+    await expect(preview.getByRole("status", { name: "What the preview counted" })).toHaveText(
+      "1 row will be added and 1 row overwritten.",
+    );
+    await preview.getByLabel("I have read this. It cannot be undone.").check();
+    await preview.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByText("1 row was added and 1 updated.")).toBeVisible();
+    expect(await stock(database)).toEqual([
+      { sku: "A1", name: "Apple", qty: 5, note: "old" },
+      { sku: "B2", name: "Bread", qty: 2, note: "old" },
+      { sku: "E5", name: "Egg", qty: 7, note: null },
+    ]);
+  });
+
+  test("leaves the existing rows as they are and adds the new ones, with no tick", async ({
+    page,
+    writableApp,
+    database,
+  }) => {
+    await openImport(page, writableApp.link, database, "imp_stock");
+    const dialog = dialogOf(page);
+    await dialog
+      .getByLabel("CSV file")
+      .setInputFiles(file("SKU,Name,Qty\nA1,Changed,99\nD4,Dates,4\n", "stock.csv"));
+    await modes(page).getByRole("radio", { name: "Update existing rows, add the others" }).check();
+    const update = dialog.getByRole("group", { name: "Columns to update" });
+    await update.getByRole("checkbox", { name: "Leave existing rows as they are" }).check();
+    await expect(update.getByRole("checkbox", { name: "name" })).toBeDisabled();
+    await expect(update.getByRole("checkbox", { name: "name" })).not.toBeChecked();
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    const preview = page.getByRole("dialog", { name: /Update or add 2 rows in/ });
+    await expect(preview.getByRole("status", { name: "What the preview counted" })).toHaveText(
+      "1 row will be added; 1 row already exists and is left as it is.",
+    );
+    await expect(preview.getByLabel("I have read this. It cannot be undone.")).toHaveCount(0);
+    await preview.getByRole("button", { name: "Apply" }).click();
+    await expect(
+      page.getByText("1 row was added; the rows already in the table were left as they are."),
+    ).toBeVisible();
+    expect(await stock(database)).toEqual([
+      { sku: "A1", name: "Apple", qty: 1, note: "old" },
+      { sku: "B2", name: "Bread", qty: 2, note: "old" },
+      { sku: "D4", name: "Dates", qty: 4, note: null },
+    ]);
+  });
+
+  test("updates only the rows the key finds, names the file's line of a row that finds none, and needs the key mapped", async ({
+    page,
+    writableApp,
+    database,
+  }) => {
+    await openImport(page, writableApp.link, database, "imp_stock");
+    const dialog = dialogOf(page);
+    await dialog
+      .getByLabel("CSV file")
+      .setInputFiles(file("SKU,Qty\nA1,50\nZZ9,1\nB2,60\n", "stock.csv"));
+    await modes(page).getByRole("radio", { name: "Update existing rows only" }).check();
+    // No validation: the preview checks the rows against the table.
+    await expect(dialog.getByRole("button", { name: "Validate the file" })).toHaveCount(0);
+    await expect(dialog.getByText(/There is no validation for an update only/)).toBeVisible();
+    await expect(dialog.getByRole("group", { name: "Columns to update" })).toHaveCount(0);
+
+    // Every column of the key must be mapped.
+    await dialog.getByLabel(/for file column 1, SKU/).selectOption("");
+    await expect(
+      dialog.getByText(
+        "sku is part of the key and is not mapped: choose a column of the file for it.",
+      ),
+    ).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Preview the import" })).toBeDisabled();
+    await dialog.getByLabel(/for file column 1, SKU/).selectOption("sku");
+    await axeInDialog(page, "the import, update only");
+
+    await dialog.getByRole("button", { name: "Preview the import" }).click();
+    const preview = page.getByRole("dialog", {
+      name: "Update public.imp_stock from 3 rows of a file",
+    });
+    await expect(preview.getByRole("status", { name: "What the preview counted" })).toHaveText(
+      "2 rows will be updated.",
+    );
+    await expect(
+      preview.getByText("1 row of the file finds no row and is left out (line 3)."),
+    ).toBeVisible();
+    await preview.getByLabel("I have read this. It cannot be undone.").check();
+    await preview.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByText("2 rows were updated.")).toBeVisible();
+    expect(await stock(database)).toEqual([
+      { sku: "A1", name: "Apple", qty: 50, note: "old" },
+      { sku: "B2", name: "Bread", qty: 60, note: "old" },
+    ]);
+  });
+
+  test("offers no update when the table has no key an import can use, and says why", async ({
+    page,
+    writableApp,
+    database,
+  }) => {
+    await sql(
+      database,
+      "CREATE TABLE public.imp_deferred (id integer PRIMARY KEY DEFERRABLE, note text)",
+    );
+    await openImport(page, writableApp.link, database, "imp_deferred");
+    const dialog = dialogOf(page);
+    await dialog.getByLabel("CSV file").setInputFiles(file("id,note\n1,x\n", "deferred.csv"));
+    const upsert = modes(page).getByRole("radio", { name: "Update existing rows, add the others" });
+    await expect(upsert).toBeDisabled();
+    await expect(
+      modes(page).getByRole("radio", { name: "Update existing rows only" }),
+    ).toBeDisabled();
+    await expect(upsert).toHaveAccessibleDescription(/this table has none/);
+    await expect(modes(page).getByRole("radio", { name: "Add new rows only" })).toBeChecked();
+    await expect(dialog.getByLabel("Key that finds each row")).toHaveCount(0);
+    await axeInDialog(page, "the import, no key to update by");
   });
 });

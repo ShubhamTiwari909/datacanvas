@@ -4,6 +4,7 @@
  * cell limit), or the row cannot be named and there is no key.
  */
 import type { KeyValue, RowPage } from "@datacanvas/database-core";
+import type { CellRequestBody } from "@datacanvas/shared-types";
 
 export function wholeCellKey(page: RowPage, rowIndex: number): KeyValue[] | null {
   const row = page.rows[rowIndex];
@@ -17,4 +18,22 @@ export function wholeCellKey(page: RowPage, rowIndex: number): KeyValue[] | null
     key.push({ column: name, value: cell.value });
   }
   return key.length > 0 ? key : null;
+}
+
+/**
+ * The request that reads one cell whole. The key columns are named in `revealColumns` too: without them the server
+ * refuses the read as an invalid request (a masked key column is already left out of the key by `wholeCellKey`).
+ */
+export function cellRequestFor(
+  table: { schema: string; name: string },
+  column: string,
+  key: readonly KeyValue[],
+): CellRequestBody {
+  return {
+    schema: table.schema,
+    table: table.name,
+    column,
+    key: key.map((k) => ({ column: k.column, value: k.value })),
+    revealColumns: [...new Set([column, ...key.map((k) => k.column)])],
+  };
 }

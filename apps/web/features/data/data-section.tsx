@@ -141,6 +141,8 @@ function Rows({
     connectionId,
     table: ref,
     page,
+    filters: paging.filters,
+    revealColumns: paging.reveal,
     reload: view.reload,
     onExportChosen: (keys) => {
       setExportKeys(keys);
@@ -262,6 +264,8 @@ function Rows({
       </div>
 
       {editing.hint}
+
+      {editing.pending}
 
       {/* Always shown once there is a page, even after a failed read: a condition that was refused has to be removable. */}
       <FilterBar

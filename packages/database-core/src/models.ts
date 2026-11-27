@@ -521,8 +521,8 @@ export interface RowSort {
 }
 
 /**
- * One cell of one row, read WHOLE (`getCell`, for the JSON editor): the row is found by the table's own key,
- * the column must be `json` or `jsonb`, and a column whose name looks sensitive is read only when named in
+ * One cell of one row, read WHOLE (`getCell`, for the JSON editor and for editing a cut text value): the row is
+ * found by the table's own key, the column must be `json`, `jsonb`, `text`, `varchar` or `citext`, and a column whose name looks sensitive is read only when named in
  * `revealColumns`, as for a page of rows.
  */
 export interface CellRequest {
@@ -532,10 +532,17 @@ export interface CellRequest {
   revealColumns: string[];
 }
 
-/** What `getCell` read: the text, or null for SQL NULL, or `tooLarge` (then the text is null and nothing was sent). */
+/**
+ * What `getCell` read: the text, or null for SQL NULL, or `tooLarge` (then the text is null and nothing was sent).
+ * `length` is the value's length in characters, measured in the database (null for SQL NULL). `editable` says
+ * whether the WHOLE value can be changed: it was sent and is at most `MAX_CHANGE_VALUE_CHARS` long (a change
+ * carries no more). A value that was sent but is not editable can still be read and copied; NULL is editable.
+ */
 export interface CellRead {
   value: string | null;
   tooLarge: boolean;
+  length: number | null;
+  editable: boolean;
 }
 
 export interface RowsOptions {

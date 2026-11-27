@@ -14,6 +14,8 @@ import {
 } from "@datacanvas/database-core";
 import { describe, expect, it } from "vitest";
 import {
+  cellRequestSchema,
+  cellResponseSchema,
   connectionSummarySchema,
   dataAccessRequestSchema,
   rowsRequestSchema,
@@ -319,5 +321,27 @@ describe("a sort and conditions in the rows request", () => {
     ]) {
       expect(rowsRequestSchema.safeParse({ ...base, [key]: "id > 0" }).success, key).toBe(false);
     }
+  });
+});
+
+describe("the request and response of reading one cell whole", () => {
+  const base = { schema: "public", table: "t", column: "c", key: [{ column: "id", value: "1" }] };
+
+  it("takes a column and a whole key, strictly", () => {
+    expect(cellRequestSchema.safeParse(base).success).toBe(true);
+    for (const extra of ["where", "sql", "limit", "editable"]) {
+      expect(cellRequestSchema.safeParse({ ...base, [extra]: "x" }).success, extra).toBe(false);
+    }
+  });
+
+  it("answers with the value, whether it was too large, its length and whether it can be edited", () => {
+    const ok = (cell: unknown) => cellResponseSchema.safeParse({ cell }).success;
+    expect(ok({ value: "x", tooLarge: false, length: 1, editable: true })).toBe(true);
+    expect(ok({ value: null, tooLarge: false, length: null, editable: true })).toBe(true);
+    expect(ok({ value: null, tooLarge: true, length: 1_000_001, editable: false })).toBe(true);
+    // The answer must say both: an older answer without them is not trusted to be editable.
+    expect(ok({ value: "x", tooLarge: false })).toBe(false);
+    expect(ok({ value: "x", tooLarge: false, length: 1 })).toBe(false);
+    expect(ok({ value: "x", tooLarge: false, length: -1, editable: true })).toBe(false);
   });
 });

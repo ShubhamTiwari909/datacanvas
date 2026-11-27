@@ -218,15 +218,17 @@ export interface DatabaseAdapter {
   getRows(table: TableRef, options: RowsOptions): Promise<RowPage>;
 
   /**
-   * ONE `json` or `jsonb` value of ONE row, read whole up to `CELL_EDIT_MAX_CHARS`, for the JSON editor
-   * (a page of rows cuts every cell at `ROWS_CELL_CHARS`). Like `getRows` it returns table data, and the
+   * ONE `json`, `jsonb`, `text`, `varchar` or `citext` value of ONE row, read whole up to `CELL_EDIT_MAX_CHARS`,
+   * for the JSON editor and for editing a cut text value (a page of rows cuts every cell at `ROWS_CELL_CHARS`). Like `getRows` it returns table data, and the
    * service calls it only behind the same data-access check.
    *
    * - The row is found by the table's row key (the primary key, else a usable unique index); every key
    *   column is named once, and every value is a bound parameter. A table without a key has no cell to name.
-   * - Any other column type, or a column that does not exist, is `invalid_request`; a column whose name
+   * - Any other column type (`bytea`, `char(n)`, `name`, a domain, a number...), or a column that does not exist, is `invalid_request`; a column whose name
    *   looks sensitive and was not revealed is `invalid_request` too (it would be an oracle).
    * - A value over the limit is not sent: `tooLarge` is true and `value` is null.
+   * - `editable` is true only when the value is at most `MAX_CHANGE_VALUE_CHARS` characters (measured in the
+   *   database before the value is sent), so a value a change cannot carry is read, never edited.
    *
    * @throws DatabaseError `not_found` (no such table or no such row), `not_supported` (a foreign table),
    *   `invalid_request`, `permission_denied`. The error text never contains a value from the table.

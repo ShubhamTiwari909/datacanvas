@@ -123,13 +123,34 @@ function renderColumn(column: ColumnDefinition): string {
 
 const columnList = (names: readonly string[]): string => names.map(quoteIdentifier).join(", ");
 
-/** The sample database changes one row at a time: a bulk change is refused (the real adapter does it). */
-type SingleRowChange = Exclude<RowChange, { kind: "update_rows" | "delete_rows" | "insert_rows" }>;
+/**
+ * The sample database changes one row at a time: a bulk change, an import, an import by key, a change of the rows a
+ * filter matches and an edit of cells in several rows are refused (the real adapter does them).
+ */
+type SingleRowChange = Exclude<
+  RowChange,
+  {
+    kind:
+      | "update_rows"
+      | "delete_rows"
+      | "insert_rows"
+      | "upsert_rows"
+      | "update_by_key"
+      | "update_matching"
+      | "delete_matching"
+      | "edit_cells";
+  }
+>;
 function oneRow(change: RowChange): SingleRowChange {
   if (
     change.kind === "update_rows" ||
     change.kind === "delete_rows" ||
-    change.kind === "insert_rows"
+    change.kind === "insert_rows" ||
+    change.kind === "upsert_rows" ||
+    change.kind === "update_by_key" ||
+    change.kind === "update_matching" ||
+    change.kind === "delete_matching" ||
+    change.kind === "edit_cells"
   ) {
     throw invalidChange("The sample database changes one row at a time.");
   }
@@ -195,6 +216,20 @@ export class MockWrites {
           onDelete: r.onDelete,
           onUpdate: r.onUpdate,
         })),
+      // As the real adapter: the primary key and unique constraints whose columns are all NOT NULL (the sample
+      // data has no deferrable constraint), the primary key first.
+      uniqueKeys:
+        reason === null
+          ? (this.data.constraints[mapKey] ?? [])
+              .filter((c) => c.kind === "primary_key" || c.kind === "unique")
+              .filter((c) =>
+                c.columns.every(
+                  (name) => columns.find((col) => col.name === name)?.nullable === false,
+                ),
+              )
+              .sort((a, b) => Number(b.kind === "primary_key") - Number(a.kind === "primary_key"))
+              .map((c) => ({ name: c.name, columns: [...c.columns] }))
+          : [],
     };
   }
 

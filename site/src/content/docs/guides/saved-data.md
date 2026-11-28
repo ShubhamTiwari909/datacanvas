@@ -9,6 +9,7 @@ description: What DataCanvas keeps on disk, how saved connections and workspaces
 ~/.datacanvas/                  (DATACANVAS_HOME overrides; created owner-only)
 ├── connections.json            saved connection profiles
 ├── workspaces/<id>.json        one file per canvas layout
+├── saved-queries/<profile-id>.json  saved SQL for a connection profile
 ├── snapshots/<id>.json         one file per structure snapshot
 ├── run.json                    port, token and pid of the running instance (deleted on exit)
 └── mcp.json                    port, pid and the token of /mcp, for `datacanvas mcp` (1.11.0; mode 0600, deleted on exit)
@@ -24,8 +25,9 @@ being guessed at, and a damaged file is skipped (never deleted).
 | **Never** holds | **the password**                                                           | credentials, columns and types, selection            |
 | Lives until     | you forget it                                                              | you delete it                                        |
 
-The **password is never written to disk**; you enter it again after a restart. Rows, SQL text, filter
-values and write previews are never saved.
+The **password is never written to disk**; you enter it again after a restart. Explicitly [saved SQL queries](/guides/sql/#saved-queries) for a saved connection are kept in its
+private library file and include any literals you typed. Temporary connections keep their libraries
+in memory. SQL drafts, results, and execution history also stay in memory.
 
 ## Saved connections
 
@@ -49,9 +51,10 @@ Why files and not browser storage: browser storage belongs to an origin includin
 
 ## What is kept in the browser only
 
-The theme choice, the text you type in the table search ("What you type stays in your browser", per the
-project's guide), and per-table **saved filter shapes** (columns and operators, never values) live in your
-browser. Rows, sorts and filter values are never stored.
+The theme choice and table search text stay in your browser. **Saved filter templates** store columns
+and operators. For a saved connection, they live in this browser's local storage, scoped to the
+profile and table. For a temporary connection, they stay in memory until disconnect or reload. Data
+rows, sorts, filter values, and write previews are never persisted.
 
 ## Themes
 

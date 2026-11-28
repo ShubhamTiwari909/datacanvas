@@ -21,6 +21,9 @@ not data viewing is on) and never contains credentials.
   snapshot.
 - **Generate a migration from this comparison** opens the [Migrations tab](/guides/migrations/).
 
+To compare an exported baseline against a live database in CI, use
+[`datacanvas schema check`](/start/cli/#check-for-schema-drift).
+
 ## How things are matched
 
 Tables are matched by `schema.name`; columns, constraints and indexes by name; foreign keys by (source

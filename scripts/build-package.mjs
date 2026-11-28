@@ -201,7 +201,7 @@ async function main() {
       fail(`bundled package "${name}" defines install scripts: ${bad.join(", ")}`);
   }
 
-  // 4. CLI: bundle packages/cli (and the shared-types workspace) into one file.
+  // 4. CLI: bundle the workspace code and use the already-shipped pg driver.
   const cliPkg = JSON.parse(await readFile(path.join(root, "packages/cli/package.json"), "utf8"));
   const cliOut = path.join(outDir, "bin/datacanvas.mjs");
   await build({
@@ -209,6 +209,7 @@ async function main() {
     outfile: cliOut,
     bundle: true,
     platform: "node",
+    external: ["pg"],
     format: "esm",
     target: "node20",
     banner: { js: "#!/usr/bin/env node" },

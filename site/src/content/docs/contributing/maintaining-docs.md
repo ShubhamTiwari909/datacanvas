@@ -52,7 +52,7 @@ Adding a page: create a Markdown file under `src/content/docs/<section>/`, give 
 
 ## Keeping it accurate
 
-The pages describe **DataCanvas 1.14.0**. When behaviour changes:
+The pages describe **DataCanvas 1.15.0**. When behaviour changes:
 
 | If this changes…                                                                  | Update these pages                                                                                           |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |

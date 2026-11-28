@@ -2,6 +2,11 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project intends to follow [Semantic Versioning](https://semver.org/) from 1.0.0.
 
+## [1.15.0]
+
+- **Schema drift checks.** Run `datacanvas schema check --baseline <file>` to compare an exported snapshot with a live PostgreSQL schema from your terminal or CI. The check reads catalog metadata and supports Markdown and JSON output. A GitHub Actions example runs against a disposable PostgreSQL service.
+- Updated the public guides for inline grid edits, long text, keyed CSV imports, connection-scoped filters, and saved SQL storage.
+
 ## [1.14.0]
 
 - **Saved SQL queries.** Name and save an editor tab, search the library by name, and reopen saved SQL in a fresh tab. Rename, replace, or remove entries from the library. Saved profiles keep their libraries on the local machine. Unsaved connections keep theirs in memory. Save the connection to keep its library across restarts. Results and history remain in memory.

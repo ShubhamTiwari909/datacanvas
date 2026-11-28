@@ -79,9 +79,12 @@ datacanvas [options]
   -h, --help        Show help
 
 datacanvas mcp      The bridge a Claude app starts to reach the running DataCanvas (see "Share with Claude")
+datacanvas schema check --baseline <file> [--format markdown|json]
 ```
 
 Your data lives in `~/.datacanvas` (set `DATACANVAS_HOME` to change it). Starting DataCanvas a second time opens the one that is already running.
+
+For schema drift in CI, export a snapshot from DataCanvas, set `DATACANVAS_DATABASE_URL`, and run `datacanvas schema check --baseline db/baseline.snapshot.json`. The [GitHub Actions example](examples/github-actions/schema-drift.yml) shows how to check a pull request against that baseline.
 
 ## For contributors
 

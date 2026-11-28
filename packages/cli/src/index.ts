@@ -46,6 +46,7 @@ const HELP = `DataCanvas ${VERSION}
 A local-first visual PostgreSQL explorer.
 
 Usage: datacanvas [options]
+       datacanvas schema check --baseline <file> [--format markdown|json]
        datacanvas mcp      A bridge for a Claude app: connects it to the running DataCanvas (read only)
 
 Options:
@@ -79,6 +80,12 @@ async function main(): Promise<void> {
   // may go to stdout, so it runs before anything that prints.
   if (process.argv[2] === "mcp") {
     await runBridge(resolveDataDir());
+    return;
+  }
+
+  if (process.argv[2] === "schema") {
+    const { runSchemaCommand } = await import("./schema-check.js");
+    process.exitCode = await runSchemaCommand(process.argv.slice(3));
     return;
   }
 

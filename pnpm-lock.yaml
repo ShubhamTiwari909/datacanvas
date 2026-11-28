@@ -150,9 +150,22 @@ importers:
 
   packages/cli:
     dependencies:
+      '@datacanvas/database-core':
+        specifier: workspace:*
+        version: link:../database-core
+      '@datacanvas/postgres-adapter':
+        specifier: workspace:*
+        version: link:../postgres-adapter
       '@datacanvas/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
 
   packages/database-core: {}
 

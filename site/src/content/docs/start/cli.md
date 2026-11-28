@@ -6,6 +6,7 @@ description: Every flag of the datacanvas command, its startup order, and how it
 ```text
 datacanvas [options]
 datacanvas mcp                A bridge for a Claude app (read only)
+datacanvas schema check --baseline <file> [--format markdown|json]
 
   --port <number>   Port to listen on (default 4747, or the next free port)
   --no-open         Do not open the browser automatically
@@ -19,6 +20,40 @@ Options are parsed with Node's `util.parseArgs` in **strict** mode: an unknown f
 silently ignored. When using `npx`, add them after the package name:
 `npx --yes @shubhamtiwari909/datacanvas --port 4900 --no-open`. From a repository clone, pass them
 after `--`: `pnpm run app -- --port 4900`.
+
+## Check for schema drift
+
+Export a baseline from [Snapshots](/guides/snapshots/) and commit the `.snapshot.json` file
+where your workflow can read it. Set `DATACANVAS_DATABASE_URL` in your shell or workflow environment,
+then run:
+
+```sh
+npx --yes @shubhamtiwari909/datacanvas@1.15.0 schema check --baseline db/baseline.snapshot.json
+```
+
+The command compares the baseline with the live database using the same comparison as the
+Snapshots page. It reads catalog metadata without opening the web app. Use the same PostgreSQL
+major version and a role that can see the same schema objects as the baseline connection.
+Baselines can be up to 20 MiB. Reports can include object definitions, so share them with the same
+audience as your schema.
+
+The default output is Markdown. Use `--format json` for an object with a `status` and the
+structured `diff`. For input or connection errors, the command writes a message to stderr.
+
+| Exit code | Meaning                                                                                         |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `0`       | The compared schema matches the baseline (`match`).                                             |
+| `1`       | The check found changes (`drift`).                                                              |
+| `2`       | The check failed or the older baseline lacked object metadata to verify a match (`incomplete`). |
+
+An older snapshot with recorded drift still exits `1`. The report identifies the missing
+object comparison. Export a current snapshot to verify those objects.
+
+The [GitHub Actions example](https://github.com/ShubhamTiwari909/datacanvas/blob/main/examples/github-actions/schema-drift.yml)
+starts a disposable PostgreSQL service and applies `db/schema.sql` from the pull request. Copy it
+to `.github/workflows/schema-drift.yml`, adjust the schema setup step for your project, and commit
+your exported baseline as `db/baseline.snapshot.json`. The job fails and shows the report when
+the two schemas differ. Export and review a new baseline when the change is intentional.
 
 ## Flags
 

@@ -140,6 +140,7 @@ the code allows 100 rows and the limits above, and this page follows the code.
 | Snapshots                               | 100    | `MAX_SNAPSHOTS`                              |
 | Tables in a snapshot                    | 5,000  | `MAX_SNAPSHOT_TABLES`                        |
 | Objects per kind in a snapshot          | 10,000 | `MAX_SNAPSHOT_OBJECTS_PER_KIND`              |
+| Schema check baseline file              | 20 MiB | `MAX_BASELINE_BYTES` in `schema-check.ts`    |
 | Imported workspace file (browser check) | 1 MB   | `MAX_IMPORT_BYTES` in `workspace-actions.ts` |
 
 ## Other

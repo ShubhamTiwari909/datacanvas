@@ -128,6 +128,11 @@ async function main() {
   const help = execFileSync(process.execPath, [bin, "--help"], { encoding: "utf8" });
   check("--help lists --port and --no-open", help.includes("--port") && help.includes("--no-open"));
 
+  const schemaHelp = execFileSync(process.execPath, [bin, "schema", "check", "--help"], {
+    encoding: "utf8",
+  });
+  check("schema check works from the installed package", schemaHelp.includes("--baseline"));
+
   // 4. Start it.
   const home = path.join(work, "home");
   const port = await freePort();

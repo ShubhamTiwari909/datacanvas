@@ -6,6 +6,9 @@
     "types": ["node"]
   },
   "include": ["src"],
-  // Project reference: build shared-types first and read its .d.ts output.
-  "references": [{ "path": "../shared-types" }]
+  "references": [
+    { "path": "../shared-types" },
+    { "path": "../database-core" },
+    { "path": "../postgres-adapter" }
+  ]
 }

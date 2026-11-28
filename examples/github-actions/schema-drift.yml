@@ -1,0 +1,40 @@
+# Copy to .github/workflows/schema-drift.yml in your repository.
+name: Schema drift
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-drift:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_check
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d schema_check"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the schema under review
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        # Replace this step if your project builds its schema with a migration tool.
+        run: >-
+          docker exec -i "$POSTGRES_CONTAINER" psql -U postgres -d schema_check
+          -v ON_ERROR_STOP=1 < db/schema.sql
+      - name: Compare with the committed baseline
+        env:
+          DATACANVAS_DATABASE_URL: postgresql://postgres:ci-only-password@127.0.0.1:54329/schema_check?sslmode=disable
+        run: >-
+          npx --yes @shubhamtiwari909/datacanvas@1.15.0 schema check
+          --baseline db/baseline.snapshot.json >> "$GITHUB_STEP_SUMMARY"

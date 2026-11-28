@@ -93,7 +93,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc -b
-      - run: pnpm exec vitest run packages/postgres-adapter apps/web/lib/server/connection-service.integration apps/web/features/paths
+      - run: pnpm exec vitest run packages/postgres-adapter apps/web/lib/server/connection-service.integration apps/web/features/paths packages/cli/src/schema-check.test.ts
 
   install-qa:
     strategy:

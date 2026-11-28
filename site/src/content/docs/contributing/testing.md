@@ -3,6 +3,8 @@ title: Testing
 description: The four test layers, how to run each, the PostgreSQL integration setup, and what CI runs.
 ---
 
+For a manual fixture and expected results, see [Test releases 1.11.0 through 1.15.0](/contributing/release-testing/).
+
 ## The layers
 
 | Layer                 | Tool                  | Needs                                              | What it proves                                                                                                           |

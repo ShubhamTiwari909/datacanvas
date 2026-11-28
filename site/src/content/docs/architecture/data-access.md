@@ -92,8 +92,10 @@ sentence rather than the database's message.
 
 ## One cell
 
-`getCell` reads **one** `json` or `jsonb` value whole (up to 1 million characters) by the row's **whole key**
+`getCell` reads **one** `json`, `jsonb`, `text`, `varchar`, or `citext` value whole (up to 1 million characters) by the row's **whole key**
 from the catalog, with every value bound, behind the same gate. A hidden column cannot be the target.
+For text types, the response also reports the value's length and whether it can be edited.
+The JSON editor remains available for `json` and `jsonb`.
 
 ## Validation
 

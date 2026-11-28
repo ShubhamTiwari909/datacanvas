@@ -88,6 +88,7 @@ export default defineConfig({
           items: [
             { label: "Development setup", slug: "contributing/development" },
             { label: "Testing", slug: "contributing/testing" },
+            { label: "Test releases 1.11.0–1.15.0", slug: "contributing/release-testing" },
             { label: "Project rules", slug: "contributing/rules" },
             { label: "Releasing", slug: "contributing/releasing" },
             { label: "Maintaining this site", slug: "contributing/maintaining-docs" },

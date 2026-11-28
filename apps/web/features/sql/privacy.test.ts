@@ -1,6 +1,6 @@
 /**
- * The SQL view keeps nothing (decision 141): a statement can hold literals and personal data,
- * and a result is rows. They live in memory only, in the store and the component state. This
+ * The SQL view uses no browser storage (decision 141): a statement can hold literals and personal data,
+ * and a result is rows. Explicit library saves go through the protected local API. This
  * rule fails if the code of `features/sql` or the SQL store reaches for browser storage or the
  * console, or calls the network other than through `api.ts`.
  */
@@ -33,7 +33,7 @@ const code = (file: string) =>
     (_match, literal: string | undefined) => literal ?? "",
   );
 
-describe("the SQL view keeps nothing", () => {
+describe("the SQL view uses no browser storage", () => {
   it("reads code the way a compiler does: a comment marker inside a string hides nothing", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "sql-privacy-"));
     try {

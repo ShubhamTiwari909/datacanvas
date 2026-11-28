@@ -27,8 +27,7 @@ The editor (Monaco) is built into the package and loads nothing from another hos
 ## Query tabs and files
 
 **+** opens a tab, double-click or the pencil renames it, the copy button duplicates it, **x** or Delete
-closes it. Queries are **not kept** when you close the page: save a tab as a `.sql` file with the download
-button, and open one with the folder button.
+closes it. Editor tabs are temporary. Use the download and folder buttons to export and import `.sql` files, or keep a named copy in **Saved queries**.
 
 ## Results
 
@@ -70,6 +69,12 @@ and is read as **untrusted text** with limits: at most 20,000 steps and 100 leve
 checked, every string cut for display and never used as markup. A plan of many thousands of steps takes a
 moment to draw, so the steps beyond the first levels start collapsed.
 
+## Saved queries
+
+Choose **Saved queries**, give the current tab a name, and select **Save current query**. Search by name and use **Open** to load SQL in a new editor tab. You can rename an entry, replace it with the current tab's SQL, or remove it. Choose **Run** to execute an open query.
+
+A saved connection keeps its library in DataCanvas's private data folder on this machine. An unsaved connection keeps its library until it disconnects or the app stops. Saved SQL includes any literals you typed. Drafts, results, and execution history stay in memory.
+
 ## History
 
 The clock button lists what ran on this connection since you opened the page, with how each went. Open
@@ -81,15 +86,17 @@ The database's own sentence plus the line and column, with the place marked in t
 
 ## Limits
 
-| Limit            | Value                                    |
-| ---------------- | ---------------------------------------- |
-| Statement length | 200,000 characters                       |
-| Rows             | 1,000 by default, 10,000 at most         |
-| Result size      | read in small batches, stopped at 64 MB  |
-| Cell             | 2,000 characters kept                    |
-| Query plan       | 2 MB kept whole (JSON format)            |
-| Time             | 30 seconds by default, 5 minutes at most |
-| Lock wait        | 3 seconds                                |
+| Limit                        | Value                                    |
+| ---------------------------- | ---------------------------------------- |
+| Statement length             | 200,000 characters                       |
+| Saved queries per connection | 100                                      |
+| All saved SQL in one library | 2,000,000 characters                     |
+| Rows                         | 1,000 by default, 10,000 at most         |
+| Result size                  | read in small batches, stopped at 64 MB  |
+| Cell                         | 2,000 characters kept                    |
+| Query plan                   | 2 MB kept whole (JSON format)            |
+| Time                         | 30 seconds by default, 5 minutes at most |
+| Lock wait                    | 3 seconds                                |
 
 A single very large value is still read whole before it is cut, so a statement that returns half a
 gigabyte in one cell can use that much memory.

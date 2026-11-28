@@ -82,6 +82,53 @@ test("runs a statement and shows the rows, NULL and the empty string apart", asy
   await expect(page.getByText(/\d+ ms/)).toBeVisible();
 });
 
+test("saves, searches, edits and reopens a query without running it", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database);
+  await typeSql(page, "SELECT 7 AS library_value");
+  const libraryButton = page.getByRole("button", { name: "Saved queries", exact: true });
+  await libraryButton.click();
+  const library = page.getByRole("dialog", { name: "Saved queries" });
+  await library.getByLabel("Query name", { exact: true }).fill("Invoice overview");
+  await library.getByRole("button", { name: "Save current query" }).click();
+  await expect(library.getByText("Query saved.", { exact: true })).toBeVisible();
+
+  const search = library.getByLabel("Search saved queries");
+  await search.fill("missing");
+  await expect(library.getByText("No saved query matches.")).toBeVisible();
+  await search.fill("invoice");
+  await library.getByRole("button", { name: "Rename Invoice overview" }).click();
+  await library.getByRole("textbox", { name: "New query name" }).fill("Invoice totals");
+  await library.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(library.getByRole("button", { name: "Open Invoice totals" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await typeSql(page, "SELECT 17 AS library_value");
+  await libraryButton.click();
+  await library.getByRole("button", { name: "Replace SQL for Invoice totals" }).click();
+  await library.getByRole("button", { name: "Replace SQL", exact: true }).click();
+  await expect(library.getByText("Saved SQL replaced.", { exact: true })).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("tab", { name: "SQL", exact: true }).click();
+  await libraryButton.click();
+  await library.getByRole("button", { name: "Open Invoice totals" }).click();
+  await expect(library).toHaveCount(0);
+  await expect(queryTab(page, "Invoice totals")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("grid", { name: "Query result" })).toHaveCount(0);
+  await expect(page.locator(".monaco-editor .view-lines").first()).toContainText("library_value");
+  await run(page).click();
+  await expect(page.getByRole("grid", { name: "Query result" })).toContainText("17");
+
+  await libraryButton.click();
+  await library.getByRole("button", { name: "Delete Invoice totals" }).click();
+  await library.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(library.getByText("No saved queries for this connection yet.")).toBeVisible();
+});
+
 test("Ctrl or Cmd plus Enter runs, and a selection runs alone", async ({ page, app, database }) => {
   await open(page, app.link, database);
   await typeSql(page, "SELECT 1 AS first;\nSELECT 2 AS second");

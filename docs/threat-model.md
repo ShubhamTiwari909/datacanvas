@@ -129,6 +129,12 @@ Before 1.6.0 the SQL runner was read by a second reviewer working only from the 
 | CSV and TSV: a value starting with a line feed, white space before a formula character, or `\|`                                                                                                           | Fixed: defused with a leading apostrophe                                                                                                                                                                              |
 | Functions that reach outside the database (`pg_read_file`, `dblink`, `COPY ... PROGRAM` for a privileged role), and a pooler making the backend id unreliable                                             | **Accepted and said in the view:** the role is the control. The SQL tab warns for a superuser or a role that may run programs or read server files                                                                    |
 
+### 8c. Saved SQL queries (1.14.0)
+
+The local library stores a name and SQL text only after an explicit save. Saved profile libraries are owner-only files in the DataCanvas data folder, and an unsaved connection uses server memory until it disconnects or the process exits. The browser never sends results or history to these routes. Saved SQL can include sensitive literals, so protect the data directory as you would a saved SQL file.
+
+The endpoints require the local app session and permission to view the connection's data. The server resolves the library from the live connection and verifies that its database and user match the saved profile. Listing exposes names and IDs only. Opening returns one query to the editor and cannot execute it. The read-only SQL runner remains the only path for running typed SQL. MCP has no library tools.
+
 ### 9. Migrations (1.7.0)
 
 New capability: **text that is meant to be run elsewhere**, made from names and definitions that came from databases (`planMigration`, `buildExport`; decisions 147 to 151). It adds no route and no connection: the plan is a pure function of two structures, computed in the browser. DataCanvas never runs it.

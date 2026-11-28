@@ -2,7 +2,11 @@
 
 All notable changes are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project intends to follow [Semantic Versioning](https://semver.org/) from 1.0.0.
 
-## [1.13.0]
+## [1.14.0]
+
+- **Saved SQL queries.** Name and save an editor tab, search the library by name, and reopen saved SQL in a fresh tab. Rename, replace, or remove entries from the library. Saved profiles keep their libraries on the local machine. Unsaved connections keep theirs in memory until disconnect or app shutdown. Results and history remain in memory.
+
+## [1.13.0] - 2026-11-27
 
 - **Paste spreadsheet cells** into an editable grid, starting at the focused cell. The block stays on the current page and counts as one undo step. Review and preview the changes before applying them.
 - **Saved filter templates belong to a connection.** Saved profiles keep their templates when they reconnect. Unsaved connections keep templates in memory. Use **Move previous filters here** to assign older, shared templates to a saved connection.

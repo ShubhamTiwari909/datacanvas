@@ -19,6 +19,7 @@ import type { ServerContext } from "./context";
 import { ProfileService } from "./profile-service";
 import { SnapshotService } from "./snapshot-service";
 import { McpService } from "./mcp-service";
+import { SavedQueryService } from "./saved-query-service";
 import { SqlService } from "./sql-service";
 import { SnapshotStorage } from "./storage/snapshot-storage";
 import { ProfileStorage } from "./storage/profile-storage";
@@ -110,6 +111,7 @@ export function createTestContext(
       now: options.now ? () => options.now!().getTime() : undefined,
     }),
     sql,
+    savedQueries: new SavedQueryService(registry, profiles, dataDir),
     mcp: new McpService({ connections: registry, sql, rows: connections }),
     dataDir,
     registry,

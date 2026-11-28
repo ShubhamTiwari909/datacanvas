@@ -8,7 +8,7 @@
  * `data_access_disabled` unless viewing table data is on, and with 429 `sql_busy` while another
  * statement runs on the connection.
  *
- * This is the one route that takes SQL text, so: the body is JSON (the text never appears in a
+ * The statement is submitted as JSON (the text never appears in a
  * URL), strict (no other key exists), and a body can hold the longest statement in its widest encoding; there is no GET; the response is
  * `no-store`; and neither the text nor a row is ever logged. The client going away cancels the
  * statement in the database.

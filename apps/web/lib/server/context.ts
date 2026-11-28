@@ -20,6 +20,7 @@ import { SnapshotStorage } from "./storage/snapshot-storage";
 import { WorkspaceStorage } from "./storage/workspace-storage";
 import { SnapshotService } from "./snapshot-service";
 import { McpService } from "./mcp-service";
+import { SavedQueryService } from "./saved-query-service";
 import { SqlService } from "./sql-service";
 import { WorkspaceService } from "./workspace-service";
 import { WriteService } from "./write-service";
@@ -34,6 +35,7 @@ export interface ServerContext {
   writes: WriteService;
   /** Running one read-only statement the person typed (the SQL view). */
   sql: SqlService;
+  savedQueries: SavedQueryService;
   /** Claude reading a database through MCP: what is shared, and the tools (decision 169). */
   mcp: McpService;
 }
@@ -68,6 +70,7 @@ function createServerContext(): ServerContext {
       writesEnabled: readSecurityConfig().writesEnabled,
     }),
     sql,
+    savedQueries: new SavedQueryService(registry, profiles, dataDir),
     mcp: new McpService({
       connections: registry,
       sql,
@@ -83,7 +86,7 @@ export function getServerContext(): ServerContext {
   // In development a hot reload can leave a context made by older code, without
   // the write service or the SQL service. Replace it (closing its connections) instead of serving
   // routes that cannot work; in production this never happens.
-  if (held && (!held.writes || !held.sql || !held.mcp)) {
+  if (held && (!held.writes || !held.sql || !held.savedQueries || !held.mcp)) {
     void held.connections?.dispose().catch(() => {});
     holder[CONTEXT_KEY] = undefined;
   }

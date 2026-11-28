@@ -3,12 +3,22 @@
  * statement that may not be run, the database's refusal as an answer, one at a time, cancelling
  * with the request, and that neither the text nor a value ends up in a log.
  */
+import { mkdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { SqlStatementError, type SqlRunResult } from "@datacanvas/database-core";
 import type { MockDatabaseAdapter } from "@datacanvas/database-core/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setServerContextForTests } from "@/lib/server/context";
 import { createTestContext, fieldsInput, type TestContext } from "@/lib/server/test-support";
 import { PUT as setDataAccess } from "./connections/[id]/data-access/route";
+import { DELETE as disconnect } from "./connections/[id]/route";
+import { GET as listSaved, POST as saveQuery } from "./connections/[id]/saved-queries/route";
+import {
+  DELETE as removeSaved,
+  GET as openSaved,
+  PUT as renameSaved,
+} from "./connections/[id]/saved-queries/[queryId]/route";
+import { DELETE as forget } from "./profiles/[id]/route";
 import { POST as run } from "./connections/[id]/run/route";
 import { POST as createConnection } from "./connections/route";
 
@@ -247,5 +257,121 @@ describe("privacy", () => {
     expect(failed.text).not.toContain(SECRET);
     await sql(id, { text: `DROP TABLE '${SECRET}'` });
     expect(JSON.stringify(logged)).not.toContain(SECRET);
+  });
+});
+
+describe("the local saved-query library", () => {
+  const queryPath = (id: string) => `${BASE}/connections/${id}/saved-queries`;
+  const list = (id: string) => call(listSaved(new Request(queryPath(id)), params({ id })));
+  const save = (id: string, body: unknown) =>
+    call(saveQuery(json(queryPath(id), "POST", body), params({ id })));
+  const input = {
+    name: "Example query",
+    text: `  SELECT '${SECRET}' AS value;
+`,
+  };
+
+  it("persists explicit saves per profile, returns names alone in lists, and never runs the saved text", async () => {
+    const id = await connect({ remember: true, dataAccess: true });
+    const profileId = context.registry.getSummary(id)!.profileId!;
+    const handler = vi.fn(async () => answer("not called"));
+    adapterOf().sqlHandler = handler;
+
+    const saved = await save(id, input);
+    expect(saved.status).toBe(200);
+    expect(saved.headers.get("cache-control")).toBe("no-store");
+    const { id: queryId } = saved.body.queries[0];
+    expect(saved.body).toEqual({ queries: [{ id: queryId, name: input.name }] });
+    expect(saved.text).not.toContain(SECRET);
+    expect(handler).not.toHaveBeenCalled();
+    expect(logged.flat().join(" ")).not.toContain(SECRET);
+    const file = path.join(context.dataDir, "saved-queries", `${profileId}.json`);
+    expect(await readFile(file, "utf8")).toContain(SECRET);
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
+
+    const another = await connect({ database: "another", remember: true, dataAccess: true });
+    expect((await list(another)).body.queries).toEqual([]);
+    expect(
+      (await call(openSaved(new Request(queryPath(another)), params({ id: another, queryId }))))
+        .status,
+    ).toBe(404);
+    const wrongTarget = await connect({ database: "wrong-target", profileId, dataAccess: true });
+    expect((await list(wrongTarget)).status).toBe(404);
+    expect((await save(id, { ...input, name: input.name.toUpperCase() })).status).toBe(409);
+
+    await call(
+      disconnect(new Request(`${BASE}/connections/${id}`, { method: "DELETE" }), params({ id })),
+    );
+    context = createTestContext({}, { dataDir: context.dataDir });
+    setServerContextForTests(context);
+    const reopened = await connect({ profileId, dataAccess: true });
+    const current = params({ id: reopened, queryId });
+    expect((await call(openSaved(new Request(queryPath(reopened)), current))).body).toEqual({
+      id: queryId,
+      ...input,
+    });
+    expect(
+      (await call(renameSaved(json(queryPath(reopened), "PUT", { name: "Renamed" }), current))).body
+        .queries[0].name,
+    ).toBe("Renamed");
+    expect(
+      (await call(removeSaved(new Request(queryPath(reopened), { method: "DELETE" }), current)))
+        .body.queries,
+    ).toEqual([]);
+    await save(reopened, input);
+    expect(
+      (
+        await call(
+          forget(
+            new Request(`${BASE}/profiles/${profileId}`, { method: "DELETE" }),
+            params({ id: profileId }),
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await list(reopened)).body.queries).toEqual([]);
+  });
+
+  it("keeps the profile available when forgetting its library fails", async () => {
+    const id = await connect({ remember: true, dataAccess: true });
+    const profileId = context.registry.getSummary(id)!.profileId!;
+    // Stand in for a file the server cannot remove.
+    await mkdir(path.join(context.dataDir, "saved-queries", `${profileId}.json`), {
+      recursive: true,
+    });
+    const response = await call(
+      forget(
+        new Request(`${BASE}/profiles/${profileId}`, { method: "DELETE" }),
+        params({ id: profileId }),
+      ),
+    );
+    expect(response.status).toBe(500);
+    expect(response.body.error.code).toBe("storage_error");
+    expect((await context.profiles.get(profileId)).id).toBe(profileId);
+  });
+
+  it("isolates temporary connections and refuses persistence payloads besides a name and text", async () => {
+    const accessOff = await connect();
+    expect((await save(accessOff, input)).status).toBe(403);
+    const id = await connect({ dataAccess: true });
+    expect((await save(id, { ...input, results: [SECRET] })).status).toBe(400);
+    expect((await save(id, { ...input, text: "    " })).status).toBe(400);
+    const [one, two] = await Promise.all([
+      save(id, input),
+      save(id, { ...input, name: "Another query" }),
+    ]);
+    expect(one.status).toBe(200);
+    expect(two.status).toBe(200);
+    expect((await list(id)).body.queries).toHaveLength(2);
+    const another = await connect({ dataAccess: true });
+    expect((await list(another)).body.queries).toEqual([]);
+    await expect(stat(path.join(context.dataDir, "saved-queries"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await call(
+      disconnect(new Request(`${BASE}/connections/${id}`, { method: "DELETE" }), params({ id })),
+    );
+    expect((await list(id)).status).toBe(404);
   });
 });

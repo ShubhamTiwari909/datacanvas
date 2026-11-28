@@ -3,7 +3,7 @@ title: Known limits
 description: What DataCanvas does not defend against, taken from the project's own security notes.
 ---
 
-These are the project's stated limits at 1.13.0. They are not a complete list of everything that could go
+These are the project's stated limits at 1.14.0. They are not a complete list of everything that could go
 wrong; they are what the maintainers have written down.
 
 ## The machine and the browser

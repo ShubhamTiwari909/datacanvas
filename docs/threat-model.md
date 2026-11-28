@@ -131,7 +131,7 @@ Before 1.6.0 the SQL runner was read by a second reviewer working only from the 
 
 ### 8c. Saved SQL queries (1.14.0)
 
-The local library stores a name and SQL text only after an explicit save. Saved profile libraries are owner-only files in the DataCanvas data folder, and an unsaved connection uses server memory until it disconnects or the process exits. The browser never sends results or history to these routes. Saved SQL can include sensitive literals, so protect the data directory as you would a saved SQL file.
+The local library stores a name and SQL text only after an explicit save. Saved profile libraries are owner-only files in the DataCanvas data folder, and an unsaved connection uses server memory until it disconnects or the process exits. Saving the connection copies its explicitly saved queries to the profile. The browser never sends results or history to these routes. Saved SQL can include sensitive literals, so protect the data directory as you would a saved SQL file.
 
 The endpoints require the local app session and permission to view the connection's data. The server resolves the library from the live connection and verifies that its database and user match the saved profile. Listing exposes names and IDs only. Opening returns one query to the editor and cannot execute it. The read-only SQL runner remains the only path for running typed SQL. MCP has no library tools.
 

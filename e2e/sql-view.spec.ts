@@ -26,7 +26,13 @@ async function admin<Row extends Record<string, unknown> = Record<string, unknow
   }
 }
 
-async function open(page: Page, link: string, database: TestDb, dataAccess = true) {
+async function open(
+  page: Page,
+  link: string,
+  database: TestDb,
+  dataAccess = true,
+  remember = true,
+) {
   await admin(
     database,
     `CREATE TABLE public.s_items (id int PRIMARY KEY, v text);
@@ -38,6 +44,7 @@ async function open(page: Page, link: string, database: TestDb, dataAccess = tru
   await page.getByRole("tab", { name: /connection string/i }).click();
   await page.getByRole("textbox", { name: "Connection string" }).fill(database.url);
   if (dataAccess) await page.getByLabel("Allow viewing table data").check();
+  if (!remember) await page.getByLabel("Save this connection for next time").uncheck();
   await page.getByRole("button", { name: /^Connect$/ }).click();
   await expect(page.getByRole("button", { name: "Disconnect Sql shop" })).toBeVisible();
   await page.getByRole("tab", { name: "SQL" }).click();
@@ -127,6 +134,31 @@ test("saves, searches, edits and reopens a query without running it", async ({
   await library.getByRole("button", { name: "Delete Invoice totals" }).click();
   await library.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(library.getByText("No saved queries for this connection yet.")).toBeVisible();
+});
+
+test("keeps saved queries when a temporary connection is saved", async ({
+  page,
+  app,
+  database,
+}) => {
+  await open(page, app.link, database, true, false);
+  await typeSql(page, "SELECT 42");
+  const libraryButton = page.getByRole("button", { name: "Saved queries", exact: true });
+  const library = page.getByRole("dialog", { name: "Saved queries" });
+  await libraryButton.click();
+  await library.getByLabel("Query name", { exact: true }).fill("Session query");
+  await library.getByRole("button", { name: "Save current query" }).click();
+  await expect(library.getByText("Query saved.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("tab", { name: "Canvas", exact: true }).click();
+  const saveConnection = page.getByRole("button", { name: "Save connection", exact: true });
+  await saveConnection.click();
+  await expect(saveConnection).toHaveCount(0);
+  await page.getByRole("tab", { name: "SQL", exact: true }).click();
+  await libraryButton.click();
+  await expect(library.getByRole("button", { name: "Open Session query" })).toBeVisible();
+  await expect(library.getByText(/stored on this machine/)).toBeVisible();
 });
 
 test("Ctrl or Cmd plus Enter runs, and a selection runs alone", async ({ page, app, database }) => {

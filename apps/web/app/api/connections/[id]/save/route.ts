@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
 export function POST(request: Request, { params }: RouteParams<{ id: string }>): Promise<Response> {
   return handleRoute(request, async () => {
     const { id } = await params;
-    const connection = await getServerContext().connections.saveConnection(id);
+    const context = getServerContext();
+    const connection = await context.savedQueries.promoteConnection(id, context.connections);
     return jsonResponse({ connection });
   });
 }

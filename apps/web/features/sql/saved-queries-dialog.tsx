@@ -127,7 +127,7 @@ function Library({ connectionId, persistent, tab, onOpen }: Props) {
         <DialogDescription>
           {persistent
             ? "Queries you save here are stored on this machine for this saved connection."
-            : "Queries you save here stay available until this connection closes."}{" "}
+            : "Queries stay available until this connection closes. Saving the connection also keeps its saved queries."}{" "}
           Save only SQL you want to keep, including any values typed into it.
         </DialogDescription>
       </DialogHeader>

@@ -19,6 +19,7 @@ import {
   PUT as renameSaved,
 } from "./connections/[id]/saved-queries/[queryId]/route";
 import { DELETE as forget } from "./profiles/[id]/route";
+import { POST as saveConnection } from "./connections/[id]/save/route";
 import { POST as run } from "./connections/[id]/run/route";
 import { POST as createConnection } from "./connections/route";
 
@@ -331,6 +332,35 @@ describe("the local saved-query library", () => {
     ).toBe(200);
     await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await list(reopened)).body.queries).toEqual([]);
+  });
+
+  it("keeps session queries when a connection is saved, including a name already in the profile", async () => {
+    const original = await connect({ remember: true, dataAccess: true });
+    const existing = await save(original, input);
+    const temporary = await connect({ dataAccess: true });
+    const draft = { ...input, text: "SELECT 42" };
+    const session = await save(temporary, draft);
+    const queryId = session.body.queries[0].id;
+    expect((await list(temporary)).body.queries).toEqual(session.body.queries);
+
+    const response = await call(
+      saveConnection(
+        new Request(`${BASE}/connections/${temporary}/save`, { method: "POST" }),
+        params({ id: temporary }),
+      ),
+    );
+    expect(response.status).toBe(200);
+    const profileId = response.body.connection.profileId;
+    expect(profileId).toBe(context.registry.getSummary(original)!.profileId);
+    const reopened = await connect({ profileId, dataAccess: true });
+    expect((await list(reopened)).body.queries).toEqual([
+      ...existing.body.queries,
+      { id: queryId, name: "Example query (2)" },
+    ]);
+    const opened = await call(
+      openSaved(new Request(queryPath(reopened)), params({ id: reopened, queryId })),
+    );
+    expect(opened.body).toEqual({ id: queryId, ...draft, name: "Example query (2)" });
   });
 
   it("keeps the profile available when forgetting its library fails", async () => {

@@ -4,7 +4,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [1.14.0]
 
-- **Saved SQL queries.** Name and save an editor tab, search the library by name, and reopen saved SQL in a fresh tab. Rename, replace, or remove entries from the library. Saved profiles keep their libraries on the local machine. Unsaved connections keep theirs in memory until disconnect or app shutdown. Results and history remain in memory.
+- **Saved SQL queries.** Name and save an editor tab, search the library by name, and reopen saved SQL in a fresh tab. Rename, replace, or remove entries from the library. Saved profiles keep their libraries on the local machine. Unsaved connections keep theirs in memory. Save the connection to keep its library across restarts. Results and history remain in memory.
 
 ## [1.13.0] - 2026-11-27
 

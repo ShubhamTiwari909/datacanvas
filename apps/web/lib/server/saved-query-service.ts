@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   MAX_SAVED_LIBRARY_CHARS,
   MAX_SAVED_QUERIES,
+  MAX_SAVED_QUERY_NAME_CHARS,
+  type ConnectionSummary,
   profileIdSchema,
   savedQueryFileSchema,
   type EditSavedQueryRequest,
@@ -13,6 +15,7 @@ import {
   type SaveQueryRequest,
 } from "@datacanvas/shared-types";
 import type { ConnectionRegistry } from "./connection-registry";
+import type { ConnectionService } from "./connection-service";
 import type { ProfileService } from "./profile-service";
 import { guardStorage, ServiceError } from "./service-error";
 import { KeyedMutex, readTextFile, writeFileAtomic } from "./storage/atomic-file";
@@ -40,6 +43,48 @@ export class SavedQueryService {
 
   private file(profileId: string): string {
     return path.join(this.dataDir, "saved-queries", profileIdSchema.parse(profileId) + ".json");
+  }
+
+  private async profileLibrary<T>(
+    profileId: string,
+    work: (queries: SavedQuery[], save: (queries: SavedQuery[]) => Promise<void>) => T | Promise<T>,
+  ): Promise<T> {
+    return guardStorage(async () => {
+      const file = this.file(profileId);
+      const contents = await readTextFile(file);
+      const queries =
+        contents === null ? [] : savedQueryFileSchema.parse(JSON.parse(contents)).queries;
+      return work(queries, (next) =>
+        writeFileAtomic(file, JSON.stringify({ version: 1, queries: next })),
+      );
+    });
+  }
+
+  /** Carry explicitly saved session queries into the profile when the user saves the connection. */
+  promoteConnection(
+    connectionId: string,
+    connections: ConnectionService,
+  ): Promise<ConnectionSummary> {
+    return this.mutex.run(`connection:${connectionId}`, () =>
+      connections.saveConnection(connectionId, (profileId, link) =>
+        this.mutex.run(`profile:${profileId}`, async () => {
+          await this.profiles.get(profileId);
+          const temporary = this.session.get(connectionId);
+          if (temporary?.length) {
+            await this.profileLibrary(profileId, async (stored, save) => {
+              const merged = [...stored];
+              for (const query of temporary) {
+                merged.push({ ...query, name: availableName(merged, query.name) });
+              }
+              requireCapacity(merged);
+              await save(merged);
+            });
+            this.session.delete(connectionId);
+          }
+          return link();
+        }),
+      ),
+    );
   }
 
   private async useLibrary<T>(
@@ -76,15 +121,7 @@ export class SavedQueryService {
           "Reconnect using the saved connection's details to use its queries.",
         );
       }
-      return guardStorage(async () => {
-        const file = this.file(profileId);
-        const contents = await readTextFile(file);
-        const queries =
-          contents === null ? [] : savedQueryFileSchema.parse(JSON.parse(contents)).queries;
-        return work(queries, (next) =>
-          writeFileAtomic(file, JSON.stringify({ version: 1, queries: next })),
-        );
-      });
+      return this.profileLibrary(profileId, work);
     });
   }
 
@@ -172,4 +209,15 @@ function requireCapacity(queries: SavedQuery[]): void {
       "This library is full. Remove a saved query and try again.",
     );
   }
+}
+
+/** Preserve both entries when an existing profile already has a query with the session name. */
+function availableName(queries: SavedQuery[], name: string): string {
+  const taken = new Set(queries.map((query) => query.name.toLowerCase()));
+  let candidate = name;
+  for (let n = 2; taken.has(candidate.toLowerCase()); n += 1) {
+    const suffix = ` (${n})`;
+    candidate = name.slice(0, MAX_SAVED_QUERY_NAME_CHARS - suffix.length).trimEnd() + suffix;
+  }
+  return candidate;
 }

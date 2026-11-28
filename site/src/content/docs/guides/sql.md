@@ -73,7 +73,7 @@ moment to draw, so the steps beyond the first levels start collapsed.
 
 Choose **Saved queries**, give the current tab a name, and select **Save current query**. Search by name and use **Open** to load SQL in a new editor tab. You can rename an entry, replace it with the current tab's SQL, or remove it. Choose **Run** to execute an open query.
 
-A saved connection keeps its library in DataCanvas's private data folder on this machine. An unsaved connection keeps its library until it disconnects or the app stops. Saved SQL includes any literals you typed. Drafts, results, and execution history stay in memory.
+A saved connection keeps its library in DataCanvas's private data folder on this machine. An unsaved connection keeps its library in memory. **Save connection** keeps its queries with the profile. If two queries have the same name, the newly transferred query gets a numbered suffix. Saved SQL includes any literals you typed. Drafts, results, and execution history stay in memory.
 
 ## History
 

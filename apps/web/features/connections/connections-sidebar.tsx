@@ -146,7 +146,7 @@ export function ConnectionsSidebar() {
                   size="icon-xs"
                   onClick={() => setForgetTarget(profile)}
                   aria-label={`Forget ${profile.name}`}
-                  title="Forget this saved connection and its layouts"
+                  title="Forget this connection and its saved layouts and queries"
                 >
                   <Trash2 aria-hidden="true" />
                 </Button>
@@ -161,8 +161,7 @@ export function ConnectionsSidebar() {
           <DialogHeader>
             <DialogTitle>Forget “{forgetTarget?.name}”?</DialogTitle>
             <DialogDescription>
-              This removes the saved connection details AND the layouts saved for it. Your database
-              is not touched.
+              This removes the connection details, saved layouts, and saved queries from DataCanvas.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

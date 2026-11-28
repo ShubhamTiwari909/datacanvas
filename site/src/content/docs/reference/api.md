@@ -63,6 +63,18 @@ with a token of its own; see below.)
 | POST   | `/api/connections/:id/rows/preflight` | Counts of rows that would make migration steps fail.                                                                                                                                                                 |
 | POST   | `/api/connections/:id/run`            | **The one SQL route**: one read-only statement `{ text, maxRows?, timeoutMs? }`.                                                                                                                                     |
 
+## Saved SQL queries
+
+All library routes need the local app session and data viewing on for the connection. Opening a saved entry returns its text without executing it.
+
+| Method | Route                                         | Body or result                                                                   |
+| ------ | --------------------------------------------- | -------------------------------------------------------------------------------- |
+| GET    | `/api/connections/:id/saved-queries`          | `{ queries: [{ id, name }] }`                                                    |
+| POST   | `/api/connections/:id/saved-queries`          | Save `{ name, text }`. Returns the updated list.                                 |
+| GET    | `/api/connections/:id/saved-queries/:queryId` | `{ id, name, text }`                                                             |
+| PUT    | `/api/connections/:id/saved-queries/:queryId` | Rename with `{ name }` or replace SQL with `{ text }`. Returns the updated list. |
+| DELETE | `/api/connections/:id/saved-queries/:queryId` | Remove the entry and return the updated list.                                    |
+
 ## Claude reading a connection (1.11.0, behind the cookie)
 
 These are the person's side of [Use DataCanvas from Claude](/guides/use-with-claude/). Claude's own calls go to

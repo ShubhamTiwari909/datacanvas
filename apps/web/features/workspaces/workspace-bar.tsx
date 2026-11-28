@@ -103,7 +103,7 @@ export function WorkspaceBar({ connectionId }: { connectionId: string }) {
           Save connection
         </Button>
         <span className="text-xs text-muted-foreground">
-          (Saves host, database and user, never the password.)
+          Keeps connection details, layouts, and saved queries. Reconnecting asks for the password.
         </span>
         {error ? (
           <span role="alert" className="text-destructive">

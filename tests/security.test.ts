@@ -57,7 +57,7 @@ describe("no arbitrary SQL, ever (but the one route of the SQL view)", () => {
   });
 });
 
-describe("the SQL view: exactly one route takes SQL text (decision 141)", () => {
+describe("the SQL view: only the run route can execute SQL (decision 141)", () => {
   const runRoute = "apps/web/app/api/connections/[id]/run/route.ts";
   const service = path.join(root, "apps/web/lib/server/sql-service.ts");
 
@@ -81,6 +81,22 @@ describe("the SQL view: exactly one route takes SQL text (decision 141)", () => 
     expect(code).toMatch(/return\s+jsonResponse\(/);
     expect(code).toMatch(/handleRoute\(\s*request\b/);
     expect(code.indexOf("parseJsonBody(")).toBeLessThan(code.indexOf(".sql.run("));
+  });
+
+  it("guards the saved-query routes and keeps the library away from SQL execution", () => {
+    const routes = routeFiles.filter((file) => rel(file).includes("/saved-queries/"));
+    expect(routes).toHaveLength(2);
+    for (const file of routes) {
+      const source = readFileSync(file, "utf8");
+      expect(source).toContain("handleRoute(request");
+      expect(source).toContain("jsonResponse(");
+      expect(source).not.toMatch(/\.sql\.run|\.connections\.use|console\./);
+    }
+    const library = readFileSync(
+      path.join(root, "apps/web/lib/server/saved-query-service.ts"),
+      "utf8",
+    );
+    expect(library).not.toMatch(/runStatement|SqlService|\.connections\.use|console\./);
   });
 
   it("the request schema is strict and has no key besides the text and two limits", () => {
@@ -153,7 +169,9 @@ describe("the SQL view: the documents say what it is", () => {
     expect(security).toMatch(/explain analyze create table/);
     expect(security).toMatch(/masking does not apply/);
     expect(security).toMatch(/the role is the control/);
-    expect(security).toMatch(/nothing is kept/);
+    expect(security).toMatch(/drafts, results, and execution history.{0,35}stay in memory/);
+    expect(security).toMatch(/only the name and sql text you explicitly save/);
+    expect(security).toContain("saved-queries/");
   });
 
   it("no product document says there is no way to run SQL, without the SQL tab beside it", () => {

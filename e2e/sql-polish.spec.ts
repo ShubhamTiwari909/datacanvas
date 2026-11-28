@@ -130,7 +130,7 @@ test("the editor wears the app's colours in light and dark", async ({ page, app,
   expect(dark.editor).toBe(dark.page);
 });
 
-test("passes axe with a result, an error, the menus and the history, in both themes", async ({
+test("passes axe with results, errors, menus, history and saved queries in both themes", async ({
   page,
   app,
   database,
@@ -172,6 +172,16 @@ test("passes axe with a result, an error, the menus and the history, in both the
     await page.screenshot({ path: path.join(shots, `sql-history-${label}.png`) });
     await axeOn(page, `the history (${label})`, "[role=dialog]");
     await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Saved queries", exact: true }).click();
+    const library = page.getByRole("dialog", { name: "Saved queries" });
+    await library.getByLabel("Query name", { exact: true }).fill(`Example ${label}`);
+    await library.getByRole("button", { name: "Save current query" }).click();
+    await expect(library.getByRole("button", { name: `Open Example ${label}` })).toBeVisible();
+    await settleForAxe(page);
+    await page.screenshot({ path: path.join(shots, `sql-saved-queries-${label}.png`) });
+    await axeOn(page, `saved queries (${label})`, "[role=dialog]");
+    await page.keyboard.press("Escape");
   }
 });
 
@@ -193,7 +203,14 @@ test("works on a phone: no sideways scroll, every control reachable, a result re
   mkdirSync(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, "sql-phone.png") });
   // The controls are all on screen, wrapped, not cut off.
-  for (const name of ["Run", "Explain", "Query history", "New query tab", "Duplicate query tab"]) {
+  for (const name of [
+    "Run",
+    "Explain",
+    "Saved queries",
+    "Query history",
+    "New query tab",
+    "Duplicate query tab",
+  ]) {
     const box = await page
       .getByRole("button", { name, exact: name === "Run" })
       .first()
@@ -203,6 +220,16 @@ test("works on a phone: no sideways scroll, every control reachable, a result re
     expect(box!.x + box!.width, name).toBeLessThanOrEqual(375);
     expect(box!.height, name).toBeGreaterThanOrEqual(24);
   }
+  await page.getByRole("button", { name: "Saved queries", exact: true }).click();
+  const library = page.getByRole("dialog", { name: "Saved queries" });
+  await expect(library.getByRole("button", { name: "Save current query" })).toBeEnabled();
+  expect(await library.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+  const nameField = await library.getByLabel("Query name", { exact: true }).boundingBox();
+  expect(nameField?.y).toBeLessThan(200);
+  await page.screenshot({
+    path: path.join(shots, "sql-saved-queries-phone.png"),
+    animations: "disabled",
+  });
 });
 
 test("says so when the role can reach the database server's files or programs", async ({

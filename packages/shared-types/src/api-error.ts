@@ -62,6 +62,9 @@ export const API_ERROR_CODES = [
   "export_busy",
   // The SQL view (1.6.0): another statement is running on this connection.
   "sql_busy",
+  "saved_query_not_found",
+  "saved_query_limit",
+  "saved_query_name_taken",
   // Structure snapshots.
   "snapshot_not_found",
   "snapshot_limit_reached",

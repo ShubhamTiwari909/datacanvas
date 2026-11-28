@@ -1,7 +1,7 @@
 /**
  * DELETE /api/profiles/:id
  *
- * Forgets a saved connection AND deletes the workspaces saved for it. (A live
+ * Forgets a saved connection and removes its workspaces and saved queries. (A live
  * connection that was opened from this profile keeps working until it is
  * disconnected; it just is no longer linked to saved data.)
  */
@@ -19,7 +19,7 @@ export function DELETE(
   return handleRoute(request, async () => {
     const { id } = await params;
     const context = getServerContext();
-    await context.profiles.remove(id);
+    await context.savedQueries.forgetProfile(id, () => context.profiles.remove(id));
     context.connections.unlinkProfile(id); // live connections opened from it stay open, just unlinked
     return jsonResponse({ ok: true });
   });

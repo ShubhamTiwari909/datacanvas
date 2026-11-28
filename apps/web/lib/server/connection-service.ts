@@ -169,13 +169,17 @@ export class ConnectionService {
    * for a connection that was opened without remembering it).
    * @throws ServiceError `connection_not_found`
    */
-  async saveConnection(id: string): Promise<ConnectionSummary> {
+  async saveConnection(
+    id: string,
+    beforeLink?: (profileId: string, link: () => ConnectionSummary) => Promise<ConnectionSummary>,
+  ): Promise<ConnectionSummary> {
     const summary = this.connections.getSummary(id);
     if (!summary) throw new ServiceError("connection_not_found", "This connection does not exist.");
     if (summary.profileId !== null) return summary;
 
     const profile = await this.profiles.add(profileDetails(summary));
-    return this.connections.setProfileId(id, profile.id);
+    const link = () => this.connections.setProfileId(id, profile.id);
+    return beforeLink ? beforeLink(profile.id, link) : link();
   }
 
   /**

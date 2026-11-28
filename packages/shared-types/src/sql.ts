@@ -1,7 +1,7 @@
 /**
  * Contracts for the SQL view (1.6.0, decision 141): `POST /api/connections/:id/run`.
  *
- * The one request in the app that carries SQL text. It is one statement, the body is
+ * Execution takes one statement and the body is
  * strict (no other key exists), and the answer is either a result or the database's
  * refusal of the statement (which is an answer, not a server error).
  */
@@ -53,3 +53,42 @@ export const sqlRunResponseSchema = z.union([
   z.object({ failure: sqlFailureSchema }),
 ]);
 export type SqlRunResponse = z.infer<typeof sqlRunResponseSchema>;
+
+/** Only queries explicitly saved to the library use these contracts. */
+export const MAX_SAVED_QUERIES = 100;
+export const MAX_SAVED_QUERY_NAME_CHARS = 60;
+export const MAX_SAVED_LIBRARY_CHARS = 2_000_000;
+export const MAX_SAVED_QUERY_BODY_BYTES = SQL_MAX_TEXT_CHARS * 6 + 1024;
+
+const savedQueryName = z.string().trim().min(1).max(MAX_SAVED_QUERY_NAME_CHARS);
+const savedQueryText = z
+  .string()
+  .min(1)
+  .max(SQL_MAX_TEXT_CHARS)
+  .refine((text) => text.trim().length > 0);
+const savedQueryIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{8,64}$/);
+export const saveQueryRequestSchema = z.strictObject({
+  name: savedQueryName,
+  text: savedQueryText,
+});
+export const editSavedQueryRequestSchema = z.union([
+  z.strictObject({ name: savedQueryName }),
+  z.strictObject({ text: savedQueryText }),
+]);
+const savedQuerySummarySchema = z.strictObject({
+  id: savedQueryIdSchema,
+  name: savedQueryName,
+});
+export const savedQuerySchema = savedQuerySummarySchema.extend({ text: savedQueryText });
+export const savedQueryFileSchema = z.strictObject({
+  version: z.literal(1),
+  queries: z.array(savedQuerySchema).max(MAX_SAVED_QUERIES),
+});
+export const savedQueryListSchema = z.strictObject({
+  queries: z.array(savedQuerySummarySchema).max(MAX_SAVED_QUERIES),
+});
+
+export type SavedQuery = z.infer<typeof savedQuerySchema>;
+export type SavedQuerySummary = z.infer<typeof savedQuerySummarySchema>;
+export type SaveQueryRequest = z.infer<typeof saveQueryRequestSchema>;
+export type EditSavedQueryRequest = z.infer<typeof editSavedQueryRequestSchema>;

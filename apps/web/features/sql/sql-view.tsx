@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import dynamic from "next/dynamic";
 import {
   AlertTriangle,
+  Bookmark,
   Copy,
   ChevronDown,
   Database,
@@ -26,6 +27,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import type { SavedQuery } from "@datacanvas/shared-types";
 import { EmptyState } from "@/components/states/empty-state";
 import { LoadingState } from "@/components/states/loading-state";
 import { Button } from "@/components/ui/button";
@@ -61,6 +63,7 @@ import {
 import { ensureCatalog, invalidateCatalog } from "./completion/catalog-cache";
 import { csvFile, planText, toCsv, toJson, toTsv } from "./export";
 import { HistoryDialog } from "./history-dialog";
+import { SavedQueriesDialog } from "./saved-queries-dialog";
 import { sqlRoleNotice } from "./role-notice";
 import { PlanResultView } from "./plan-view";
 import { ResultGrid } from "./result-grid";
@@ -101,10 +104,10 @@ export function SqlView({ connectionId }: { connectionId: string }) {
       </div>
     );
   }
-  return <Editor connectionId={connectionId} />;
+  return <Editor connectionId={connectionId} profileId={connection.profileId} />;
 }
 
-function Editor({ connectionId }: { connectionId: string }) {
+function Editor({ connectionId, profileId }: { connectionId: string; profileId: string | null }) {
   const sql = useConnectionSql(connectionId);
   const active = sql.tabs.find((t) => t.id === sql.activeId) ?? sql.tabs[0]!;
   const store = useSqlStore.getState;
@@ -113,6 +116,7 @@ function Editor({ connectionId }: { connectionId: string }) {
   const openInput = useRef<HTMLInputElement>(null);
   const handleRef = useRef<EditorHandle | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [libraryTab, setLibraryTab] = useState<{ name: string; text: string } | null>(null);
 
   // What the connected role can do outside the database matters most here: say so for a risky one.
   const role = useConnectionWrites(connectionId).role;
@@ -168,6 +172,14 @@ function Editor({ connectionId }: { connectionId: string }) {
     setMessage(null);
     const now = useSqlStore.getState().byConnection[connectionId];
     if (thenRun && now && !runningTab(now)) void store().run(connectionId, id, entry.text, 0);
+  }
+
+  function openSavedQuery(query: SavedQuery): string | null {
+    const id = store().newTab(connectionId, { name: query.name, text: query.text });
+    if (id === null) return `At most ${MAX_TABS} query tabs can be open. Close one first.`;
+    setLibraryTab(null);
+    setMessage(null);
+    return null;
   }
 
   function save() {
@@ -289,6 +301,15 @@ function Editor({ connectionId }: { connectionId: string }) {
             ))}
           </select>
         </label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setLibraryTab({ name: active.name, text: active.text })}
+        >
+          <Bookmark aria-hidden="true" />
+          Saved queries
+        </Button>
         <div className="ml-auto flex items-center gap-1">
           <Tip label="Read the table and column names again (after a change made elsewhere)">
             <Button
@@ -365,7 +386,7 @@ function Editor({ connectionId }: { connectionId: string }) {
         Read-only. <kbd className="font-mono">Ctrl</kbd>/<kbd className="font-mono">⌘</kbd>{" "}
         <kbd className="font-mono">Enter</kbd> runs the selection, or everything. Press{" "}
         <kbd className="font-mono">Esc</kbd> then <kbd className="font-mono">Tab</kbd> to leave the
-        editor. Queries are kept only until you close this page: save a tab to keep it.
+        editor. Use Saved queries or download a .sql file to keep a query.
       </p>
       {message ? (
         <p role="alert" className="border-b px-3 py-1.5 text-xs text-destructive">
@@ -387,6 +408,16 @@ function Editor({ connectionId }: { connectionId: string }) {
       <section aria-label="Result" className="flex min-h-0 flex-1 flex-col gap-2 p-3">
         <Result state={active.state} tabName={active.name} />
       </section>
+      {libraryTab ? (
+        <SavedQueriesDialog
+          key={profileId ?? connectionId}
+          connectionId={connectionId}
+          persistent={profileId !== null}
+          tab={libraryTab}
+          onClose={() => setLibraryTab(null)}
+          onOpen={openSavedQuery}
+        />
+      ) : null}
       <HistoryDialog
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
